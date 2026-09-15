@@ -2,6 +2,8 @@ package io.dataease.api.permissions.user.api;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.github.xiaoymin.knife4j.annotations.ApiSupport;
+import io.dataease.api.permissions.login.dto.MfaLoginDTO;
+import io.dataease.api.permissions.login.vo.MfaQrVO;
 import io.dataease.api.permissions.role.dto.UserRequest;
 import io.dataease.api.permissions.user.dto.*;
 import io.dataease.api.permissions.user.vo.*;
@@ -9,7 +11,6 @@ import io.dataease.auth.DeApiPath;
 import io.dataease.auth.DePermit;
 import io.dataease.auth.vo.TokenVO;
 import io.dataease.model.KeywordRequest;
-import io.dataease.request.BaseGridRequest;
 import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -24,7 +25,6 @@ import java.util.Map;
 
 import static io.dataease.constant.AuthResourceEnum.USER;
 
-
 @Tag(name = "用户")
 @ApiSupport(order = 888, author = "fit2cloud-someone")
 @DeApiPath(value = "/user", rt = USER)
@@ -38,7 +38,7 @@ public interface UserApi {
     })
     @DePermit("m:read")
     @PostMapping("/pager/{goPage}/{pageSize}")
-    IPage<UserGridVO> pager(@PathVariable("goPage") int goPage, @PathVariable("pageSize") int pageSize, @RequestBody BaseGridRequest request);
+    IPage<UserGridVO> pager(@PathVariable("goPage") int goPage, @PathVariable("pageSize") int pageSize, @RequestBody UserGridRequest request);
 
     @Operation(summary = "查询用户详情")
     @Parameter(name = "id", description = "ID", required = true, in = ParameterIn.PATH)
@@ -46,15 +46,27 @@ public interface UserApi {
     @GetMapping("/queryById/{id}")
     UserFormVO queryById(@PathVariable("id") Long id);
 
-
     @Operation(summary = "查询个人信息")
     @GetMapping("/personInfo")
     UserFormVO personInfo();
 
+    @Operation(summary = "查询用户系统变量信息")
+    @GetMapping("/personSysVariableInfo/{id}")
+    UserGridVO personSysVariableInfo(@PathVariable("id") Long id);
+
+    @Operation(summary = "查询客户端IP信息")
+    @GetMapping("/ipInfo")
+    CurIpVO ipInfo();
+
     @Operation(summary = "创建")
     @DePermit("m:read")
     @PostMapping("/create")
-    void create(@RequestBody UserCreator creator);
+    Long create(@RequestBody UserCreator creator);
+
+    @Operation(summary = "创建第三方用户")
+    @DePermit("m:read")
+    @PostMapping("/createPlatform")
+    void createPlatform(@RequestBody PlatformUserCreator creator);
 
     @Operation(summary = "编辑")
     @DePermit({"m:read", "#p0.id + ':manage'"})
@@ -123,7 +135,6 @@ public interface UserApi {
     @PostMapping("/batchImport")
     UserImportVO batchImport(@RequestPart(value = "file") MultipartFile file);
 
-
     @Operation(summary = "下载批量导入失败记录")
     @Parameter(name = "key", description = "导入结果key", required = true, in = ParameterIn.PATH)
     @GetMapping("/errorRecord/{key}")
@@ -158,13 +169,17 @@ public interface UserApi {
     @GetMapping("/firstEchelon/{limit}")
     List<Long> firstEchelon(@PathVariable("limit") Long limit);
 
-    @Hidden
-    @GetMapping("/queryByAccount")
-    CurUserVO queryByAccount(String account);
+    @Operation(summary = "根据账号查询用户")
+    @GetMapping("/queryByAccount/{account}")
+    CurUserVO queryByAccount(@PathVariable("account") String account);
 
     @Hidden
     @PostMapping("/all")
     List<UserItem> allUser(@RequestBody KeywordRequest request);
+
+    @Hidden
+    @PostMapping("/admin/bind")
+    void adminBind(@RequestBody AdminBindRequest request);
 
     @Hidden
     @PostMapping("/bind")
@@ -191,10 +206,6 @@ public interface UserApi {
     boolean defaultOrgAdmin();
 
     @Hidden
-    @GetMapping("/invalidPwd")
-    InvalidPwdVO invalidPwd();
-
-    @Hidden
     @PostMapping("/subOrgUser")
     List<UserItem> subOrgUser(@RequestBody List<Long> oidList);
 
@@ -206,4 +217,36 @@ public interface UserApi {
 
     List<Map<String, Object>> listUserInfosByIds(List<Long> ids);
 
+    @Operation(summary = "MFA二维码信息")
+    @GetMapping("/mfaQr")
+    MfaQrVO mfaQr();
+
+    @Operation(summary = "MFA绑定状态")
+    @GetMapping("/mfabound")
+    Boolean mfaBound();
+
+    @Operation(summary = "绑定MFA")
+    @PostMapping("/mfaBind")
+    void mfaBind(@RequestBody MfaLoginDTO dto);
+
+    @Operation(summary = "解绑MFA")
+    @PostMapping("/mfaUnbind/{code}")
+    String mfaUnbind(@PathVariable("code") String code);
+
+    @Operation(summary = "重置MFA绑定状态")
+    @PostMapping("/mfaRest/{id}")
+    void resetBind(@PathVariable("id") Long id);
+
+    @Hidden
+    @GetMapping("/lang")
+    String userLang();
+
+    @Operation(summary = "解锁用户")
+    @Parameter(name = "id", description = "用户ID", required = true, in = ParameterIn.PATH)
+    @DePermit({"m:read", "#p0 + ':manage'"})
+    @PostMapping("/unlock/{id}")
+    void unlock(@PathVariable("id") Long id);
+
+    @Hidden
+    List<UserReciVO> getFormatRecipient(Long oid, List<Long> uidList, List<Long> ridList);
 }

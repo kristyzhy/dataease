@@ -1,21 +1,18 @@
 <script lang="ts" setup>
 import logo from '@/assets/svg/logo.svg'
 import aboutBg from '@/assets/img/about-bg.png'
-import { ref, reactive, onMounted, h } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useUserStoreWithOut } from '@/store/modules/user'
 import { F2CLicense } from './index'
-import {
-  validateApi,
-  buildVersionApi,
-  updateInfoApi,
-  checkFreeApi,
-  syncFreeApi,
-  delFreeApi
-} from '@/api/about'
-import { ElMessage, ElMessageBox, Action } from 'element-plus-secondary'
+import { validateApi, buildVersionApi, updateInfoApi, revertApi } from '@/api/about'
+import { ElMessage, ElMessageBox } from 'element-plus-secondary'
 import { useI18n } from '@/hooks/web/useI18n'
 import { useEmitt } from '@/hooks/web/useEmitt'
+import { useCache } from '@/hooks/web/useCache'
+import { logoutApi } from '@/api/login'
+import { logoutHandler } from '@/utils/logout'
 const dialogVisible = ref(false)
+const { wsCache } = useCache('localStorage')
 const { t } = useI18n()
 const userStore = useUserStoreWithOut()
 const license: F2CLicense = reactive({
@@ -59,9 +56,32 @@ const beforeUpload = file => {
 
 const support = () => {
   const url = 'https://support.fit2cloud.com/'
-  window.open(url, '_blank')
+  const openType = wsCache.get('open-backend') === '1' ? '_self' : '_blank'
+  window.open(url, openType)
 }
-
+const back2Community = () => {
+  ElMessageBox.confirm(t('about.confirm_tips'), {
+    confirmButtonType: 'danger',
+    type: 'warning',
+    confirmButtonText: t('common.sure'),
+    cancelButtonText: t('dataset.cancel'),
+    autofocus: false,
+    showClose: false
+  })
+    .then(() => {
+      revertApi().then(() => {
+        ElMessage.success(t('about.update_success'))
+        logout()
+      })
+    })
+    .catch(e => {
+      console.error(e)
+    })
+}
+const logout = async () => {
+  await logoutApi()
+  logoutHandler()
+}
 const getLicenseInfo = () => {
   validateHandler({}, res => {
     const info = getLicense(res.data)
@@ -102,7 +122,8 @@ const validateHandler = (param, success) => {
 }
 const getLicense = result => {
   if (result.status === 'valid') {
-    tipsSuffix.value = result?.license?.edition === 'Embedded' ? '套' : '个账号'
+    tipsSuffix.value =
+      result?.license?.edition === 'Enterprise' ? t('about.count_of') : t('about.set_of')
   }
   return {
     status: result.status,
@@ -125,62 +146,8 @@ const update = (licKey: string) => {
       ElMessage.success(t('about.update_success'))
       const info = getLicense(response.data)
       setLicense(info)
-      checkFree()
     } else {
       ElMessage.warning(response.data.message)
-    }
-  })
-}
-
-const autoSync = ref(true)
-const checkFree = () => {
-  checkFreeApi().then(res => {
-    if (res.data) {
-      if (autoSync.value) {
-        syncFree()
-        return
-      }
-      // do something
-      const title = '存在未同步的资源数据，请谨慎操作！'
-      const childrenDomList = [h('strong', null, title)]
-      ElMessageBox.confirm('', {
-        confirmButtonType: 'primary',
-        type: 'warning',
-        autofocus: false,
-        dangerouslyUseHTMLString: true,
-        message: h('div', { class: 'free-sync-tip-box' }, childrenDomList),
-        showClose: false,
-        cancelButtonText: '删除',
-        cancelButtonClass: 'free-cancel-bt',
-        showCancelButton: false,
-        preButtonType: 'danger',
-        preButtonText: '删除',
-        showPreButton: true,
-        confirmButtonText: '同步',
-        callback: (action: Action) => {
-          if (action === 'confirm') {
-            syncFree()
-          } else {
-            delFree
-          }
-        }
-      })
-    }
-  })
-}
-
-const delFree = () => {
-  delFreeApi().then(res => {
-    if (!res.code && !res.msg) {
-      ElMessage.success(t('common.delete_success'))
-    }
-  })
-}
-
-const syncFree = () => {
-  syncFreeApi().then(res => {
-    if (!res.code && !res.msg) {
-      ElMessage.success('同步成功')
     }
   })
 }
@@ -189,7 +156,7 @@ const syncFree = () => {
 <template>
   <el-dialog
     :append-to-body="true"
-    title="关于"
+    :title="t('common.about')"
     width="840px"
     v-model="dialogVisible"
     class="about-dialog"
@@ -228,6 +195,8 @@ const syncFree = () => {
               ? $t('about.standard')
               : license.edition === 'Embedded'
               ? $t('about.Embedded')
+              : license.edition === 'Professional'
+              ? $t('about.Professional')
               : $t('about.enterprise')
           }}
         </div>
@@ -258,6 +227,9 @@ const syncFree = () => {
           <el-button plain> {{ $t('about.update_license') }} </el-button>
         </el-upload>
         <el-button plain @click="support"> {{ $t('about.support') }} </el-button>
+        <el-button v-if="license.status === 'expired'" plain @click="back2Community">
+          {{ $t('about.back_community') }}
+        </el-button>
       </div>
     </div>
   </el-dialog>
@@ -266,16 +238,16 @@ const syncFree = () => {
 <style lang="less">
 .about-dialog {
   img {
-    border-radius: 4px;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
   }
   .color-overlay {
     position: absolute;
-    border-radius: 4px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
     width: 792px;
     height: 180px;
-    top: 72px;
+    top: 64px;
     background-color: #7394f0;
     mix-blend-mode: multiply;
   }
@@ -288,7 +260,7 @@ const syncFree = () => {
   }
 
   .content {
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid #dee0e3;
     border-top-left-radius: 0;
     border-top-right-radius: 0;

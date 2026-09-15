@@ -24,6 +24,11 @@ const props = defineProps({
   fieldType: {
     type: String,
     required: true
+  },
+  originSortList: {
+    type: Array,
+    default: () => [],
+    required: false
   }
 })
 
@@ -54,9 +59,22 @@ const init = () => {
   reqMethod(param)
     .then(response => {
       const strArr = response.data
-      state.sortList = strArr.map(ele => {
-        return transStr2Obj(ele)
-      })
+      if (props.originSortList?.length) {
+        const tmp = []
+        props.originSortList.forEach(ele => {
+          const index = strArr.findIndex(item => item === ele)
+          if (index !== -1) {
+            tmp.push(strArr[index])
+            strArr.splice(index, 1)
+          }
+        })
+        strArr.unshift(...tmp)
+      }
+      state.sortList = strArr
+        .filter(ele => ele?.trim())
+        .map(ele => {
+          return transStr2Obj(ele)
+        })
       onUpdate()
       loading.value = false
     })
@@ -115,7 +133,7 @@ init()
   padding: 2px;
   margin: 2px;
   border: 1px solid #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
   text-align: left;
   color: #606266;
   background-color: white;

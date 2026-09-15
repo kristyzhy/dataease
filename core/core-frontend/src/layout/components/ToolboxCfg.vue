@@ -4,7 +4,7 @@ import toolboxIcon_template from '@/assets/svg/toolbox-icon_template.svg'
 import toolboxLog from '@/assets/svg/toolbox-log.svg'
 import sysTools from '@/assets/svg/sys-tools.svg'
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter } from 'vue-router_2'
 import TopDocCard from '@/layout/components/TopDocCard.vue'
 import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
 const appearanceStore = useAppearanceStoreWithOut()
@@ -55,7 +55,6 @@ onMounted(() => {
     :show-arrow="false"
     popper-class="toolbox-top-popover"
     placement="bottom-end"
-    width="208"
     trigger="hover"
   >
     <top-doc-card
@@ -83,9 +82,9 @@ onMounted(() => {
 
 <style lang="less">
 .toolbox-top-popover {
-  height: 82px;
   min-width: 208px !important;
-  padding: 16px !important;
+  width: auto !important;
+  padding: 8px !important;
   display: flex;
   .doc-card {
     margin: auto;
@@ -101,9 +100,12 @@ onMounted(() => {
   padding: 5px;
   height: 28px;
   width: 28px;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   &:hover {
     background-color: #1e2738;
   }

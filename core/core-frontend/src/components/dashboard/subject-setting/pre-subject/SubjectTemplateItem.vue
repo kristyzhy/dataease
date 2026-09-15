@@ -22,8 +22,8 @@
       </div>
       <div class="title-main">
         <div class="title-area">
-          <span style="margin-top: 8px; margin-left: 8px" :title="subjectItem.name">{{
-            subjectItem.name
+          <span style="margin-top: 8px; margin-left: 8px" :title="t(subjectItem.name)">{{
+            t(subjectItem.name)
           }}</span>
         </div>
         <div class="edit-area" v-if="subjectItem.type === 'self'">
@@ -101,7 +101,9 @@ const subjectEdit = () => {
 
 const subjectChange = () => {
   if (!themeSelected.value) {
-    dvMainStore.setCanvasStyle(JSON.parse(subjectItem.value.details))
+    const canvasStyleTemp = JSON.parse(subjectItem.value.details)
+    canvasStyleTemp['dashboard']['showGrid'] = canvasStyleTemp['dashboard']['showGrid'] || false
+    dvMainStore.setCanvasStyle(canvasStyleTemp)
     snapshotStore.recordSnapshotCache('renderChart')
     adaptCurThemeCommonStyleAll()
     useEmitt().emitter.emit('onSubjectChange')
@@ -156,7 +158,6 @@ onMounted(() => {
   height: 84px;
   margin: 0 auto;
   overflow: hidden;
-  //inset: 0 0 30px;
   box-sizing: border-box;
   background-size: contain;
 }

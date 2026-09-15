@@ -1,12 +1,14 @@
 import { cos, sin } from '@/utils/translate'
 import {
+  CHART_FONT_FAMILY_MAP_TRANS,
   DEFAULT_COLOR_CASE,
   DEFAULT_COLOR_CASE_DARK
 } from '@/views/chart/components/editor/util/chart'
 
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { useEmitt } from '@/hooks/web/useEmitt'
-import { merge } from 'lodash-es'
+import { defaultTo, merge } from 'lodash-es'
+import { formatterViewInfo } from '@/views/chart/components/js/formatter'
 const dvMainStore = dvMainStoreWithOut()
 
 export const LIGHT_THEME_COLOR_MAIN = '#000000'
@@ -113,8 +115,21 @@ export function colorRgb(color, opacity) {
 }
 
 export const customAttrTrans = {
-  basicStyle: ['barWidth', 'lineWidth', 'lineSymbolSize'],
-  tableHeader: ['tableTitleFontSize', 'tableTitleHeight'],
+  basicStyle: [
+    'barWidth',
+    'lineWidth',
+    'lineSymbolSize',
+    'leftLineWidth',
+    'leftLineSymbolSize',
+    'tableColumnWidth',
+    'tableRowHeaderWidth'
+  ],
+  tableHeader: [
+    'tableTitleFontSize',
+    'tableTitleColFontSize',
+    'tableTitleCornerFontSize',
+    'tableTitleHeight'
+  ],
   tableCell: ['tableItemFontSize', 'tableItemHeight'],
   misc: [
     'nameFontSize',
@@ -127,7 +142,8 @@ export const customAttrTrans = {
   ],
   label: {
     fontSize: '',
-    seriesLabelFormatter: ['fontSize']
+    seriesLabelFormatter: ['fontSize'],
+    proportionSeriesFormatter: ['fontSize']
   },
   tooltip: {
     fontSize: '',
@@ -144,6 +160,9 @@ export const customStyleTrans = {
     axisLabel: ['fontSize'],
     splitLine: {
       lineStyle: ['width']
+    },
+    axisLine: {
+      lineStyle: ['width']
     }
   },
   yAxis: {
@@ -151,12 +170,18 @@ export const customStyleTrans = {
     axisLabel: ['fontSize'],
     splitLine: {
       lineStyle: ['width']
+    },
+    axisLine: {
+      lineStyle: ['width']
     }
   },
   yAxisExt: {
     fontSize: 'fontSize',
     axisLabel: ['fontSize'],
     splitLine: {
+      lineStyle: ['width']
+    },
+    axisLine: {
       lineStyle: ['width']
     }
   },
@@ -266,9 +291,21 @@ export const THEME_STYLE_TRANS_SLAVE1 = {
 }
 
 export const THEME_ATTR_TRANS_MAIN = {
-  label: ['color'],
+  basicStyle: {
+    themeContrastColor: 'color'
+  },
+  label: {
+    color: 'color',
+    proportionSeriesFormatter: ['color']
+  },
   tooltip: ['color'],
-  indicatorName: ['color']
+  misc: {
+    bullet: {
+      bar: {
+        target: ['fill']
+      }
+    }
+  }
 }
 
 export const THEME_ATTR_TRANS_MAIN_SYMBOL = {
@@ -282,7 +319,9 @@ export const THEME_ATTR_TRANS_SLAVE1_BACKGROUND = {
 // 移动端特殊属性
 export const mobileSpecialProps = {
   lineWidth: 2, // 线宽固定值
-  lineSymbolSize: 8 // 折点固定值
+  leftLineWidth: 2,
+  lineSymbolSize: 8, // 折点固定值
+  leftLineSymbolSize: 8
 }
 
 export function getScaleValue(propValue, scale) {
@@ -419,6 +458,83 @@ export function adaptCurTheme(customStyle, customAttr) {
     remarkShow: customStyle['text']['remarkShow'],
     remark: customStyle['text']['remark']
   }
+  const chartColor = canvasStyle.component.chartColor
+  if (chartColor) {
+    const labelSetting = chartColor.label
+    if (labelSetting) {
+      const label = customAttr.label
+      if (label) {
+        label.color = labelSetting.color
+        label.fontSize = labelSetting.fontSize
+      }
+      const labelFormatter = customAttr.label?.seriesLabelFormatter
+      if (labelFormatter && Array.isArray(labelFormatter)) {
+        labelFormatter.forEach(item => {
+          item.color = labelSetting.color
+          item.fontSize = labelSetting.fontSize
+        })
+      }
+    }
+    const tooltipSetting = chartColor.tooltip
+    if (tooltipSetting) {
+      const tooltip = customAttr.tooltip
+      if (tooltip) {
+        tooltip.color = tooltipSetting.color
+        tooltip.fontSize = tooltipSetting.fontSize
+        tooltip.backgroundColor = tooltipSetting.backgroundColor
+      }
+      const tooltipFormatter = customAttr.tooltip?.seriesTooltipFormatter
+      if (tooltipFormatter && Array.isArray(tooltipFormatter)) {
+        tooltipFormatter.forEach(item => {
+          item.color = tooltipSetting.color
+          item.fontSize = tooltipSetting.fontSize
+          item.backgroundColor = tooltipSetting.backgroundColor
+        })
+      }
+    }
+  }
+}
+
+export function adaptTitleFontFamily(fontFamily, viewInfo) {
+  if (viewInfo) {
+    const _fontFamily = defaultTo(CHART_FONT_FAMILY_MAP_TRANS[fontFamily], fontFamily)
+    viewInfo.customStyle['text']['fontFamily'] = _fontFamily
+    //针对指标卡设置字体
+    if (viewInfo.type === 'indicator') {
+      viewInfo.customAttr['indicator']['fontFamily'] = fontFamily
+      viewInfo.customAttr['indicator']['suffixFontFamily'] = fontFamily
+      viewInfo.customAttr['indicatorName']['fontFamily'] = fontFamily
+    }
+  }
+}
+
+export function adaptTitleFontFamilyAll(fontFamily) {
+  const componentData = dvMainStore.componentData
+  componentData.forEach(item => {
+    if (item.component === 'UserView') {
+      const viewDetails = dvMainStore.canvasViewInfo[item.id]
+      adaptTitleFontFamily(fontFamily, viewDetails)
+      useEmitt().emitter.emit('renderChart-' + item.id, viewDetails)
+    } else if (item.component === 'Group') {
+      item.propValue.forEach(groupItem => {
+        if (groupItem.component === 'UserView') {
+          const viewDetails = dvMainStore.canvasViewInfo[groupItem.id]
+          adaptTitleFontFamily(fontFamily, viewDetails)
+          useEmitt().emitter.emit('renderChart-' + groupItem.id, viewDetails)
+        }
+      })
+    } else if (item.component === 'DeTabs') {
+      item.propValue?.forEach(tabItem => {
+        tabItem.componentData?.forEach(tabComponent => {
+          if (tabComponent.component === 'UserView') {
+            const viewDetails = dvMainStore.canvasViewInfo[tabComponent.id]
+            adaptTitleFontFamily(fontFamily, viewDetails)
+            useEmitt().emitter.emit('renderChart-' + tabComponent.id, viewDetails)
+          }
+        })
+      })
+    }
+  })
 }
 
 export function adaptCurThemeCommonStyle(component) {
@@ -428,9 +544,18 @@ export function adaptCurThemeCommonStyle(component) {
   // 背景融合-Begin 如果是大屏['CanvasBoard', 'CanvasIcon', 'Picture']组件不需要设置背景
   if (
     dvMainStore.dvInfo.type === 'dataV' &&
-    ['CanvasBoard', 'CanvasIcon', 'Picture', 'Group', 'SvgTriangle', 'SvgStar'].includes(
-      component.component
-    )
+    [
+      'CanvasBoard',
+      'CanvasIcon',
+      'Picture',
+      'Group',
+      'SvgTriangle',
+      'SvgStar',
+      'RectShape',
+      'CircleShape',
+      'DeDecoration',
+      'DynamicBackground'
+    ].includes(component.component)
   ) {
     component.commonBackground['backgroundColorSelect'] = false
     component.commonBackground['innerPadding'] = 0
@@ -453,13 +578,14 @@ export function adaptCurThemeCommonStyle(component) {
     // 图表-Begin
     const curViewInfo = dvMainStore.canvasViewInfo[component.id]
     adaptCurTheme(curViewInfo.customStyle, curViewInfo.customAttr)
+    formatterViewInfo(curViewInfo, dvMainStore.canvasStyleData.component.formatterItem)
     useEmitt().emitter.emit('renderChart-' + component.id, curViewInfo)
     // 图表-Begin
   } else if (component.component === 'Group') {
     component.propValue.forEach(groupItem => {
       adaptCurThemeCommonStyle(groupItem)
     })
-  } else if (component.component === 'DeTabs') {
+  } else if (['DeTabs', 'DeScreen'].includes(component.component)) {
     if (dvMainStore.canvasStyleData.dashboard.themeColor === 'light') {
       component.style.headFontColor = LIGHT_THEME_COLOR_MAIN
       component.style.headFontActiveColor = LIGHT_THEME_COLOR_MAIN
@@ -467,8 +593,8 @@ export function adaptCurThemeCommonStyle(component) {
       component.style.headFontColor = DARK_THEME_COLOR_MAIN
       component.style.headFontActiveColor = DARK_THEME_COLOR_MAIN
     }
-    component.propValue.forEach(tabItem => {
-      tabItem.componentData.forEach(tabComponent => {
+    component.propValue?.forEach(tabItem => {
+      tabItem.componentData?.forEach(tabComponent => {
         adaptCurThemeCommonStyle(tabComponent)
       })
     })
@@ -487,6 +613,7 @@ export function adaptCurThemeCommonStyleAll() {
   componentData.forEach(item => {
     adaptCurThemeCommonStyle(item)
   })
+  adaptTitleFontFamilyAll(dvMainStore.canvasStyleData.fontFamily)
 }
 
 interface CanvasViewInfo {

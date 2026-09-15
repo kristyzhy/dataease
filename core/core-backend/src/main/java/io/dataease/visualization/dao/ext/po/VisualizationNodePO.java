@@ -5,7 +5,6 @@ import lombok.Data;
 
 import java.io.Serializable;
 
-
 @Data
 public class VisualizationNodePO implements Serializable {
 
@@ -15,5 +14,6 @@ public class VisualizationNodePO implements Serializable {
     private String nodeType;
     @Schema(description = "额外标识")
     private int extraFlag;
-
+    @Schema(description = "额外标识1")
+    private int extraFlag1;
 }

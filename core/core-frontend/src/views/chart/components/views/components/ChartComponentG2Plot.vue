@@ -7,27 +7,33 @@ import {
   reactive,
   ref,
   shallowRef,
-  toRefs
+  toRefs,
+  watch
 } from 'vue'
 import { getData } from '@/api/chart'
 import { ChartLibraryType } from '@/views/chart/components/js/panel/types'
 import { G2PlotChartView } from '@/views/chart/components/js/panel/types/impl/g2plot'
 import { L7PlotChartView } from '@/views/chart/components/js/panel/types/impl/l7plot'
 import chartViewManager from '@/views/chart/components/js/panel'
-import { useAppStoreWithOut } from '@/store/modules/app'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import ViewTrackBar from '@/components/visualization/ViewTrackBar.vue'
 import { storeToRefs } from 'pinia'
 import { parseJson } from '@/views/chart/components/js/util'
-import { defaultsDeep, cloneDeep } from 'lodash-es'
+import { defaultsDeep, cloneDeep, concat } from 'lodash-es'
 import ChartError from '@/views/chart/components/views/components/ChartError.vue'
 import { BASE_VIEW_CONFIG } from '../../editor/util/chart'
 import { customAttrTrans, customStyleTrans, recursionTransObj } from '@/utils/canvasStyle'
-import { deepCopy } from '@/utils/utils'
-import { trackBarStyleCheck } from '@/utils/canvasUtils'
+import { deepCopy, isMobile } from '@/utils/utils'
+import { isDashboard, isTabCanvas, trackBarStyleCheck } from '@/utils/canvasUtils'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import { L7ChartView } from '@/views/chart/components/js/panel/types/impl/l7'
-
+import { useI18n } from '@/hooks/web/useI18n'
+import { ExportImage } from '@antv/l7'
+import { configEmptyDataStyle } from '@/views/chart/components/js/panel/common/common_antv'
+import { hasNextDrillLevel } from '@/views/chart/components/views/util/drill'
+import { ElMessage } from 'element-plus-secondary'
+import ChartCarouselTooltip from '@/views/chart/components/js/g2plot_tooltip_carousel'
+const { t } = useI18n()
 const dvMainStore = dvMainStoreWithOut()
 const { nowPanelTrackInfo, nowPanelJumpInfo, mobileInPc, embeddedCallBack, inMobile } =
   storeToRefs(dvMainStore)
@@ -68,6 +74,16 @@ const props = defineProps({
     type: String,
     required: false,
     default: 'common'
+  },
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
+  },
+  active: {
+    type: Boolean,
+    required: false,
+    default: true
   }
 })
 
@@ -81,16 +97,31 @@ const emit = defineEmits([
 
 const g2TypeSeries1 = ['bidirectional-bar']
 const g2TypeSeries0 = ['bar-range']
+const g2TypeTree = ['circle-packing']
+const g2TypeStack = [
+  'bar-stack',
+  'bar-group-stack',
+  'percentage-bar-stack',
+  'bar-stack-horizontal',
+  'percentage-bar-stack-horizontal'
+]
+const g2TypeGroup = ['bar-group', 'box-plot']
 
 const { view, showPosition, scale, terminal, suffixId } = toRefs(props)
 
 const isError = ref(false)
 const errMsg = ref('')
 const linkageActiveHistory = ref(false)
-const antVRenderStatus = ref(false)
+
+const dataVMobile = !isDashboard() && isMobile()
 
 const state = reactive({
   trackBarStyle: {
+    position: 'absolute',
+    left: '50px',
+    top: '50px'
+  },
+  trackBarStyleMobile: {
     position: 'absolute',
     left: '50px',
     top: '50px'
@@ -118,7 +149,10 @@ const clearLinkage = () => {
 }
 const reDrawView = () => {
   linkageActiveHistory.value = false
-  myChart?.render()
+  const slider = myChart?.chart?.getController('slider')
+  if (!slider) {
+    myChart?.render()
+  }
 }
 const linkageActivePre = () => {
   if (linkageActiveHistory.value) {
@@ -130,35 +164,103 @@ const linkageActivePre = () => {
 }
 const linkageActive = () => {
   linkageActiveHistory.value = true
+  myChart?.setState('active', () => true, false)
+  myChart?.setState('inactive', () => true, false)
+  myChart?.setState('selected', () => true, false)
   myChart?.setState('active', param => {
     if (Array.isArray(param)) {
       return false
     } else {
-      if (checkSelected(param)) {
-        return true
-      }
+      return checkSelected(param)
     }
   })
   myChart?.setState('inactive', param => {
     if (Array.isArray(param)) {
       return false
     } else {
-      if (!checkSelected(param)) {
-        return true
-      }
+      return !checkSelected(param)
+    }
+  })
+  myChart?.setState('selected', param => {
+    if (Array.isArray(param)) {
+      return false
+    } else {
+      return checkSelected(param)
     }
   })
 }
 const checkSelected = param => {
+  // 获取当前视图的所有联动字段ID
+  const mappingFieldIds = Array.from(
+    new Set(
+      (view.value.type.includes('chart-mix')
+        ? concat(chartData.value?.left?.fields, chartData.value?.right?.fields)
+        : chartData.value?.fields
+      )
+        .map(item => item?.id)
+        .filter(id =>
+          Object.keys(nowPanelTrackInfo.value).some(
+            key => key.startsWith(view.value.id) && key.split('#')[1] === id
+          )
+        )
+    )
+  )
+  // 维度字段匹配
+  const [xAxis, xAxisExt, extStack] = ['xAxis', 'xAxisExt', 'extStack'].map(key =>
+    view.value[key].find(item => mappingFieldIds.includes(item.id))
+  )
+  // 选中字段数据
+  const { group, name, category } = state.linkageActiveParam
+  // 选中字段数据匹配
   if (g2TypeSeries1.includes(view.value.type)) {
-    return state.linkageActiveParam.name === param.field
+    return name === param.field
   } else if (g2TypeSeries0.includes(view.value.type)) {
-    return state.linkageActiveParam.category === param.category
+    return category === param.category
+  } else if (g2TypeTree.includes(view.value.type)) {
+    if (param.path?.startsWith(name) || name === t('commons.all')) {
+      return true
+    }
+    return name === param.name
+  } else if (g2TypeGroup.includes(view.value.type)) {
+    const isNameMatch = name === param.name || (name === 'NO_DATA' && !param.name)
+    const isCategoryMatch = category === param.category
+    if (xAxis && xAxisExt) {
+      return isNameMatch && isCategoryMatch
+    }
+    if (xAxis && !xAxisExt) {
+      return isNameMatch
+    }
+    if (!xAxis && xAxisExt) {
+      return isCategoryMatch
+    }
+    return false
+  } else if (g2TypeStack.includes(view.value.type)) {
+    const isGroupMatch = group === param.group || (group === 'NO_DATA' && !param.group)
+    const isNameMatch = name === param.name || (name === 'NO_DATA' && !param.name)
+    const isCategoryMatch = category === param.category
+    // 全部匹配
+    if (xAxis && xAxisExt && extStack) {
+      return isNameMatch && isGroupMatch && isCategoryMatch
+    }
+    // 只匹配到维度
+    if (xAxis && !xAxisExt && !extStack) {
+      return isNameMatch
+    } else if (!xAxis && xAxisExt && !extStack) {
+      return isGroupMatch
+    } else if (!xAxis && !xAxisExt && extStack) {
+      return isCategoryMatch
+    } else if (xAxis && xAxisExt && !extStack) {
+      return isNameMatch && isGroupMatch
+    } else if (xAxis && !xAxisExt && extStack) {
+      return isNameMatch && isCategoryMatch
+    } else if (!xAxis && xAxisExt && extStack) {
+      return isGroupMatch && isCategoryMatch
+    } else {
+      return false
+    }
   } else {
     return (
-      (state.linkageActiveParam.name === param.name ||
-        (state.linkageActiveParam.name === 'NO_DATA' && !param.name)) &&
-      state.linkageActiveParam.category === param.category
+      (name === param.name || (name === 'NO_DATA' && !param.name)) && category === param.category
     )
   }
 }
@@ -178,12 +280,30 @@ const calcData = async (view, callback) => {
           emit('onDrillFilters', res?.drillFilters)
           if (!res?.drillFilters?.length) {
             dynamicAreaId.value = ''
+            scope = null
+            gadmName = null
           } else {
-            dynamicAreaId.value =
-              view.chartExtRequest?.drill?.[res?.drillFilters?.length - 1].extra?.adcode + ''
+            const chartExtRequest = view.chartExtRequest || view.value?.chartExtRequest
+            const extra = chartExtRequest?.drill?.[res?.drillFilters?.length - 1].extra
+            dynamicAreaId.value = extra?.adcode + ''
+            scope = extra?.scope
+            gadmName = extra?.gadmName
             // 地图
+            const map = parseJson(view.customAttr)?.map
+            if (map) {
+              let areaId = map.id
+              country.value = areaId.slice(0, 3)
+              // 世界下钻到国家，切换路径
+              if (country.value === '000' || dynamicAreaId.value?.startsWith('000')) {
+                country.value = chartExtRequest?.drill?.[0]?.extra?.adcode
+              }
+            }
             if (!dynamicAreaId.value?.startsWith(country.value)) {
-              dynamicAreaId.value = country.value + dynamicAreaId.value
+              if (country.value === 'cus') {
+                dynamicAreaId.value = '156' + dynamicAreaId.value
+              } else {
+                dynamicAreaId.value = country.value + dynamicAreaId.value
+              }
             }
           }
           dvMainStore.setViewDataDetails(view.id, res)
@@ -214,7 +334,8 @@ const renderChart = async (view, callback?) => {
   // 与默认图表对象合并，方便增加配置项
   const chart = deepCopy({
     ...defaultsDeep(view, cloneDeep(BASE_VIEW_CONFIG)),
-    data: chartData.value
+    data: chartData.value,
+    ...(props.fontFamily && props.fontFamily !== 'inherit' ? { fontFamily: props.fontFamily } : {})
   })
   const chartView = chartViewManager.getChartView(view.render, view.type)
   recursionTransObj(customAttrTrans, chart.customAttr, scale.value, terminal.value)
@@ -240,7 +361,10 @@ const renderG2Plot = async (chart, chartView: G2PlotChartView<any, any>) => {
   g2Timer && clearTimeout(g2Timer)
   g2Timer = setTimeout(async () => {
     try {
+      // 在这里清理掉之前图表的空dom
+      configEmptyDataStyle([1], containerId)
       myChart?.destroy()
+      chart.container = containerId
       myChart = await chartView.drawChart({
         chartObj: myChart,
         container: containerId,
@@ -261,8 +385,9 @@ const renderG2Plot = async (chart, chartView: G2PlotChartView<any, any>) => {
 
 const dynamicAreaId = ref('')
 const country = ref('')
-const appStore = useAppStoreWithOut()
+let gadmName
 const chartContainer = ref<HTMLElement>(null)
+let scope
 let mapTimer: number
 const renderL7Plot = async (chart: ChartObj, chartView: L7PlotChartView<any, any>, callback) => {
   const map = parseJson(chart.customAttr).map
@@ -279,6 +404,9 @@ const renderL7Plot = async (chart: ChartObj, chartView: L7PlotChartView<any, any
   }
   mapTimer && clearTimeout(mapTimer)
   mapTimer = setTimeout(async () => {
+    if (myChart?.tooltip && typeof myChart.tooltip.destroy !== 'function') {
+      myChart.tooltip = null
+    }
     myChart?.destroy()
     if (chartContainer.value) {
       chartContainer.value.textContent = ''
@@ -288,7 +416,9 @@ const renderL7Plot = async (chart: ChartObj, chartView: L7PlotChartView<any, any
       container: containerId,
       chart,
       areaId,
-      action
+      action,
+      scope,
+      gadmName
     })
     callback?.()
     emit('resetLoading')
@@ -299,6 +429,7 @@ let mapL7Timer: number
 const renderL7 = async (chart: ChartObj, chartView: L7ChartView<any, any>, callback) => {
   mapL7Timer && clearTimeout(mapL7Timer)
   mapL7Timer = setTimeout(async () => {
+    chart.container = containerId
     myChart = await chartView.drawChart({
       chartObj: myChart,
       container: containerId,
@@ -324,11 +455,8 @@ const actionDefault = param => {
   if (param.from === 'word-cloud') {
     emitter.emit('word-cloud-default-data-range', param)
   }
-  if (param.from === 'gauge') {
-    emitter.emit('gauge-default-data', param)
-  }
-  if (param.from === 'liquid') {
-    emitter.emit('liquid-default-data', param)
+  if (param.from === 'gauge' || param.from === 'liquid') {
+    emitter.emit('gauge-liquid-y-value', param)
   }
 }
 
@@ -337,15 +465,25 @@ const action = param => {
     actionDefault(param)
     return
   }
+  if (view.value.type === 'map') {
+    if (!(param?.data?.data?.quotaList && param?.data?.data?.quotaList.length > 0)) {
+      return
+    }
+  }
   state.pointParam = param.data
   // 点击
   pointClickTrans()
   // 下钻 联动 跳转
   state.linkageActiveParam = {
     category: state.pointParam.data.category ? state.pointParam.data.category : 'NO_DATA',
-    name: state.pointParam.data.name ? state.pointParam.data.name : 'NO_DATA'
+    name: state.pointParam.data.name ? state.pointParam.data.name : 'NO_DATA',
+    group: state.pointParam.data.group ? state.pointParam.data.group : 'NO_DATA'
   }
   if (trackMenu.value.length < 2) {
+    if (view.value.drillFields.length > 0 && trackMenu.value.length === 0) {
+      ElMessage.error(t('chart.last_layer'))
+      return
+    }
     // 只有一个事件直接调用
     trackClick(trackMenu.value[0])
   } else {
@@ -355,13 +493,25 @@ const action = param => {
       top: param.y + 10
     }
     trackBarStyleCheck(props.element, barStyleTemp, props.scale, trackMenu.value.length)
+    const trackBarX = barStyleTemp.left
+    let trackBarY = 50
     state.trackBarStyle.left = barStyleTemp.left + 'px'
     if (curView.type === 'symbolic-map') {
+      trackBarY = param.y + 10
       state.trackBarStyle.top = param.y + 10 + 'px'
     } else {
+      trackBarY = barStyleTemp.top
       state.trackBarStyle.top = barStyleTemp.top + 'px'
     }
-    viewTrack.value.trackButtonClick()
+    if (dataVMobile) {
+      state.trackBarStyle.left = trackBarX + 40 + 'px'
+      state.trackBarStyle.top = trackBarY + 70 + 'px'
+    } else {
+      state.trackBarStyle.left = trackBarX + 'px'
+      state.trackBarStyle.top = trackBarY + 'px'
+    }
+
+    viewTrack.value.trackButtonClick(view.value.id)
   }
 }
 
@@ -370,10 +520,28 @@ const trackClick = trackAction => {
   if (!param?.data?.dimensionList) {
     return
   }
-  let checkName = state.pointParam.data.name
-  // 对多维度的处理 取第一个
-  if (state.pointParam.data.dimensionList.length > 1) {
-    checkName = state.pointParam.data.dimensionList[0].id
+  let checkName = undefined
+  if (param.data.dimensionList.length > 1) {
+    // 分组堆叠处理 去能比较出来值的那个维度
+    if (view.value.type === 'bar-group-stack') {
+      const length = param.data.dimensionList.length
+      // 存在最后一个id
+      if (param.data.dimensionList[length - 1].id === param.data.dimensionList[length - 2].id) {
+        param.data.dimensionList.pop()
+      }
+      param.data.dimensionList.forEach(dimension => {
+        if (dimension.value === param.data.category) {
+          checkName = dimension.id
+        }
+      })
+    }
+    if (!checkName) {
+      // 对多维度的处理 取第一个
+      checkName = param.data.dimensionList[0].id
+    }
+  }
+  if (!checkName) {
+    checkName = param.data.name
   }
   // 跳转字段处理
   let jumpName = state.pointParam.data.name
@@ -412,8 +580,11 @@ const trackClick = trackAction => {
     }
   }
   let quotaList = state.pointParam.data.quotaList
-  if (curView.type === 'bar-range') {
+  if (['bar-range', 'bullet-graph'].includes(curView.type)) {
     quotaList = state.pointParam.data.dimensionList
+  } else if (curView.type === 'multi-scatter') {
+    // 多维散点图 dimensionList 包含颜色维度+横轴+纵轴的值
+    quotaList = []
   } else {
     quotaList[0]['value'] = state.pointParam.data.value
   }
@@ -439,7 +610,6 @@ const trackClick = trackAction => {
     dimensionList: state.pointParam.data.dimensionList,
     quotaList: quotaList
   }
-
   switch (trackAction) {
     case 'pointClick':
       emit('onPointClick', clickParams)
@@ -468,44 +638,58 @@ const trackMenu = computed(() => {
   let trackMenuInfo = []
   // 复用、放大状态的仪表板不进行联动、跳转和下钻的动作
   if (!['multiplexing', 'viewDialog'].includes(showPosition.value)) {
+    let drillFields =
+      curView?.drill && curView?.drillFilters?.length
+        ? curView.drillFilters.map(item => item.fieldId)
+        : []
     let linkageCount = 0
     let jumpCount = 0
     if (curView?.type?.includes('chart-mix')) {
-      chartData.value?.left?.fields?.forEach(item => {
-        const sourceInfo = view.value.id + '#' + item.id
-        if (nowPanelTrackInfo.value[sourceInfo]) {
-          linkageCount++
-        }
-        if (nowPanelJumpInfo.value[sourceInfo]) {
-          jumpCount++
-        }
-      })
-      chartData.value?.right?.fields?.forEach(item => {
-        const sourceInfo = view.value.id + '#' + item.id
-        if (nowPanelTrackInfo.value[sourceInfo]) {
-          linkageCount++
-        }
-        if (nowPanelJumpInfo.value[sourceInfo]) {
-          jumpCount++
-        }
+      Array.of('left', 'right').forEach(side => {
+        chartData.value?.[side]?.fields
+          ?.filter(item => !drillFields.includes(item.id))
+          .forEach(item => {
+            const sourceInfo = view.value.id + '#' + item.id
+            if (nowPanelTrackInfo.value[sourceInfo]) {
+              linkageCount++
+            }
+            if (nowPanelJumpInfo.value[sourceInfo]) {
+              jumpCount++
+            }
+          })
       })
     } else {
-      chartData.value?.fields?.forEach(item => {
-        const sourceInfo = view.value.id + '#' + item.id
+      chartData.value?.fields
+        ?.filter(item => !drillFields.includes(item.id))
+        .forEach(item => {
+          const sourceInfo = view.value.id + '#' + item.id
+          if (nowPanelTrackInfo.value[sourceInfo]) {
+            linkageCount++
+          }
+          if (nowPanelJumpInfo.value[sourceInfo]) {
+            jumpCount++
+          }
+        })
+      if (view.value?.drillFields && curView?.drillFilters && curView.drillFilters.length > 0) {
+        const lastItem = view.value?.drillFields[curView.drillFilters.length]
+        const sourceInfo = view.value.id + '#' + lastItem.id
         if (nowPanelTrackInfo.value[sourceInfo]) {
           linkageCount++
         }
         if (nowPanelJumpInfo.value[sourceInfo]) {
           jumpCount++
         }
-      })
+      }
     }
     jumpCount &&
       view.value?.jumpActive &&
       (!mobileInPc.value || inMobile.value) &&
       trackMenuInfo.push('jump')
     linkageCount && view.value?.linkageActive && trackMenuInfo.push('linkage')
-    view.value.drillFields.length && trackMenuInfo.push('drill')
+    hasNextDrillLevel(
+      curView?.drillFields || view.value.drillFields,
+      curView?.drillFilters?.length || 0
+    ) && trackMenuInfo.push('drill')
     // 如果同时配置jump linkage drill 切配置联动时同时下钻 在实际只显示两个 '跳转' '联动和下钻'
     if (trackMenuInfo.length === 3 && props.element.actionSelection.linkageActive === 'auto') {
       trackMenuInfo = ['jump', 'linkageAndDrill']
@@ -522,13 +706,103 @@ const trackMenu = computed(() => {
 const quadrantDefaultBaseline = defaultQuadrant => {
   emitter.emit('quadrant-default-baseline', defaultQuadrant)
 }
+
+const canvas2Picture = (pictureData, online) => {
+  const mapDom = document.getElementById(containerId)
+  const childNodeList = mapDom.querySelectorAll('.l7-scene')
+  if (childNodeList?.length) {
+    childNodeList.forEach(child => {
+      child['style'].display = 'none'
+    })
+  }
+  if (online) {
+    const canvasContainerList = mapDom.querySelectorAll('.amap-maps')
+    canvasContainerList?.forEach(canvasContainer => {
+      canvasContainer['style'].display = 'none'
+    })
+  }
+  const imgDom = document.createElement('img')
+  imgDom.style.width = '100%'
+  imgDom.style.height = '100%'
+  imgDom.style.position = 'absolute'
+  imgDom.style.objectFit = 'cover'
+  imgDom.style['z-index'] = '2'
+  imgDom?.classList?.add('prepare-picture-img')
+  imgDom.src = pictureData
+  mapDom?.appendChild(imgDom)
+}
+const preparePicture = id => {
+  if (id !== curView?.id) {
+    return
+  }
+  const chartView = chartViewManager.getChartView(curView.render, curView.type)
+  if (chartView.library === ChartLibraryType.L7_PLOT) {
+    myChart
+      .getScene()
+      .exportMap('png')
+      .then(res => canvas2Picture(res, false))
+  } else if (chartView.library === ChartLibraryType.L7) {
+    const scene = myChart.getScene()
+    const zoom = new ExportImage({
+      onExport: (base64: string) => {
+        canvas2Picture(base64, true)
+      }
+    })
+    let getTmapImage
+    if (scene) {
+      scene.addControl(zoom)
+      zoom.hide()
+      // 天地图
+      getTmapImage = async () => {
+        const res = await scene.exportPng('png')
+        canvas2Picture(res, true)
+      }
+    }
+    zoom
+      .getImage()
+      .then(res => {
+        canvas2Picture(res, true)
+      })
+      .catch(() => {
+        if (scene && getTmapImage) {
+          getTmapImage()
+        }
+      })
+  }
+}
+const unPreparePicture = id => {
+  if (id !== curView?.id) {
+    return
+  }
+  const chartView = chartViewManager.getChartView(curView.render, curView.type)
+  if (chartView.library === ChartLibraryType.L7_PLOT || chartView.library === ChartLibraryType.L7) {
+    const mapDom = document.getElementById(containerId)
+    const childNodeList = mapDom.querySelectorAll('.l7-scene')
+    if (childNodeList?.length) {
+      childNodeList.forEach(child => {
+        child['style'].display = 'block'
+      })
+    }
+    const imgDomList = mapDom.querySelectorAll('.prepare-picture-img')
+    imgDomList?.forEach(child => {
+      child.remove()
+    })
+    const canvasContainerList = mapDom.querySelectorAll('.amap-maps')
+    canvasContainerList?.forEach(canvasContainer => {
+      canvasContainer['style'].display = 'block'
+    })
+  }
+}
 defineExpose({
   calcData,
   renderChart,
   trackMenu,
   clearLinkage
 })
+let intersectionObserver
 let resizeObserver
+// 移动端 Tab 图表尺寸变化的防抖计时器，组件卸载时必须清理
+let resizeTimer: number
 const TOLERANCE = 0.01
 const RESIZE_MONITOR_CHARTS = ['map', 'bubble-map', 'flow-map', 'heat-map']
 onMounted(() => {
@@ -536,31 +810,109 @@ onMounted(() => {
   const { offsetWidth, offsetHeight } = containerDom
   const preSize = [offsetWidth, offsetHeight]
   resizeObserver = new ResizeObserver(([entry] = []) => {
-    if (!RESIZE_MONITOR_CHARTS.includes(view.value.type)) {
-      return
-    }
-    const [size] = entry.borderBoxSize || []
-    const widthOffsetPercent = (size.inlineSize - preSize[0]) / preSize[0]
-    const heightOffsetPercent = (size.blockSize - preSize[1]) / preSize[1]
+    // 标识必须通过 renderChart 重建图层的 L7 地图，继续沿用原即时重绘路径
+    const resizeMonitorChart = RESIZE_MONITOR_CHARTS.includes(view.value.type)
+    const [size] = entry?.borderBoxSize || []
+    // 优先读取 borderBoxSize，contentRect 用于兼容未提供 borderBoxSize 的浏览器
+    const width = size?.inlineSize ?? entry?.contentRect?.width ?? 0
+    const height = size?.blockSize ?? entry?.contentRect?.height ?? 0
+    const widthOffsetPercent = preSize[0] ? (width - preSize[0]) / preSize[0] : 1
+    const heightOffsetPercent = preSize[1] ? (height - preSize[1]) / preSize[1] : 1
     if (Math.abs(widthOffsetPercent) < TOLERANCE && Math.abs(heightOffsetPercent) < TOLERANCE) {
       return
     }
-    if (myChart && preSize[1] > 1) {
-      renderChart(curView)
+    if (resizeMonitorChart) {
+      // L7 地图依赖重新创建图层响应容器变化；保留原有即时重绘时序，避免影响 PC 地图
+      if (myChart && preSize[1] > 1) {
+        renderChart(curView)
+      }
+      preSize[0] = width
+      preSize[1] = height
+      return
     }
-    preSize[0] = size.inlineSize
-    preSize[1] = size.blockSize
+    // 普通 G2Plot 的 changeSize 只在移动端 Tab 子画布生效，避免改变 PC 和主画布行为
+    const mobileTabChart =
+      isDashboard() && (mobileInPc.value || inMobile.value) && isTabCanvas(props.element?.canvasId)
+    if (!mobileTabChart || width <= 1 || height <= 1) {
+      return
+    }
+    preSize[0] = width
+    preSize[1] = height
+    clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => {
+      if (!myChart) {
+        return
+      }
+      if (typeof myChart.changeSize === 'function') {
+        // Tab 移动布局会改变内部图表容器尺寸；仅在移动 Tab 中复用实例更新宽高
+        myChart.changeSize(width, height)
+      } else {
+        renderChart(curView)
+      }
+    }, 100)
   })
   resizeObserver.observe(containerDom)
+  intersectionObserver = new IntersectionObserver(([entry]) => {
+    if (RESIZE_MONITOR_CHARTS.includes(view.value.type)) {
+      return
+    }
+    if (entry.intersectionRatio <= 0) {
+      // G2Plot 图表使用 emit，L7/L7Plot 图表没有 emit 方法
+      if (myChart && typeof myChart.emit === 'function') {
+        myChart.emit('tooltip:hidden')
+      }
+    }
+  })
+  intersectionObserver.observe(containerDom)
+  useEmitt({ name: 'l7-prepare-picture', callback: preparePicture })
+  useEmitt({ name: 'l7-unprepare-picture', callback: unPreparePicture })
 })
+const MAP_CHARTS = ['map', 'bubble-map', 'flow-map', 'heat-map', 'symbolic-map']
+const onWheel = (e: WheelEvent) => {
+  if (!MAP_CHARTS.includes(view.value.type)) {
+    return
+  }
+  if (!props.active) {
+    e.stopPropagation()
+  }
+}
 onBeforeUnmount(() => {
   try {
+    ChartCarouselTooltip.destroyByContainer(containerId)
     myChart?.destroy()
+    clearTimeout(resizeTimer)
     resizeObserver?.disconnect()
+    intersectionObserver?.disconnect()
   } catch (e) {
     console.warn(e)
   }
 })
+
+/**
+ * 监听图表选中状态,处理地图在移动端的交互
+ * active = true 时：图表选中 → 事件穿透画布容器，不拦截，能够直接与画布交互
+ * active = false 时：图表未选中 → 画布容器正常响应事件，能够滑动页面
+ */
+watch(
+  () => props.active,
+  newVal => {
+    if (!MAP_CHARTS.includes(view.value.type) || !isMobile()) return
+    const containerDiv = document.getElementById(containerId)
+    if (!containerDiv) return
+    // 腾讯 / 天地图：容器配置 pointer-events
+    const isQQOrTianMap = !!containerDiv.style.pointerEvents
+    const containerEvents = newVal ? 'auto' : 'none'
+    const sceneEvents = isQQOrTianMap ? containerEvents : newVal ? 'none' : 'auto'
+    if (isQQOrTianMap) {
+      containerDiv.style.pointerEvents = containerEvents
+    }
+    containerDiv
+      .querySelectorAll<HTMLElement>('.l7-scene')
+      .forEach(el => (el.style.pointerEvents = sceneEvents))
+    // 容器添加活跃标识，方便后续样式调整
+    containerDiv.setAttribute('de-chart-active', String(newVal))
+  }
+)
 </script>
 
 <template>
@@ -568,11 +920,19 @@ onBeforeUnmount(() => {
     <view-track-bar
       ref="viewTrack"
       :track-menu="trackMenu"
+      :font-family="fontFamily"
+      :is-data-v-mobile="dataVMobile"
       class="track-bar"
       :style="state.trackBarStyle"
       @trackClick="trackClick"
     />
-    <div v-if="!isError" ref="chartContainer" class="canvas-content" :id="containerId"></div>
+    <div
+      @wheel.capture="onWheel"
+      v-if="!isError"
+      ref="chartContainer"
+      class="canvas-content"
+      :id="containerId"
+    ></div>
     <chart-error v-else :err-msg="errMsg" />
   </div>
 </template>

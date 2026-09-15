@@ -1,15 +1,16 @@
 package io.dataease.visualization.dao.auto.entity;
 
+import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.io.Serializable;
 
 /**
  * <p>
- * 
+ * 跳转目标仪表板图表字段配置表
  * </p>
  *
  * @author fit2cloud
- * @since 2023-09-22
+ * @since 2024-11-20
  */
 @TableName("visualization_link_jump_target_view_info")
 public class VisualizationLinkJumpTargetViewInfo implements Serializable {
@@ -18,6 +19,9 @@ public class VisualizationLinkJumpTargetViewInfo implements Serializable {
 
     private Long targetId;
 
+    /**
+     * visualization_link_jump_info 表的 ID
+     */
     private Long linkJumpInfoId;
 
     /**
@@ -25,13 +29,30 @@ public class VisualizationLinkJumpTargetViewInfo implements Serializable {
      */
     private Long sourceFieldActiveId;
 
-    private Long targetViewId;
+    /**
+     * 目标图表ID
+     */
+    private String targetViewId;
 
-    private Long targetFieldId;
+    /**
+     * 目标字段ID
+     */
+    private String targetFieldId;
 
+    /**
+     * 复制来源
+     */
     private Long copyFrom;
 
+    /**
+     * 复制来源ID
+     */
     private Long copyId;
+
+    /**
+     * 联动目标类型 view 图表 filter 过滤组件 outParams 外部参数
+     */
+    private String targetType;
 
     public Long getTargetId() {
         return targetId;
@@ -57,19 +78,19 @@ public class VisualizationLinkJumpTargetViewInfo implements Serializable {
         this.sourceFieldActiveId = sourceFieldActiveId;
     }
 
-    public Long getTargetViewId() {
+    public String getTargetViewId() {
         return targetViewId;
     }
 
-    public void setTargetViewId(Long targetViewId) {
+    public void setTargetViewId(String targetViewId) {
         this.targetViewId = targetViewId;
     }
 
-    public Long getTargetFieldId() {
+    public String getTargetFieldId() {
         return targetFieldId;
     }
 
-    public void setTargetFieldId(Long targetFieldId) {
+    public void setTargetFieldId(String targetFieldId) {
         this.targetFieldId = targetFieldId;
     }
 
@@ -89,6 +110,14 @@ public class VisualizationLinkJumpTargetViewInfo implements Serializable {
         this.copyId = copyId;
     }
 
+    public String getTargetType() {
+        return targetType;
+    }
+
+    public void setTargetType(String targetType) {
+        this.targetType = targetType;
+    }
+
     @Override
     public String toString() {
         return "VisualizationLinkJumpTargetViewInfo{" +
@@ -99,6 +128,7 @@ public class VisualizationLinkJumpTargetViewInfo implements Serializable {
         ", targetFieldId = " + targetFieldId +
         ", copyFrom = " + copyFrom +
         ", copyId = " + copyId +
+        ", targetType = " + targetType +
         "}";
     }
 }

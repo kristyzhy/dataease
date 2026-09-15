@@ -1,16 +1,14 @@
 <script lang="tsx" setup>
-import { computed, onMounted, PropType, reactive, watch } from 'vue'
+import { onMounted, PropType, reactive, watch } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import {
   COLOR_PANEL,
   DEFAULT_BASIC_STYLE,
   DEFAULT_MISC
 } from '@/views/chart/components/editor/util/chart'
-import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { cloneDeep, defaultsDeep } from 'lodash-es'
 
 const { t } = useI18n()
-const dvMainStore = dvMainStoreWithOut()
 const props = defineProps({
   chart: {
     type: Object,
@@ -33,9 +31,6 @@ const flowLineTypeOptions = [
 const state = reactive({
   lineForm: {} as DeepPartial<ChartMiscAttr['flowMapConfig']['lineConfig']>,
   basicStyleForm: {}
-})
-const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
 })
 const emit = defineEmits(['onChangeFlowMapLineForm', 'onBasicStyleChange'])
 
@@ -116,7 +111,7 @@ onMounted(() => {
     <el-row style="flex: 1">
       <el-col>
         <el-form-item
-          :label="t('chart.line') + t('chart.map_line_type')"
+          :label="t('chart.line') + ' ' + t('chart.map_line_type')"
           class="form-item"
           :class="'form-item-' + themes"
         >
@@ -163,7 +158,7 @@ onMounted(() => {
             :predefine="predefineColors"
             @change="changeStyle('mapLineGradient')"
           >
-            {{ t('chart.line') + t('chart.map_line_linear') }}
+            {{ t('chart.line') + ' ' + t('chart.map_line_linear') }}
           </el-checkbox>
         </el-form-item>
       </el-col>
@@ -268,7 +263,7 @@ onMounted(() => {
             :predefine="predefineColors"
             @change="changeStyle('mapLineAnimate')"
           >
-            {{ t('chart.line') + t('chart.map_line_animate') }}
+            {{ t('chart.line') + ' ' + t('chart.map_line_animate') }}
           </el-checkbox>
         </el-form-item>
       </el-col>
@@ -323,7 +318,7 @@ onMounted(() => {
     min-width: 56px;
 
     &.dark {
-      color: #a6a6a6;
+      color: #ebebeb;
     }
   }
 }

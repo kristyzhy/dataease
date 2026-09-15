@@ -1,6 +1,5 @@
 package io.dataease.api.xpack.dataFilling.dto;
 
-
 import lombok.Data;
 import lombok.experimental.Accessors;
 
@@ -15,7 +14,7 @@ public class RowDataDatum implements Serializable {
     @Serial
     private static final long serialVersionUID = -2838784450721979776L;
 
-    private Long id;
+    private String id;
 
     private Map<String, Object> data;
 

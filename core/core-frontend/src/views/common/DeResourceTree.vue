@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import dvDashboardSpineMobile from '@/assets/svg/dv-dashboard-spine-mobile.svg'
+import dvDashboardSpineMobileDisabled from '@/assets/svg/dv-dashboard-spine-mobile-disabled.svg'
 import icon_add_outlined from '@/assets/svg/icon_add_outlined.svg'
 import dvCopyDark from '@/assets/svg/dv-copy-dark.svg'
 import dvDelete from '@/assets/svg/dv-delete.svg'
 import dvMove from '@/assets/svg/dv-move.svg'
+import dvCancelPublish from '@/assets/svg/icon_undo_outlined.svg'
+import { treeDraggbleChart } from '@/utils/treeDraggbleChart'
+import { cloneDeep, filter, forEach, throttle, union } from 'lodash-es'
 import dvRename from '@/assets/svg/dv-rename.svg'
 import dvDashboardSpine from '@/assets/svg/dv-dashboard-spine.svg'
+import dvDashboardSpineDisabled from '@/assets/svg/dv-dashboard-spine-disabled.svg'
 import dvScreenSpine from '@/assets/svg/dv-screen-spine.svg'
 import dvNewFolder from '@/assets/svg/dv-new-folder.svg'
 import icon_fileAdd_outlined from '@/assets/svg/icon_file-add_outlined.svg'
@@ -21,7 +26,8 @@ import {
   copyResource,
   deleteLogic,
   ResourceOrFolder,
-  queryShareBaseApi
+  queryShareBaseApi,
+  updateBase
 } from '@/api/visualization/dataVisualization'
 import { ElIcon, ElMessage, ElMessageBox, ElScrollbar } from 'element-plus-secondary'
 import { Icon } from '@/components/icon-custom'
@@ -38,14 +44,15 @@ import { interactiveStoreWithOut } from '@/store/modules/interactive'
 import { useShareStoreWithOut } from '@/store/modules/share'
 const shareStore = useShareStoreWithOut()
 const interactiveStore = interactiveStoreWithOut()
-import router from '@/router'
 import { useI18n } from '@/hooks/web/useI18n'
-import _ from 'lodash'
 import DeResourceCreateOptV2 from '@/views/common/DeResourceCreateOptV2.vue'
 import { useCache } from '@/hooks/web/useCache'
-import { findParentIdByChildIdRecursive } from '@/utils/canvasUtils'
+import { findParentIdByChildIdRecursive, onInitReady } from '@/utils/canvasUtils'
 import { XpackComponent } from '@/components/plugin'
-import treeSort from '@/utils/treeSortUtils'
+import treeSort, { treeParentWeight } from '@/utils/treeSortUtils'
+import router from '@/router'
+import { cancelRequestBatch } from '@/config/axios/service'
+import { isFreeFolder } from '@/utils/utils'
 const { wsCache } = useCache()
 
 const dvMainStore = dvMainStoreWithOut()
@@ -63,18 +70,26 @@ const props = defineProps({
     required: false,
     type: String,
     default: 'preview'
+  },
+  resourceTable: {
+    required: false,
+    type: String,
+    default: 'core'
   }
 })
 const defaultProps = {
   children: 'children',
-  label: 'name'
+  label: 'name',
+  disabled: (data: any) => data.extraFlag1 === 0 || data.weight === 0
 }
 const mounted = ref(false)
 const rootManage = ref(false)
 const anyManage = ref(false)
 const { curCanvasType, showPosition } = toRefs(props)
-const resourceLabel = curCanvasType.value === 'dataV' ? '数据大屏' : '仪表板'
-const newResourceLabel = '新建' + resourceLabel
+const resourceLabel =
+  curCanvasType.value === 'dataV' ? t('work_branch.big_data_screen') : t('work_branch.dashboard')
+const newResourceLabel =
+  curCanvasType.value === 'dataV' ? t('visualization.new_screen') : t('visualization.new_dashboard')
 const selectedNodeKey = ref(null)
 const filterText = ref(null)
 const expandedArray = ref([])
@@ -83,22 +98,23 @@ const resourceGroupOpt = ref()
 const resourceCreateOpt = ref()
 const returnMounted = ref(false)
 const state = reactive({
+  pWeightMap: {},
   curSortType: 'time_desc',
   resourceTree: [] as BusiTreeNode[],
   originResourceTree: [] as BusiTreeNode[],
   folderMenuList: [
     {
-      label: '移动到',
+      label: t('visualization.move_to'), //'移动到'
       command: 'move',
       svgName: dvMove
     },
     {
-      label: '重命名',
+      label: t('visualization.rename'), //'重命名'
       command: 'rename',
       svgName: dvRename
     },
     {
-      label: '删除',
+      label: t('visualization.delete'), // 删除
       command: 'delete',
       svgName: dvDelete,
       divided: true
@@ -106,20 +122,20 @@ const state = reactive({
   ],
   sortType: [
     {
-      label: '按时间升序',
+      label: t('visualization.time_asc'), //'按时间升序'
       value: 'time_asc'
     },
     {
-      label: '按时间降序',
+      label: t('visualization.time_desc'), //'按时间降序'
       value: 'time_desc'
     },
     {
-      label: '按名称升序',
+      label: t('visualization.name_asc'), //'按名称升序'
       value: 'name_asc'
     },
     {
-      label: '按名称降序',
-      value: 'time_asc'
+      label: t('visualization.name_desc'), //'按名称降序'
+      value: 'name_desc'
     }
   ],
   templateCreatePid: 0
@@ -134,17 +150,17 @@ const isEmbedded = computed(() => appStore.getIsDataEaseBi || appStore.getIsIfra
 const resourceTypeList = computed(() => {
   const list = [
     {
-      label: '空白新建',
+      label: t('work_branch.new_empty'), //'空白新建',
       svgName: dvSvgType.value,
       command: 'newLeaf'
     },
     {
-      label: '使用模板新建',
+      label: t('work_branch.new_using_template'),
       svgName: dvUseTemplate,
       command: 'newFromTemplate'
     },
     {
-      label: '新建文件夹',
+      label: t('work_branch.new_folder'), //'新建文件夹'
       divided: true,
       svgName: dvFolder,
       command: 'newFolder'
@@ -152,35 +168,74 @@ const resourceTypeList = computed(() => {
   ]
   return list
 })
+const { handleDrop, allowDrop, handleDragStart } = treeDraggbleChart(
+  state,
+  'resourceTree',
+  curCanvasType.value
+)
 
-const menuList = computed(() => {
-  const list = [
-    {
-      label: '复制',
-      command: 'copy',
-      svgName: dvCopyDark
-    },
-    {
-      label: '移动到',
-      command: 'move',
-      svgName: dvMove
-    },
-    {
-      label: '重命名',
-      command: 'rename',
-      svgName: dvRename
-    },
-    {
-      label: '删除',
-      command: 'delete',
-      svgName: dvDelete,
-      divided: true
-    }
-  ]
-  return list
-})
+const menuListWeight = id => {
+  const pWeight = state.pWeightMap[id]
+  return pWeight < 7 ? menuList : menuListWithCopy
+}
+const menuListWithCopy = [
+  {
+    label: t('visualization.cancel_publish'), //取消发布
+    command: 'cancelPublish',
+    svgName: dvCancelPublish
+  },
+  {
+    label: t('visualization.copy'), //'复制',
+    command: 'copy',
+    svgName: dvCopyDark,
+    divided: true
+  },
+  {
+    label: t('visualization.move_to'), //'移动到',
+    command: 'move',
+    svgName: dvMove
+  },
+  {
+    label: t('visualization.rename'), //'重命名',
+    command: 'rename',
+    svgName: dvRename
+  },
+  {
+    label: t('visualization.delete'), //'删除',
+    command: 'delete',
+    svgName: dvDelete,
+    divided: true
+  }
+]
+const menuList = [
+  {
+    label: t('visualization.cancel_publish'), //取消发布
+    command: 'cancelPublish',
+    svgName: dvCancelPublish
+  },
+  {
+    label: t('visualization.move_to'), //'移动到',
+    command: 'move',
+    svgName: dvMove,
+    divided: true
+  },
+  {
+    label: t('visualization.rename'), //'重命名',
+    command: 'rename',
+    svgName: dvRename
+  },
+  {
+    label: t('visualization.delete'), //'删除',
+    command: 'delete',
+    svgName: dvDelete,
+    divided: true
+  }
+]
 
-const dvId = embeddedStore.dvId || router.currentRoute.value.query.dvId
+const infoId = wsCache.get(curCanvasType.value === 'dashboard' ? 'db-info-id' : 'dv-info-id')
+const routerDvId = router.currentRoute.value.query.dvId
+const dvId = embeddedStore.dvId || infoId || routerDvId
+wsCache.delete(curCanvasType.value === 'dashboard' ? 'db-info-id' : 'dv-info-id')
 if (dvId && showPosition.value === 'preview') {
   selectedNodeKey.value = dvId
   returnMounted.value = true
@@ -198,96 +253,169 @@ const nodeCollapse = data => {
 }
 
 const filterNode = (value: string, data: BusiTreeNode) => {
+  if (showPosition.value === 'multiplexing' && data.id === dvInfo.value?.id) {
+    return false
+  }
   if (!value) return true
   return data.name?.toLocaleLowerCase().includes(value.toLocaleLowerCase())
 }
+//取消之前请求
+const cancelPreRequest = () => {
+  cancelRequestBatch('/dataVisualization/findById')
+  cancelRequestBatch('/chartData/getData')
+  cancelRequestBatch('/linkage/getVisualizationAllLinkageInfo/**')
+  cancelRequestBatch('/linkJump/queryVisualizationJumpInfo/**')
+}
 
-const nodeClick = (data: BusiTreeNode) => {
-  selectedNodeKey.value = data.id
-  if (data.leaf) {
-    emit('nodeClick', data)
+const nodeClick = (data: BusiTreeNode, node) => {
+  dvMainStore.setCurComponent({ component: null, index: null })
+  if (showPosition.value !== 'multiplexing') {
+    dvMainStore.setEditMode('preview')
+  }
+  if (node.disabled) {
+    nextTick(() => {
+      // 找到当前高亮的节点，移除高亮样式
+      const currentNode = resourceListTree.value.$el.querySelector('.is-current')
+      if (currentNode) {
+        currentNode.classList.remove('is-current')
+      }
+      return // 阻止后续逻辑
+    })
   } else {
-    resourceListTree.value.setCurrentKey(null)
+    cancelPreRequest()
+    selectedNodeKey.value = data.id
+    if (data.leaf) {
+      if (!embeddedStore.baseUrl) {
+        let url = window.location.href
+        const paramName = 'dvId'
+        const paramValue = data.id
+        // 检查是否已经有查询参数（在哈希部分）
+        if (url.includes('?')) {
+          const regex = new RegExp(`([?&])${paramName}=[^&]*`)
+          if (regex.test(url)) {
+            url = url.replace(regex, `$1${paramName}=${paramValue}`)
+          } else {
+            url += `&${paramName}=${paramValue}`
+          }
+        } else {
+          url += `?${paramName}=${paramValue}`
+        }
+        window.history.replaceState(
+          {
+            path: url
+          },
+          '',
+          url
+        )
+      }
+      emit('nodeClick', data)
+    } else {
+      resourceListTree.value.setCurrentKey(null)
+    }
   }
 }
 
-const getTree = async () => {
-  const request = { busiFlag: curCanvasType.value } as BusiTreeRequest
+const getTree = async (notOpen = false) => {
+  const request = {
+    busiFlag: curCanvasType.value,
+    resourceTable: props.resourceTable
+  } as BusiTreeRequest
   const isDashboard = curCanvasType.value == 'dashboard'
   await interactiveStore.setInteractive(request)
   const interactiveData = isDashboard ? interactiveStore.getPanel : interactiveStore.getScreen
   const nodeData = interactiveData.treeNodes
   rootManage.value = interactiveData.rootManage
   anyManage.value = interactiveData.anyManage
-  if (dvInfo.value && dvInfo.value.id && !JSON.stringify(nodeData).includes(dvInfo.value.id)) {
+  if (
+    dvInfo.value &&
+    dvInfo.value.id &&
+    !JSON.stringify(nodeData).includes(dvInfo.value.id) &&
+    showPosition.value !== 'multiplexing'
+  ) {
     dvMainStore.resetDvInfo()
   }
+  let curSortType = sortList[Number(wsCache.get('TreeSort-backend')) ?? 1].value
+  curSortType = wsCache.get(`TreeSort-${curCanvasType.value}`) ?? curSortType
   if (nodeData.length && nodeData[0]['id'] === '0' && nodeData[0]['name'] === 'root') {
     state.originResourceTree = nodeData[0]['children'] || []
-    sortTypeChange(state.curSortType)
-    afterTreeInit()
+    sortTypeChange(curSortType)
+    afterTreeInit(notOpen)
     return
   }
   state.originResourceTree = nodeData
-  sortTypeChange(state.curSortType)
-  afterTreeInit()
+  sortTypeChange(curSortType)
+  afterTreeInit(notOpen)
 }
 
 const flattedTree = computed<BusiTreeNode[]>(() => {
-  return _.filter(flatTree(state.resourceTree), node => node.leaf)
+  return filter(flatTree(state.resourceTree), node => node.leaf)
 })
 
 const hasData = computed<boolean>(() => flattedTree.value.length > 0)
 
 function flatTree(tree: BusiTreeNode[]) {
-  let result = _.cloneDeep(tree)
-  _.forEach(tree, node => {
+  let result = cloneDeep(tree)
+  forEach(tree, node => {
     if (node.children && node.children.length > 0) {
-      result = _.union(result, flatTree(node.children))
+      result = union(result, flatTree(node.children))
     }
   })
   return result
 }
 
-const afterTreeInit = () => {
+const afterTreeInit = (notOpen = false) => {
+  state.pWeightMap = treeParentWeight(state.originResourceTree, rootManage.value ? 9 : 0)
   mounted.value = true
   if (selectedNodeKey.value && returnMounted.value) {
     expandedArray.value = getDefaultExpandedKeys()
     returnMounted.value = false
   }
+  onInitReady({ type: curCanvasType.value }, 'resource_tree_init_ready')
   nextTick(() => {
     resourceListTree.value.setCurrentKey(selectedNodeKey.value)
-    nextTick(() => {
-      if (selectedNodeKey.value) {
-        const nodeDom = document.querySelector('.is-current')
-        nodeDom && nodeDom.click()
-      }
-    })
     resourceListTree.value.filter(filterText.value)
+    if (notOpen) return
+    nextTick(() => {
+      document.querySelector('.is-current')?.firstChild?.click()
+    })
   })
 }
 
 const copyLoading = ref(false)
-
+const openType = wsCache.get('open-backend') === '1' ? '_self' : '_blank'
 const emit = defineEmits(['nodeClick'])
 
 const operation = (cmd: string, data: BusiTreeNode, nodeType: string) => {
   if (cmd === 'delete') {
-    const msg = data.leaf ? '' : '删除后，此文件夹下的所有资源都会被删除，请谨慎操作。'
-    ElMessageBox.confirm(
-      data.leaf ? '确定删除该' + resourceLabel + '吗？' : '确定删除该文件夹吗？',
-      {
-        confirmButtonType: 'danger',
-        type: 'warning',
-        tip: msg,
-        autofocus: false,
-        showClose: false
-      }
-    ).then(() => {
+    const msg = data.leaf ? '' : t('visualization.delete_tips')
+    const tips_label = data.leaf ? resourceLabel : t('visualization.folder')
+    ElMessageBox.confirm(t('visualization.delete_warn', [tips_label]), {
+      confirmButtonType: 'danger',
+      type: 'warning',
+      tip: msg,
+      autofocus: false,
+      showClose: false
+    }).then(() => {
       deleteLogic(data.id, curCanvasType.value).then(() => {
-        ElMessage.success('删除成功')
-        getTree()
+        ElMessage.success(t('visualization.delete_success'))
+        getTree(true)
       })
+    })
+  } else if (cmd === 'cancelPublish') {
+    const params = {
+      id: data.id,
+      nodeType: 'leaf',
+      name: data.name,
+      type: curCanvasType.value,
+      mobileLayout: data?.extraFlag,
+      status: 0
+    }
+    updateBase(params).then(() => {
+      data['extraFlag1'] = 0
+      if (dvInfo.value.id === data.id) {
+        dvMainStore.updateDvInfoCall(0)
+      }
+      ElMessage.warning(t('visualization.cancel_publish_tips'))
     })
   } else if (cmd === 'edit') {
     resourceEdit(data.id)
@@ -324,7 +452,7 @@ const operation = (cmd: string, data: BusiTreeNode, nodeType: string) => {
           )
           return
         }
-        const newWindow = window.open(baseUrl, '_blank')
+        const newWindow = window.open(baseUrl, openType)
         initOpenHandler(newWindow)
       })
       .finally(() => {
@@ -359,9 +487,9 @@ const addOperation = (
       return
     }
     if (data?.id) {
-      newWindow = window.open(baseUrl + `&pid=${data.id}`, '_blank')
+      newWindow = window.open(baseUrl + `&pid=${data.id}`, openType)
     } else {
-      newWindow = window.open(baseUrl, '_blank')
+      newWindow = window.open(baseUrl, openType)
     }
     initOpenHandler(newWindow)
   } else if (cmd === 'newFromTemplate') {
@@ -396,12 +524,12 @@ const resourceEdit = resourceId => {
     return
   }
 
-  const newWindow = window.open(baseUrl + resourceId, '_blank')
+  const newWindow = window.open(baseUrl + resourceId, openType)
   initOpenHandler(newWindow)
 }
 
 const resourceOptFinish = () => {
-  getTree()
+  getTree(true)
 }
 
 const resourceCreateFinish = templateData => {
@@ -427,9 +555,9 @@ const resourceCreateFinish = templateData => {
   }
 
   if (state.templateCreatePid) {
-    newWindow = window.open(baseUrl + `&pid=${state.templateCreatePid}`, '_blank')
+    newWindow = window.open(baseUrl + `&pid=${state.templateCreatePid}`, openType)
   } else {
-    newWindow = window.open(baseUrl, '_blank')
+    newWindow = window.open(baseUrl, openType)
   }
   initOpenHandler(newWindow)
 }
@@ -461,20 +589,20 @@ const getDefaultExpandedKeys = () => {
 
 const sortList = [
   {
-    name: '按创建时间升序',
+    name: t('visualization.time_asc'),
     value: 'time_asc'
   },
   {
-    name: '按创建时间降序',
+    name: t('visualization.time_desc'),
     value: 'time_desc',
     divided: true
   },
   {
-    name: '按照名称升序',
+    name: t('visualization.name_asc'),
     value: 'name_asc'
   },
   {
-    name: '按照名称降序',
+    name: t('visualization.name_desc'),
     value: 'name_desc'
   }
 ]
@@ -483,11 +611,26 @@ const sortTypeTip = computed(() => {
   return sortList.find(ele => ele.value === state.curSortType).name
 })
 
-const sortTypeChange = sortType => {
+const handleSortTypeChange = sortType => {
   state.resourceTree = treeSort(state.originResourceTree, sortType)
   state.curSortType = sortType
   wsCache.set('TreeSort-' + curCanvasType.value, state.curSortType)
 }
+
+const sortTypeChange = sortType => {
+  state.resourceTree = treeSort(state.originResourceTree, sortType)
+  state.curSortType = sortType
+}
+
+const proxyAllowDrop = throttle((arg1, arg2) => {
+  const flagArray = ['dashboard', 'dataV', 'dataset', 'datasource']
+  const flag = flagArray.findIndex(item => item === curCanvasType.value)
+  if (flag < 0 || !isFreeFolder(arg2, flag + 1)) {
+    return allowDrop(arg1, arg2)
+  }
+  ElMessage.warning(t('free.save_error'))
+  return false
+}, 300)
 
 watch(filterText, val => {
   resourceListTree.value.filter(val)
@@ -500,7 +643,7 @@ const initOpenHandler = newWindow => {
       methodName: 'initOpenHandler',
       args: newWindow
     }
-    openHandler.value.invokeMethod(pm)
+    openHandler.value?.invokeMethod(pm)
   }
 }
 
@@ -540,7 +683,12 @@ defineExpose({
       <div class="icon-methods" v-show="showPosition === 'preview'">
         <span class="title"> {{ resourceLabel }} </span>
         <div v-if="rootManage" class="flex-align-center">
-          <el-tooltip content="新建文件夹" placement="top" effect="dark">
+          <el-tooltip
+            offset="14"
+            :content="t('work_branch.new_folder')"
+            placement="top"
+            effect="dark"
+          >
             <el-icon
               class="custom-icon btn"
               style="margin-right: 20px"
@@ -550,31 +698,27 @@ defineExpose({
             </el-icon>
           </el-tooltip>
 
-          <el-tooltip :content="newResourceLabel" placement="top" effect="dark">
-            <el-dropdown popper-class="menu-outer-dv_popper" trigger="hover">
-              <el-icon class="custom-icon btn" @click="addOperation('newLeaf', null, 'leaf', true)">
-                <Icon name="icon_file-add_outlined"
-                  ><icon_fileAdd_outlined class="svg-icon"
-                /></Icon>
-              </el-icon>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item @click="addOperation('newLeaf', null, 'leaf', true)">
-                    <el-icon :class="`handle-icon color-${curCanvasType}`">
-                      <Icon><component class="svg-icon" :is="dvSvgType"></component></Icon>
-                    </el-icon>
-                    空白新建
-                  </el-dropdown-item>
-                  <el-dropdown-item @click="addOperation('newFromTemplate', null, 'leaf', true)">
-                    <el-icon class="handle-icon">
-                      <Icon name="dv-use-template"><dvUseTemplate class="svg-icon" /></Icon>
-                    </el-icon>
-                    使用模板新建
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </el-tooltip>
+          <el-dropdown placement="bottom-start" popper-class="menu-outer-dv_popper" trigger="hover">
+            <el-icon class="custom-icon btn" @click="addOperation('newLeaf', null, 'leaf', true)">
+              <Icon name="icon_file-add_outlined"><icon_fileAdd_outlined class="svg-icon" /></Icon>
+            </el-icon>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="addOperation('newLeaf', null, 'leaf', true)">
+                  <el-icon :class="`handle-icon color-${curCanvasType}`">
+                    <Icon><component class="svg-icon" :is="dvSvgType"></component></Icon>
+                  </el-icon>
+                  {{ t('work_branch.new_empty') }}
+                </el-dropdown-item>
+                <el-dropdown-item @click="addOperation('newFromTemplate', null, 'leaf', true)">
+                  <el-icon class="handle-icon">
+                    <Icon name="dv-use-template"><dvUseTemplate class="svg-icon" /></Icon>
+                  </el-icon>
+                  {{ t('work_branch.new_using_template') }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </div>
       <el-input
@@ -591,7 +735,7 @@ defineExpose({
           </el-icon>
         </template>
       </el-input>
-      <el-dropdown @command="sortTypeChange" trigger="click">
+      <el-dropdown @command="handleSortTypeChange" trigger="click">
         <el-icon class="filter-icon-span">
           <el-tooltip :offset="16" effect="dark" :content="sortTypeTip" placement="top">
             <Icon v-if="state.curSortType.includes('asc')" name="dv-sort-asc" class="opt-icon"
@@ -634,37 +778,64 @@ defineExpose({
         @node-expand="nodeExpand"
         @node-collapse="nodeCollapse"
         @node-click="nodeClick"
+        @node-drag-start="handleDragStart"
+        :allow-drop="proxyAllowDrop"
+        @node-drop="handleDrop"
+        draggable
       >
         <template #default="{ node, data }">
-          <span class="custom-tree-node">
+          <span
+            class="custom-tree-node"
+            :class="{ 'node-disabled-custom': data.extraFlag1 === 0 || data.weight === 0 }"
+          >
             <el-icon style="font-size: 18px" v-if="!data.leaf">
               <Icon name="dv-folder"><dvFolder class="svg-icon" /></Icon>
             </el-icon>
             <el-icon style="font-size: 18px" v-else-if="curCanvasType === 'dashboard'">
-              <Icon
+              <Icon v-if="data.extraFlag1"
                 ><component
                   :is="data.extraFlag ? dvDashboardSpineMobile : dvDashboardSpine"
                 ></component
               ></Icon>
+              <Icon v-if="!data.extraFlag1"
+                ><component
+                  :is="data.extraFlag ? dvDashboardSpineMobileDisabled : dvDashboardSpineDisabled"
+                ></component
+              ></Icon>
             </el-icon>
-            <el-icon class="icon-screen-new color-dataV" style="font-size: 18px" v-else>
+            <el-icon
+              class="icon-screen-new color-dataV"
+              :class="{ 'color-dataV': data.extraFlag1, 'color-dataV-disabled': !data.extraFlag1 }"
+              style="font-size: 18px"
+              v-else
+            >
               <Icon name="icon_operation-analysis_outlined"
                 ><icon_operationAnalysis_outlined class="svg-icon"
               /></Icon>
             </el-icon>
-            <span :title="node.label" class="label-tooltip">{{ node.label }}</span>
-
-            <div
-              class="icon-more flex-align-center"
-              v-if="data.weight >= 7 && showPosition === 'preview'"
-            >
+            <span :title="node.label" class="label-tooltip">
+              <el-tooltip
+                class="box-item"
+                effect="dark"
+                :content="
+                  data.weight === 0
+                    ? t('visualization.no_permission_tips')
+                    : t('visualization.publish_tips1')
+                "
+                :disabled="data.extraFlag1 && data.weight > 0"
+                placement="top-start"
+              >
+                {{ node.label }}
+              </el-tooltip>
+            </span>
+            <div class="icon-more" v-if="data.weight >= 7 && showPosition === 'preview'">
               <el-icon
                 v-on:click.stop
                 v-if="data.leaf"
                 class="hover-icon"
                 @click="resourceEdit(data.id)"
               >
-                <Icon name="icon_edit_outlined"><icon_edit_outlined class="svg-icon" /></Icon>
+                <Icon><icon_edit_outlined class="svg-icon" /></Icon>
               </el-icon>
               <handle-more
                 @handle-command="
@@ -680,7 +851,7 @@ defineExpose({
                 :node="data"
                 :any-manage="anyManage"
                 :resource-type="curCanvasType"
-                :menu-list="data.leaf ? menuList : state.folderMenuList"
+                :menu-list="data.leaf ? menuListWeight(data.id) : state.folderMenuList"
               ></dv-handle-more>
             </div>
           </span>
@@ -702,10 +873,10 @@ defineExpose({
 </template>
 <style lang="less" scoped>
 .filter-icon-span {
-  border: 1px solid #bbbfc4;
+  border: 1px solid #d9dcdf;
   width: 32px;
   height: 32px;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #1f2329;
   padding: 8px;
   margin-left: 8px;
@@ -751,11 +922,24 @@ defineExpose({
     }
     .custom-icon {
       font-size: 20px;
+      position: relative;
+      outline: none;
       &.btn {
         color: var(--ed-color-primary);
       }
       &:hover {
         cursor: pointer;
+        &::after {
+          content: '';
+          background-color: var(--ed-color-primary-1a, #3370ff1a);
+          width: 28px;
+          height: 28px;
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          border-radius: 6px;
+          transform: translate(-50%, -50%);
+        }
       }
     }
   }
@@ -806,26 +990,36 @@ defineExpose({
   align-items: center;
   box-sizing: content-box;
   padding-right: 4px;
+  position: relative;
 
   .label-tooltip {
-    width: calc(100% - 66px);
+    width: calc(100% - 40px);
     margin-left: 8.75px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 18px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
   .icon-more {
     margin-left: auto;
-    visibility: hidden;
+    opacity: 0;
   }
 
-  &:hover .icon-more {
-    margin-left: auto;
-    visibility: visible;
+  &:hover {
+    .label-tooltip {
+      width: calc(100% - 78px);
+    }
+
+    .icon-more {
+      opacity: 1;
+    }
   }
 
   .icon-screen-new {
-    border-radius: 4px;
+    border-radius: 6px;
     color: #fff;
     padding: 3px;
   }
@@ -834,11 +1028,18 @@ defineExpose({
 
 <style lang="less">
 .menu-outer-dv_popper {
-  width: 140px;
-  margin-top: -2px !important;
+  --ed-border-color-light: #dee0e3;
+  min-width: 140px;
+  margin-top: 6px !important;
+  margin-left: -4px !important;
+
+  .ed-dropdown-menu__item:not(.is-disabled):hover {
+    background-color: #1f23291a;
+    color: #1f2329;
+  }
 
   .ed-icon {
-    border-radius: 4px;
+    border-radius: 6px;
   }
 }
 
@@ -853,5 +1054,14 @@ defineExpose({
   i {
     display: block;
   }
+}
+
+.node-disabled-custom {
+  color: rgba(187, 191, 196, 1);
+  cursor: not-allowed;
+}
+
+.color-dataV-disabled {
+  background: #bbbfc4 !important;
 }
 </style>

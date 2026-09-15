@@ -11,7 +11,8 @@ export const LINE_EDITOR_PROPERTY: EditorProperty[] = [
   'assist-line',
   'function-cfg',
   'jump-set',
-  'linkage'
+  'linkage',
+  'threshold'
 ]
 export const LINE_EDITOR_PROPERTY_INNER: EditorPropertyInner = {
   'background-overall-component': ['all'],
@@ -59,7 +60,8 @@ export const LINE_EDITOR_PROPERTY_INNER: EditorPropertyInner = {
     'fontShadow'
   ],
   'legend-selector': ['icon', 'orient', 'fontSize', 'color', 'hPosition', 'vPosition'],
-  'function-cfg': ['slider', 'emptyDataStrategy']
+  'function-cfg': ['slider', 'emptyDataStrategy'],
+  threshold: ['lineThreshold']
 }
 
 export const LINE_AXIS_TYPE: AxisType[] = [

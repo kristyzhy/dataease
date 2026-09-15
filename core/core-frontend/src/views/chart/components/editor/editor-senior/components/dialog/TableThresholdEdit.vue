@@ -2,12 +2,17 @@
 import icon_info_filled from '@/assets/svg/icon_info_filled.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
 import icon_add_outlined from '@/assets/svg/icon_add_outlined.svg'
-import { PropType, reactive } from 'vue'
+import { computed, PropType, reactive } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import { COLOR_PANEL } from '../../../util/chart'
 import { fieldType } from '@/utils/attr'
 import { iconFieldMap } from '@/components/icon-group/field-list'
 import { cloneDeep } from 'lodash-es'
+import {
+  transDateFormat,
+  transDatePickerType
+} from '@/views/chart/components/editor/util/DateFormatUtil'
+import { TableThreshold } from '@/models/chart/chart-senior'
 
 const { t } = useI18n()
 
@@ -25,7 +30,7 @@ const props = defineProps({
 const emit = defineEmits(['onTableThresholdChange'])
 
 const thresholdCondition = {
-  term: 'eq',
+  term: '',
   field: '0',
   value: '0',
   color: '#ff0000ff',
@@ -35,7 +40,9 @@ const thresholdCondition = {
   type: 'fixed',
   dynamicField: { summary: 'value' },
   dynamicMinField: { summary: 'value' },
-  dynamicMaxField: { summary: 'value' }
+  dynamicMaxField: { summary: 'value' },
+  target: 'self',
+  targetFieldId: null
 }
 const textOptions = [
   {
@@ -117,6 +124,19 @@ const dateOptions = [
         label: t('chart.filter_ge')
       }
     ]
+  },
+  {
+    label: '',
+    options: [
+      {
+        value: 'null',
+        label: t('chart.filter_null')
+      },
+      {
+        value: 'not_null',
+        label: t('chart.filter_not_null')
+      }
+    ]
   }
 ]
 const valueOptions = [
@@ -167,9 +187,41 @@ const valueOptions = [
         label: t('chart.filter_between')
       }
     ]
+  },
+  {
+    label: '',
+    options: [
+      {
+        value: 'null',
+        label: t('chart.filter_null')
+      },
+      {
+        value: 'not_null',
+        label: t('chart.filter_not_null')
+      }
+    ]
   }
 ]
 const predefineColors = COLOR_PANEL
+
+const targetOptions = computed(() => {
+  // 热力图单元格为单一数值点，作用对象仅支持“当前值”，无需自定义作用对象与合计行
+  if (props.chart.type === 't-heatmap') {
+    return [{ label: t('chart.self'), value: 'self' }]
+  }
+  if (['rich-text', 'table-pivot'].includes(props.chart.type)) {
+    return [
+      { label: t('chart.self'), value: 'self' },
+      { label: t('chart.custom'), value: 'custom' }
+    ]
+  } else {
+    return [
+      { label: t('chart.self'), value: 'self' },
+      { label: t('chart.total_row'), value: 'total_row' },
+      { label: t('chart.custom'), value: 'custom' }
+    ]
+  }
+})
 
 const state = reactive({
   thresholdArr: [] as TableThreshold[],
@@ -183,6 +235,17 @@ const state = reactive({
 
 const init = () => {
   state.thresholdArr = JSON.parse(JSON.stringify(props.threshold)) as TableThreshold[]
+  // 热力图不支持自定义作用对象，若存在历史自定义配置则重置为当前值
+  if (props.chart.type === 't-heatmap') {
+    state.thresholdArr.forEach(item => {
+      item.conditions?.forEach(cond => {
+        if (cond.target === 'custom') {
+          cond.target = 'self'
+          cond.targetFieldId = null
+        }
+      })
+    })
+  }
   initFields()
 }
 const initOptions = (item, fieldObj) => {
@@ -191,7 +254,6 @@ const initOptions = (item, fieldObj) => {
       item.options = JSON.parse(JSON.stringify(textOptions))
     } else if (fieldObj.deType === 1) {
       item.options = JSON.parse(JSON.stringify(dateOptions))
-      item.type = 'fixed'
     } else {
       item.options = JSON.parse(JSON.stringify(valueOptions))
     }
@@ -210,6 +272,12 @@ const initFields = () => {
     const xAxisExt = JSON.parse(JSON.stringify(props.chart.xAxisExt))
     const yAxis = JSON.parse(JSON.stringify(props.chart.yAxis))
     fields = [...xAxis, ...xAxisExt, ...yAxis]
+  } else if (props.chart.type === 't-heatmap') {
+    // 热力图包含 X 轴维度、Y 轴维度以及颜色/指标字段
+    const xAxis = JSON.parse(JSON.stringify(props.chart.xAxis ?? []))
+    const xAxisExt = JSON.parse(JSON.stringify(props.chart.xAxisExt ?? []))
+    const extColor = JSON.parse(JSON.stringify(props.chart.extColor ?? []))
+    fields = [...xAxis, ...xAxisExt, ...extColor]
   } else {
     const xAxis = JSON.parse(JSON.stringify(props.chart.xAxis))
     const yAxis = JSON.parse(JSON.stringify(props.chart.yAxis))
@@ -244,6 +312,9 @@ const changeThreshold = () => {
 
 const addConditions = item => {
   const newCondition = JSON.parse(JSON.stringify(thresholdCondition))
+  if (item.field.dateStyle === 'H_m_s') {
+    newCondition.value = '00:00:00'
+  }
   // 获取单元格默认背景颜色
   const tableCell = props.chart?.customAttr?.tableCell
   if (tableCell) {
@@ -373,15 +444,50 @@ const changeConditionItemType = item => {
     item.dynamicMinField.summary = 'value'
     item.dynamicMaxField.summary = 'value'
   }
+  changeThreshold()
 }
-const getFieldOptions = fieldItem => {
-  const deType = state.fields.filter(ele => ele.id === fieldItem.fieldId)?.[0]?.deType
-  if (deType === 1) {
-    return fieldOptions.filter(ele => ele.value === 'fixed')
-  } else {
-    return fieldOptions
+const getFieldOptions = () => {
+  return fieldOptions
+}
+
+const datePickerFormat = (fieldItem: { dateStyle: any; datePattern: any }) => {
+  return transDateFormat(fieldItem.dateStyle, fieldItem.datePattern)
+}
+
+const datePickerType = (fieldItem: { dateStyle: string }) => {
+  return transDatePickerType(fieldItem.dateStyle)
+}
+
+// 判断当前图表是否为热力图
+const isHeatmap = computed(() => props.chart.type === 't-heatmap')
+
+// 关系运算符列宽（热力图无作用对象列，空/非空时补全宽度保持行右侧对齐）
+const getTermSpan = (item: any) => {
+  if (isNotEmptyAndNull(item)) {
+    return 3
   }
+  if (isHeatmap.value) {
+    return 16
+  }
+  return 11
 }
+
+// 固定值输入框列宽：热力图隐藏作用对象后由 6 增至 11，保持行右侧对齐
+const fixedValueSpan = computed(() => (isHeatmap.value ? 11 : 6))
+
+// 动态值字段与聚合函数列宽：热力图由 3+3 增至 6+5 (共11)
+const dynamicFieldSpan = computed(() => (isHeatmap.value ? 6 : 3))
+const dynamicSummarySpan = computed(() => (isHeatmap.value ? 5 : 3))
+
+// 固定介于范围输入列宽：热力图由 2+2+2 增至 4+3+4 (共11)
+const betweenMinSpan = computed(() => (isHeatmap.value ? 4 : 2))
+const betweenLabelSpan = computed(() => (isHeatmap.value ? 3 : 2))
+const betweenMaxSpan = computed(() => (isHeatmap.value ? 4 : 2))
+
+// 动态介于范围列宽：热力图由 2+2+1+2+2(9) 增至 3+3+2+3+3(14)
+const dynamicBetweenFieldSpan = computed(() => (isHeatmap.value ? 3 : 2))
+const dynamicBetweenValueSpan = computed(() => (isHeatmap.value ? 3 : 2))
+const dynamicBetweenLabelSpan = computed(() => (isHeatmap.value ? 2 : 1))
 
 init()
 </script>
@@ -403,7 +509,11 @@ init()
       >
         <el-row style="margin-top: 6px; align-items: center; justify-content: space-between">
           <el-form-item class="form-item">
-            <el-select v-model="fieldItem.fieldId" @change="addField(fieldItem)">
+            <el-select
+              style="width: 181px"
+              v-model="fieldItem.fieldId"
+              @change="addField(fieldItem)"
+            >
               <el-option
                 class="series-select-option"
                 v-for="fieldOption in state.fields"
@@ -449,7 +559,7 @@ init()
             class="line-item"
             :gutter="12"
           >
-            <el-col :span="3">
+            <el-col :span="getTermSpan(item)">
               <el-form-item class="form-item">
                 <el-select v-model="item.term" @change="changeThreshold">
                   <el-option-group
@@ -467,7 +577,11 @@ init()
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="2" v-if="isNotEmptyAndNull(item)" style="padding-left: 0 !important">
+            <el-col
+              :span="2"
+              v-if="isNotEmptyAndNull(item) && chart.type !== 'rich-text'"
+              style="padding-left: 0 !important"
+            >
               <el-form-item class="form-item">
                 <el-select
                   v-model="item.type"
@@ -487,7 +601,7 @@ init()
             <!--不是between 不是动态值-->
             <el-col
               v-if="isNotEmptyAndNull(item) && !isBetween(item) && !isDynamic(item)"
-              :span="12"
+              :span="fixedValueSpan"
               style="text-align: center"
             >
               <el-form-item class="form-item">
@@ -499,6 +613,33 @@ init()
                   class="value-item"
                   clearable
                   @change="changeThreshold"
+                />
+                <el-date-picker
+                  v-model="item.value"
+                  v-else-if="
+                    [1].includes(fieldItem.field.deType) && fieldItem.field.dateStyle !== 'H_m_s'
+                  "
+                  :type="datePickerType(fieldItem.field)"
+                  :placeholder="t('chart.drag_block_label_value')"
+                  :format="datePickerFormat(fieldItem.field)"
+                  :value-format="datePickerFormat(fieldItem.field)"
+                  size="default"
+                  class="value-item"
+                  @change="changeThreshold"
+                  style="width: 100%"
+                />
+                <el-time-picker
+                  v-model="item.value"
+                  v-else-if="
+                    [1].includes(fieldItem.field.deType) && fieldItem.field.dateStyle === 'H_m_s'
+                  "
+                  :placeholder="t('chart.drag_block_label_value')"
+                  :format="datePickerFormat(fieldItem.field)"
+                  :value-format="datePickerFormat(fieldItem.field)"
+                  size="default"
+                  class="value-item"
+                  @change="changeThreshold"
+                  style="width: 100%"
                 />
                 <el-input
                   v-model="item.value"
@@ -512,7 +653,10 @@ init()
             </el-col>
             <!--不是between 是动态值-->
             <!--动态值 字段-->
-            <el-col v-if="isNotEmptyAndNull(item) && !isBetween(item) && isDynamic(item)" :span="6">
+            <el-col
+              v-if="isNotEmptyAndNull(item) && !isBetween(item) && isDynamic(item)"
+              :span="dynamicFieldSpan"
+            >
               <el-form-item class="form-item">
                 <el-select
                   v-model="item.dynamicField.fieldId"
@@ -550,7 +694,7 @@ init()
             <!--动态值聚合方式-->
             <el-col
               v-if="isNotEmptyAndNull(item) && !isBetween(item) && isDynamic(item)"
-              :span="6"
+              :span="dynamicSummarySpan"
               style="text-align: center"
             >
               <el-form-item class="form-item">
@@ -573,7 +717,7 @@ init()
             <!--between 开始值-->
             <el-col
               v-if="isNotEmptyAndNull(item) && isBetween(item) && !isDynamic(item)"
-              :span="5"
+              :span="betweenMinSpan"
               style="text-align: center"
             >
               <el-form-item class="form-item">
@@ -589,7 +733,7 @@ init()
             </el-col>
             <el-col
               v-if="isBetween(item) && !isDynamic(item)"
-              :span="2"
+              :span="betweenLabelSpan"
               style="margin-top: 4px; text-align: center"
             >
               <span style="margin: 0 -5px">
@@ -599,7 +743,7 @@ init()
             <!--between 结束值-->
             <el-col
               v-if="isNotEmptyAndNull(item) && isBetween(item) && !isDynamic(item)"
-              :span="5"
+              :span="betweenMaxSpan"
               style="text-align: center"
             >
               <el-form-item class="form-item">
@@ -619,7 +763,7 @@ init()
             <el-col
               v-if="isNotEmptyAndNull(item) && isBetween(item) && isDynamic(item)"
               class="minField"
-              :span="3"
+              :span="dynamicBetweenFieldSpan"
             >
               <el-form-item class="form-item">
                 <el-select v-model="item.dynamicMinField.fieldId" @change="addField(item)">
@@ -655,7 +799,7 @@ init()
             <el-col
               v-if="isNotEmptyAndNull(item) && isBetween(item) && isDynamic(item)"
               class="minValue"
-              :span="2"
+              :span="dynamicBetweenValueSpan"
               style="padding-left: 0 !important"
             >
               <el-form-item class="form-item">
@@ -672,7 +816,7 @@ init()
             <el-col
               v-if="isBetween(item) && isDynamic(item)"
               class="term"
-              :span="2"
+              :span="dynamicBetweenLabelSpan"
               style="margin-top: 4px; text-align: center"
             >
               <span style="margin: 0 -5px">
@@ -683,7 +827,7 @@ init()
             <el-col
               v-if="isNotEmptyAndNull(item) && isBetween(item) && isDynamic(item)"
               class="maxField"
-              :span="3"
+              :span="dynamicBetweenFieldSpan"
             >
               <el-form-item class="form-item">
                 <el-select v-model="item.dynamicMaxField.fieldId" @change="addField(item)">
@@ -719,7 +863,7 @@ init()
             <el-col
               v-if="isNotEmptyAndNull(item) && isBetween(item) && isDynamic(item)"
               class="maxValue"
-              :span="2"
+              :span="dynamicBetweenValueSpan"
               style="padding-left: 0 !important"
             >
               <el-form-item class="form-item">
@@ -733,25 +877,75 @@ init()
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="3">
+            <el-col :span="item.target === 'custom' ? 3 : 5" v-if="!isHeatmap">
+              <el-form-item class="form-item">
+                <el-select
+                  v-model="item.target"
+                  style="width: 100%"
+                  :placeholder="t('chart.apply_to')"
+                  @change="changeThreshold"
+                >
+                  <el-option
+                    v-for="opt in targetOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="2" v-if="!isHeatmap && item.target === 'custom'">
+              <el-form-item class="form-item">
+                <el-select
+                  v-model="item.targetFieldId"
+                  :placeholder="t('chart.field')"
+                  style="width: 100%"
+                  @change="changeThreshold"
+                >
+                  <el-option
+                    class="series-select-option"
+                    v-for="targetField in state.fields"
+                    :key="targetField.id"
+                    :label="targetField.name"
+                    :value="targetField.id"
+                  >
+                    <el-icon style="margin-right: 8px">
+                      <Icon
+                        ><component
+                          :class="`field-icon-${
+                            fieldType[[2, 3].includes(targetField.deType) ? 2 : 0]
+                          }`"
+                          class="svg-icon"
+                          :is="iconFieldMap[fieldType[targetField.deType]]"
+                        ></component
+                      ></Icon>
+                    </el-icon>
+                    {{ targetField.name }}
+                  </el-option>
+                </el-select>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="2">
               <el-form-item class="form-item" :label="t('chart.textColor')">
                 <el-color-picker
                   is-custom
-                  size="large"
                   v-model="item.color"
                   show-alpha
+                  :trigger-width="54"
                   class="color-picker-style"
                   :predefine="predefineColors"
                   @change="changeThreshold"
                 />
               </el-form-item>
             </el-col>
-            <el-col :span="3">
+            <el-col :span="2">
               <el-form-item class="form-item" :label="t('chart.backgroundColor')">
                 <el-color-picker
                   is-custom
-                  size="large"
+                  size="default"
                   v-model="item.backgroundColor"
+                  :trigger-width="54"
                   show-alpha
                   class="color-picker-style"
                   :predefine="predefineColors"
@@ -810,7 +1004,7 @@ init()
 <style lang="less" scoped>
 .field-item {
   width: 100%;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 10px 16px;
   margin-top: 10px;
   background: #f5f6f7;
@@ -858,18 +1052,12 @@ span {
   font-size: 12px;
 }
 
-.color-picker-style {
+:deep(.color-picker-style) {
   cursor: pointer;
   z-index: 1003;
-  width: 28px;
-  height: 28px;
+  height: 32px;
+  line-height: 32px;
 }
-
-.color-picker-style :deep(.el-color-picker__trigger) {
-  width: 28px;
-  height: 28px;
-}
-
 .color-title {
   color: #646a73;
   font-size: 14px;
@@ -882,7 +1070,7 @@ span {
 .tip {
   font-size: 12px;
   background: #d6e2ff;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 10px 20px;
   display: flex;
   align-items: center;

@@ -10,6 +10,9 @@ public class DataVisualizationConstants {
 
         // 主工程
         public static final String MAIN = "main";
+
+        // 主工程编辑区
+        public static final String MAIN_EDIT = "main-edit";
     }
 
     //新建仪表板来源
@@ -46,7 +49,6 @@ public class DataVisualizationConstants {
         public static final String LEAF = "leaf";
     }
 
-
     //操作
     public static final class RESOURCE_OPT_TYPE {
         //新建资源节点
@@ -71,5 +73,4 @@ public class DataVisualizationConstants {
         //公共
         public static final String PUBLIC = "public";
     }
-
 }

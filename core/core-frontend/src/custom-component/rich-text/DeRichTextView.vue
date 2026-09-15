@@ -9,7 +9,7 @@
     :style="richTextStyle"
   >
     <chart-error v-if="isError" :err-msg="errMsg" />
-    <Editor
+    <editor
       v-if="editShow && !isError"
       v-model="myValue"
       class="custom-text-content"
@@ -29,9 +29,19 @@
 </template>
 
 <script setup lang="ts">
-import { formatDataEaseBi } from '@/utils/url'
+import { formatDataEaseBi, getResourceBaseUrl } from '@/utils/url'
 import tinymce from 'tinymce/tinymce' // tinymce默认hidden，不引入不显示
-import Editor from '@tinymce/tinymce-vue' // 编辑器引入
+import 'tinymce/tinymce'
+import Editor from '@tinymce/tinymce-vue'
+import 'tinymce/models/dom'
+import 'tinymce/themes/silver'
+// Icon
+import 'tinymce/icons/default'
+// 語言包
+import 'tinymce-i18n/langs6/zh-Hans.js'
+// 引入插件
+// 源代码
+import 'tinymce/plugins/code'
 import 'tinymce/themes/silver/theme' // 编辑器主题
 import 'tinymce/icons/default' // 引入编辑器图标icon，不引入则不显示对应图标
 // 引入编辑器插件（基本免费插件都在这儿了）
@@ -44,11 +54,9 @@ import 'tinymce/plugins/charmap' // 特殊字符
 import 'tinymce/plugins/media' // 插入编辑媒体
 import 'tinymce/plugins/wordcount' // 字数统计
 import 'tinymce/plugins/table' // 表格
-import 'tinymce/plugins/contextmenu' // contextmenu
 import 'tinymce/plugins/directionality'
 import 'tinymce/plugins/nonbreaking'
 import 'tinymce/plugins/pagebreak'
-import '@npkg/tinymce-plugins/letterspacing'
 import './plugins' //自定义插件
 import { computed, nextTick, reactive, ref, toRefs, watch, onMounted, PropType } from 'vue'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
@@ -61,16 +69,22 @@ import ChartError from '@/views/chart/components/views/components/ChartError.vue
 import { useEmitt } from '@/hooks/web/useEmitt'
 import { valueFormatter } from '@/views/chart/components/js/formatter'
 import { parseJson } from '@/views/chart/components/js/util'
-import { mappingColor } from '@/views/chart/components/js/panel/common/common_table'
-import { CHART_FONT_FAMILY } from '@/views/chart/components/editor/util/chart'
+import {
+  isNumeric,
+  mappingColorCustom
+} from '@/views/chart/components/js/panel/common/common_table'
+import { CHART_FONT_FAMILY_ORIGIN } from '@/views/chart/components/editor/util/chart'
 import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
 const snapshotStore = snapshotStoreWithOut()
 const errMsg = ref('')
 const dvMainStore = dvMainStoreWithOut()
-const { canvasViewInfo } = storeToRefs(dvMainStore)
+const { canvasViewInfo, mobileInPc } = storeToRefs(dvMainStore)
 const isError = ref(false)
 const appearanceStore = useAppearanceStoreWithOut()
-
+import { useUserStoreWithOut } from '@/store/modules/user'
+const userStore = useUserStoreWithOut()
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 const props = defineProps({
   scale: {
     type: Number,
@@ -113,7 +127,6 @@ const props = defineProps({
 })
 
 const { element, editMode, active, disabled, showPosition, suffixId } = toRefs(props)
-
 const state = reactive({
   emptyValue: '-',
   data: null,
@@ -122,6 +135,13 @@ const state = reactive({
   firstRender: true,
   previewFirstRender: true
 })
+const language_map = {
+  en: 'en_US',
+  tw: 'zh_TW',
+  'zh-CN': 'zh_CN'
+}
+
+const language = language_map[userStore.getLanguage]
 const dataRowSelect = ref({})
 const dataRowNameSelect = ref({})
 const dataRowNameSelectSource = ref({})
@@ -130,51 +150,55 @@ const initReady = ref(false)
 const editShow = ref(true)
 const canEdit = ref(false)
 // 初始化配置
-const tinymceId = 'tinymce-view-' + element.value.id + '-' + suffixId.value
+const tinymceId =
+  'tinymce-view-' + element.value.id + '-' + suffixId.value + '-' + showPosition.value
 const myValue = ref('')
-const cellDragStart = ref(0)
 
 const systemFontFamily = appearanceStore.fontList.map(item => item.name)
 const curFontFamily = () => {
   let result = ''
-  CHART_FONT_FAMILY.concat(
+  CHART_FONT_FAMILY_ORIGIN.concat(
     appearanceStore.fontList.map(ele => ({
       name: ele.name,
       value: ele.name
     }))
   ).forEach(font => {
-    result = result + font.name + '=' + font.name + ';'
+    result = result + font.name + '=' + font.value + ';'
   })
   return result
 }
-
+const outerPlaceholder = t('visualization.component_input_tips')
 const init = ref({
   selector: '#' + tinymceId,
   toolbar_items_size: 'small',
-  language_url: formatDataEaseBi('./tinymce-dataease-private/langs/zh_CN.js'), // 汉化路径是自定义的，一般放在public或static里面
-  language: 'zh_CN',
-  skin_url: formatDataEaseBi('./tinymce-dataease-private/skins/ui/oxide'), // 皮肤
-  content_css: formatDataEaseBi('./tinymce-dataease-private/skins/content/default/content.css'),
+  language_url: formatDataEaseBi(
+    `${getResourceBaseUrl()}tinymce-dataease-private/langs/${language}.js`
+  ), // 汉化路径是自定义的，一般放在public或static里面
+  language: language,
+  skin_url: formatDataEaseBi(`${getResourceBaseUrl()}tinymce-dataease-private/skins/ui/oxide`), // 皮肤
+  content_css: formatDataEaseBi(
+    `${getResourceBaseUrl()}tinymce-dataease-private/skins/content/default/content.css`
+  ),
   plugins:
-    'vertical-content advlist autolink link image lists charmap  media wordcount table contextmenu directionality pagebreak letterspacing', // 插件
+    'vertical-content advlist autolink link image lists charmap  media wordcount table directionality pagebreak letterspacing', // 插件
   // 工具栏
   toolbar:
-    'undo redo | fontselect fontsizeselect |forecolor backcolor bold italic letterspacing |underline strikethrough link lineheight| formatselect |' +
+    'undo redo | fontfamily fontsize |forecolor backcolor bold italic letterspacing |underline strikethrough link lineheight| blocks |' +
     'top-align center-align bottom-align | alignleft aligncenter alignright | bullist numlist |' +
     ' blockquote subscript superscript removeformat | table image ',
   toolbar_location: '/',
-  font_formats: curFontFamily(),
-  fontsize_formats: '12px 14px 16px 18px 20px 22px 24px 28px 32px 36px 42px 48px 56px 72px', // 字体大小
+  font_family_formats: curFontFamily(),
+  font_size_formats:
+    '12px 14px 16px 18px 20px 22px 24px 28px 32px 36px 42px 48px 56px 72px 80px 90px 100px 110px 120px 140px 150px 170px 190px 210px', // 字体大小
   menubar: false,
   placeholder: '',
-  outer_placeholder: '双击输入文字',
+  outer_placeholder: outerPlaceholder,
   inline: true, // 开启内联模式
   branding: false,
-  icons: 'vertical-content',
+  relative_urls: false,
+  remove_script_host: false,
+  convert_urls: false,
   vertical_align: element.value.propValue.verticalAlign,
-  table_default_attributes: {
-    width: '400' // 使用 table_default_attributes 设置表格的宽度
-  },
   table_default_styles: {
     width: '400px' // 或者使用 table_default_styles 设置宽度，单位为 px
   },
@@ -219,12 +243,12 @@ const init = ref({
       })
 
       // 监听 mouseup 事件以结束调整
-      doc.addEventListener('mouseup', event => {
+      doc.addEventListener('mouseup', () => {
         if (cloneHandle) {
           // 显示原始手柄并移除克隆手柄
           originalHandle.style.display = ''
           if (cloneHandle) {
-            cloneHandle.parentNode.removeChild(cloneHandle) // 获取原手柄的父元素
+            cloneHandle.parentNode?.removeChild(cloneHandle) // 获取原手柄的父元素
           }
           cloneHandle = null
           originalHandle = null
@@ -285,7 +309,7 @@ watch(
   () => active.value,
   val => {
     if (!val) {
-      const ed = tinymce.editors[tinymceId]
+      const ed = tinymce.get(tinymceId)
       if (canEdit.value) {
         element.value.propValue.textValue = ed?.getContent()
       }
@@ -302,13 +326,13 @@ watch(
   () => myValue.value,
   () => {
     if (canEdit.value) {
-      const ed = tinymce.editors[tinymceId]
+      const ed = tinymce.get(tinymceId)
       element.value.propValue.textValue = ed?.getContent()
     }
     if (initReady.value && canEdit.value) {
       snapshotStore.recordSnapshotCache('renderChart', element.value.id)
-      initFontFamily(myValue.value)
     }
+    initFontFamily(myValue.value)
   }
 )
 const ALIGN_MAP = {
@@ -347,7 +371,7 @@ const viewInit = () => {
 const initCurFieldsChange = () => {
   if (!canEdit.value) {
     myValue.value = assignment(element.value.propValue.textValue)
-    const ed = tinymce.editors[tinymceId]
+    const ed = tinymce.get(tinymceId)
     ed.setContent(myValue.value)
   }
 }
@@ -370,35 +394,59 @@ const jumpTargetAdaptor = () => {
 }
 
 const assignment = content => {
-  const on = content.match(/\[(.+?)\]/g)
-  if (on) {
-    const thresholdStyleInfo = conditionAdaptor(state.viewDataInfo)
-    on.forEach(itm => {
-      if (dataRowFiledName.value.includes(itm)) {
-        const ele = itm.slice(1, -1)
-        let value = dataRowNameSelect.value[ele] !== undefined ? dataRowNameSelect.value[ele] : null
-        let targetValue = !!value ? value : state.emptyValue
-        if (thresholdStyleInfo && thresholdStyleInfo[ele]) {
-          const thresholdStyle = thresholdStyleInfo[ele]
-          targetValue = `<span style="color:${thresholdStyle.color};background-color: ${thresholdStyle.backgroundColor}">${targetValue}</span>`
+  if (content) {
+    // data-mce-content 属性内的占位符只是 tinymce 元数据，展示时无需处理，先移除避免重复匹配
+    content = content.replace(/\sdata-mce-content="[^"]*"/g, '')
+    const on = content?.match(/\[(.+?)\]/g) || []
+    if (on) {
+      const thresholdStyleInfo = conditionAdaptor(state.viewDataInfo)
+      on.forEach(itm => {
+        if (dataRowFiledName.value.includes(decodeHTMLEntities(itm))) {
+          const ele = itm.slice(1, -1)
+          let value =
+            dataRowNameSelect.value[ele] !== undefined ? dataRowNameSelect.value[ele] : null
+          let targetValue = !!value ? value : state.emptyValue
+          if (thresholdStyleInfo && thresholdStyleInfo[ele]) {
+            const thresholdStyle = thresholdStyleInfo[ele]
+            targetValue = `<span style="color:${thresholdStyle.color};background-color: ${thresholdStyle.backgroundColor}">${targetValue}</span>`
+          }
+          if (initReady.value) {
+            content = content.replace(itm, targetValue)
+          } else {
+            content = content.replace(itm, !!value ? targetValue : '[获取中...]')
+          }
+        } else if (!canEdit.value && !initReady.value) {
+          content = content.replace(itm, '<span class="de-field-loading">&nbsp;</span>')
         }
-        if (initReady.value) {
-          content = content.replace(itm, targetValue)
-        } else {
-          content = content.replace(itm, !!value ? targetValue : '[获取中...]')
-        }
-      }
-    })
+      })
+    }
+    content = content.replace('class="base-selected"', '')
+    //De 本地跳转失效问题
+    content = content.replace(/href="#\//g, 'href="/#/')
+    content = content.replace(/href=\\"#\//g, 'href=\\"/#/')
+    content = content.replace(/href=\\"#\//g, 'href=\\"/#/')
+    resetSelect()
+    initFontFamily(content)
+    jumpTargetAdaptor()
   }
-  content = content.replace('class="base-selected"', '')
-  //De 本地跳转失效问题
-  content = content.replace(/href="#\//g, 'href="/#/')
-  content = content.replace(/href=\\"#\//g, 'href=\\"/#/')
-  content = content.replace(/href=\\"#\//g, 'href=\\"/#/')
-  resetSelect()
-  initFontFamily(content)
-  jumpTargetAdaptor()
+
   return content
+}
+
+const decodeHTMLEntities = text => {
+  if (!text) return text
+
+  const textarea = document.createElement('textarea')
+  textarea.innerHTML = text
+  return textarea.value
+}
+
+const encodeHTMLEntities = text => {
+  if (!text) return text
+
+  const textarea = document.createElement('textarea')
+  textarea.textContent = text
+  return textarea.innerHTML
 }
 const initFontFamily = htmlText => {
   const regex = /font-family:\s*([^;"]+);/g
@@ -411,14 +459,12 @@ const initFontFamily = htmlText => {
   }
 }
 const fieldSelect = field => {
-  const ed = tinymce.editors[tinymceId]
+  const ed = tinymce.get(tinymceId)
   const fieldId = 'changeText-' + guid()
   const value =
     '<span id="' +
     fieldId +
-    '"><span class="mceNonEditable" contenteditable="false" data-mce-content="[' +
-    field.name +
-    ']">[' +
+    '"><span class="mceNonEditable" contenteditable="false">[' +
     field.name +
     ']</span></span>'
   const attachValue = '<span id="attachValue">&nbsp;</span>'
@@ -428,7 +474,11 @@ const fieldSelect = field => {
 }
 const onClick = () => {
   if (canEdit.value) {
-    const node = tinymce.activeEditor.selection.getNode()
+    const ed = tinymce.get(tinymceId)
+    if (!ed?.selection) {
+      return
+    }
+    const node = ed.selection.getNode()
     resetSelect(node)
   }
 }
@@ -459,7 +509,8 @@ const computedCanEdit = computed<boolean>(() => {
     editStatus.value &&
     canEdit.value === false &&
     !isError.value &&
-    !disabled.value
+    !disabled.value &&
+    !mobileInPc.value
   )
 })
 
@@ -483,7 +534,7 @@ const setEdit = () => {
       canEdit.value = true
       element.value['editing'] = true
       myValue.value = element.value.propValue.textValue
-      const ed = tinymce.editors[tinymceId]
+      const ed = tinymce.get(tinymceId)
       ed.setContent(myValue.value)
       reShow()
     }
@@ -500,17 +551,25 @@ const reShow = () => {
 const editCursor = () => {
   setTimeout(() => {
     const myDiv = document.getElementById(tinymceId)
-    // 让光标聚焦到文本末尾
+    // Focus the cursor on the end of the text
     const range = document.createRange()
     const sel = window.getSelection()
-    if (myDiv.childNodes) {
-      range.setStart(myDiv.childNodes[myDiv.childNodes.length - 1], 1)
+    if (myDiv && myDiv.childNodes.length) {
+      const lastNode = myDiv.childNodes[myDiv.childNodes.length - 1]
+      // 文本节点用字符长度，元素节点用子节点数量作为可用偏移的上限
+      const maxOffset =
+        lastNode.nodeType === Node.TEXT_NODE
+          ? lastNode.textContent?.length ?? 0
+          : lastNode.childNodes.length
+      range.setStart(lastNode, Math.min(1, maxOffset))
       range.collapse(false)
-      sel.removeAllRanges()
-      sel.addRange(range)
+      if (sel) {
+        sel.removeAllRanges()
+        sel.addRange(range)
+      }
     }
-    // 对于一些浏览器，可能需要设置光标到最后的另一种方式
-    if (myDiv.focus) {
+    // For some browsers, it may be necessary to set the cursor to the end in another way
+    if (myDiv && myDiv.focus) {
       myDiv.focus()
     }
     tinymce.init({
@@ -532,11 +591,33 @@ const updateEmptyValue = view => {
       : '-'
 }
 
+const checkCompareCalc = view => {
+  let compareCount = 0
+  view.yAxis?.forEach(item => {
+    if (item?.compareCalc?.type !== 'none') {
+      compareCount++
+    }
+  })
+  return compareCount > 0
+}
+
 const calcData = (view: Chart, callback) => {
+  if (!canEdit.value) {
+    initReady.value = false
+    dataRowFiledName.value = []
+    dataRowSelect.value = {}
+    dataRowNameSelect.value = {}
+    dataRowNameSelectSource.value = {}
+    initCurFieldsChange()
+  }
   isError.value = false
   updateEmptyValue(view)
   if (view.tableId || view['dataFrom'] === 'template') {
     const v = JSON.parse(JSON.stringify(view))
+    if (!checkCompareCalc(view)) {
+      v.resultCount = 1
+      v.resultMode = 'custom'
+    }
     getData(v)
       .then(res => {
         if (res.code && res.code !== 0) {
@@ -547,7 +628,8 @@ const calcData = (view: Chart, callback) => {
           state.viewDataInfo = res
           state.totalItems = res?.totalItems
           const curViewInfo = canvasViewInfo.value[element.value.id]
-          if (res.data) {
+          // 此处是编辑时使用，多仪表板嵌入 canvasViewInfo 会被覆盖可能出现无法读取情况
+          if (res.data && curViewInfo) {
             curViewInfo['curFields'] = res.data.fields
           }
           dvMainStore.setViewDataDetails(element.value.id, res)
@@ -636,7 +718,8 @@ const initCurFields = chartDetails => {
       let rowDataValue = rowData[key]
       const rowDataValueSource = rowData[key]
       const f = valueFieldMap[key]
-      if (f && f.formatterCfg) {
+      // 富文本字段可能是 HTML，只有真实数值才套用指标格式进行格式化
+      if (f && f.formatterCfg && [2, 3].includes(f.deType) && isNumeric(rowDataValue)) {
         rowDataValue = valueFormatter(rowDataValue, f.formatterCfg)
       }
       dataRowNameSelect.value[sourceFieldNameIdMap[key]] = rowDataValue
@@ -645,12 +728,10 @@ const initCurFields = chartDetails => {
   }
   element.value.propValue['innerType'] = chartDetails.type
   element.value.propValue['render'] = chartDetails.render
-  if (chartDetails.type === 'rich-text') {
-    nextTick(() => {
-      initCurFieldsChange()
-      eventBus.emit('initCurFields-' + element.value.id)
-    })
-  }
+  nextTick(() => {
+    initCurFieldsChange()
+    eventBus.emit('initCurFields-' + element.value.id)
+  })
 }
 
 // 初始化此处不必刷新
@@ -669,6 +750,18 @@ const conditionAdaptor = (chart: Chart) => {
   if (!threshold.enable) {
     return
   }
+
+  const idNameMapping = {}
+  if (chart.xAxis && Array.isArray(chart.xAxis)) {
+    chart.xAxis.forEach(item => {
+      idNameMapping[item.id] = item.name
+    })
+  }
+  if (chart.yAxis && Array.isArray(chart.yAxis)) {
+    chart.yAxis.forEach(item => {
+      idNameMapping[item.id] = item.name
+    })
+  }
   const res = {}
   const conditions = threshold.tableThreshold ?? []
   if (conditions?.length > 0) {
@@ -676,19 +769,21 @@ const conditionAdaptor = (chart: Chart) => {
       const field = conditions[i]
       let defaultValueColor = 'none'
       let defaultBgColor = 'none'
-      res[field.field.name] = {
-        color: mappingColor(
-          dataRowNameSelectSource.value[field.field.name],
-          defaultValueColor,
-          field,
-          'color'
-        ),
-        backgroundColor: mappingColor(
-          dataRowNameSelectSource.value[field.field.name],
-          defaultBgColor,
-          field,
-          'backgroundColor'
-        )
+      const colorCondition = mappingColorCustom(
+        dataRowNameSelectSource.value[field.field.name],
+        defaultValueColor,
+        field,
+        'color'
+      )
+      const backgroundColorCondition = mappingColorCustom(
+        dataRowNameSelectSource.value[field.field.name],
+        defaultBgColor,
+        field,
+        'backgroundColor'
+      )
+      res[idNameMapping[colorCondition.targetFieldId] || field.field.name] = {
+        color: colorCondition.color,
+        backgroundColor: backgroundColorCondition.color
       }
     }
   }
@@ -772,7 +867,7 @@ defineExpose({
 
 <style lang="less">
 .tox {
-  border-radius: 4px !important;
+  border-radius: 2px !important;
   border-bottom: 1px solid #ccc !important;
   z-index: 1000;
 }
@@ -831,6 +926,31 @@ defineExpose({
   border: none !important;
   ol {
     list-style-type: decimal;
+  }
+}
+
+.de-field-loading {
+  display: inline-block;
+  vertical-align: middle;
+  width: 1em;
+  height: 1em;
+  line-height: 0;
+  overflow: hidden;
+  border: 0.1em solid currentColor;
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 100%;
+  box-sizing: border-box;
+  animation: de-loading-circle infinite 0.75s linear;
+}
+
+@keyframes de-loading-circle {
+  0% {
+    transform: rotate(0);
+  }
+  100% {
+    transform: rotate(360deg);
   }
 }
 </style>

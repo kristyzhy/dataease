@@ -74,6 +74,7 @@ export const dsTypes = [
     extraParams: '',
     charset: [
       'Default',
+      'US7ASCII',
       'GBK',
       'BIG5',
       'ISO-8859-1',
@@ -111,7 +112,13 @@ export const dsTypes = [
   },
   {
     type: 'Excel',
-    name: 'Excel',
+    name: t('common.local_excel'),
+    catalog: 'LOCAL',
+    extraParams: ''
+  },
+  {
+    type: 'ExcelRemote',
+    name: t('common.remote_excel'),
     catalog: 'LOCAL',
     extraParams: ''
   }
@@ -148,6 +155,9 @@ export interface Configuration {
   sshUserName: string
   sshType: string
   sshPassword: string
+  sslCA: string
+  sslCert: string
+  sslKey: string
 }
 
 export interface ApiConfiguration {
@@ -156,6 +166,7 @@ export interface ApiConfiguration {
   type: string
   deTableName: string
   method: string
+  copy: boolean
   url: string
   status: string
   useJsonPath: boolean
@@ -178,6 +189,7 @@ export interface Node {
   name: string
   createBy: string
   creator: string
+  copy: boolean
   createTime: string
   id: number | string
   size: number

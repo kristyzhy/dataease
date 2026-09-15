@@ -37,7 +37,7 @@
       :themes="themes"
     ></common-attr>
     <el-row v-else class="view-selected-message-class">
-      <span class="select-view">请选择组件...</span>
+      <span class="select-view">{{ t('visualization.component_select_tips') }}</span>
     </el-row>
   </div>
 </template>
@@ -51,7 +51,8 @@ import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapsho
 import CommonAttr from '@/custom-component/common/CommonAttr.vue'
 const dvMainStore = dvMainStoreWithOut()
 const snapshotStore = snapshotStoreWithOut()
-
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 const { batchOptComponentInfo, batchOptComponentType, mixProperties, mixPropertiesInner } =
   storeToRefs(dvMainStore)
 const param = { id: 'mixId', optType: 'edit' }
@@ -61,7 +62,7 @@ const state = reactive({
   quotaData: []
 })
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     themes?: EditorTheme
   }>(),
@@ -112,7 +113,7 @@ const onLegendChange = (val, prop) => {
 
 const onBackgroundChange = val => {
   dvMainStore.setBatchChangeBackground(val)
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('onBackgroundChange')
 }
 const onBasicStyleChange = (val, prop) => {
   //基础样式差异化处理

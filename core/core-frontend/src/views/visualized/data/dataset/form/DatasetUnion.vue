@@ -8,6 +8,7 @@ import icon_intersect from '@/assets/svg/icon_intersect.svg'
 import icon_leftAssociation from '@/assets/svg/icon_left-association.svg'
 import icon_rightAssociation from '@/assets/svg/icon_right-association.svg'
 import icon_sql_outlined from '@/assets/svg/icon_sql_outlined.svg'
+import { getCSSVariable } from '@/utils/color'
 import referenceTable from '@/assets/svg/reference-table.svg'
 import icon_moreVertical_outlined from '@/assets/svg/icon_more-vertical_outlined.svg'
 import { reactive, computed, ref, nextTick, inject, type Ref, watch, unref } from 'vue'
@@ -19,7 +20,7 @@ import { guid } from './util'
 import { HandleMore } from '@/components/handle-more'
 import { propTypes } from '@/utils/propTypes'
 import UnionFieldList from './UnionFieldList.vue'
-import type { Node, Field } from './util'
+import { type Node, type Field, num } from './util'
 import { getTableField } from '@/api/dataset'
 import type { SqlNode } from './AddSql.vue'
 import { cloneDeep } from 'lodash-es'
@@ -41,8 +42,9 @@ const props = defineProps({
 })
 
 const primaryColor = computed(() => {
-  return appearanceStore.themeColor === 'custom' ? appearanceStore.customColor : '#3370FF'
+  return appearanceStore.themeColor === 'custom' ? appearanceStore.customColor : getCSSVariable()
 })
+const isCross = inject<Ref>('isCross')
 
 const iconName = {
   left: icon_leftAssociation,
@@ -62,7 +64,7 @@ const sqlNode = ref<SqlNode>()
 const allfields = inject('allfields') as Ref
 
 const getNodeField = ({ datasourceId, id, info, tableName, type, currentDsFields }) => {
-  return getTableField({ datasourceId, id, info, tableName, type })
+  return getTableField({ datasourceId, id, info, tableName, type, isCross: isCross.value })
     .then(res => {
       const idOriginNameMap = allfields.value.reduce((pre, next) => {
         pre[`${next.datasetTableId}${next.originName}`] = next.id
@@ -220,18 +222,20 @@ const saveSqlNode = (val: SqlNode, cb) => {
       unionFields: [],
       currentDsFields: []
     })
-    state.visualNode.confirm = true
     if (!state.nodeList.length) {
       state.visualNode.tableName = tableName
-      state.nodeList.push(state.visualNode)
-      currentNode.value = state.nodeList[0]
       getTableField({
         datasourceId,
         id: id,
         info: state.visualNode.info,
         tableName,
-        type: 'sql'
+        type: 'sql',
+        isCross: isCross.value,
+        sqlVariableDetails
       }).then(res => {
+        state.visualNode.confirm = true
+        state.nodeList.push(state.visualNode)
+        currentNode.value = state.nodeList[0]
         nodeField.value = res as unknown as Field[]
         nodeField.value.forEach(ele => {
           ele.checked = true
@@ -239,13 +243,33 @@ const saveSqlNode = (val: SqlNode, cb) => {
         state.nodeList[0].currentDsFields = cloneDeep(res)
         cb?.()
         confirmEditUnion()
+        confirm()
       })
-      confirm()
+    } else {
+      getTableField({
+        datasourceId,
+        id: id,
+        info: state.visualNode.info,
+        tableName,
+        type: 'sql',
+        isCross: isCross.value,
+        sqlVariableDetails
+      }).then(() => {
+        state.visualNode.confirm = true
+        cb?.()
+      })
     }
     return
   }
-  const obj = { info: JSON.stringify({ table: tableName, sql }), id, tableName, sqlVariableDetails }
+  const obj = {
+    info: JSON.stringify({ table: tableName, sql }),
+    id,
+    datasourceId,
+    tableName,
+    sqlVariableDetails
+  }
   dfsNodeBack([obj], [id], state.nodeList)
+  cb?.()
   emits('reGetName')
 }
 
@@ -261,13 +285,15 @@ const closeSqlNode = () => {
     changeSqlId.value.length === 1
   ) {
     currentNode.value = state.nodeList[0]
-    const { datasourceId, id, info, tableName } = currentNode.value
+    const { datasourceId, id, info, tableName, sqlVariableDetails } = currentNode.value
     getTableField({
       datasourceId,
       id,
       info,
       tableName,
-      type: 'sql'
+      type: 'sql',
+      isCross: isCross.value,
+      sqlVariableDetails: sqlVariableDetails
     }).then(res => {
       const idOriginNameMap = allfields.value.reduce((pre, next) => {
         pre[`${next.datasetTableId}${next.originName}`] = next.id
@@ -320,12 +346,11 @@ const closeEditUnion = () => {
   }
   editUnion.value = false
 }
-let num = +new Date()
 
 const setGuid = (arr, id, datasourceId) => {
   arr.forEach(ele => {
     if (!ele.id) {
-      ele.id = `${++num}`
+      ele.id = `${++num.value}`
       ele.datasetTableId = id
       ele.datasourceId = datasourceId
     }
@@ -364,7 +389,7 @@ const confirmEditUnion = () => {
   if (!!ids.length) {
     const idArr = allfields.value.reduce((pre, next) => {
       if (next.extField === 2) {
-        let idMap = next.originName.match(/\[(.+?)\]/g)
+        let idMap = next.originName.match(/\[(.+?)\]/g) || []
         idMap = idMap.filter(
           itx => !next.params?.map(element => element.id).includes(itx.slice(1, -1))
         )
@@ -423,7 +448,7 @@ const confirmEditUnion = () => {
 }
 
 const handleCommand = (ele, command) => {
-  if (command === 'editerField') {
+  if (command === 'editorField') {
     getNodeField(ele)
     currentNode.value = cloneDeep(ele)
   }
@@ -432,7 +457,7 @@ const handleCommand = (ele, command) => {
     tableRename({ name: ele.tableName, id: ele.id })
   }
 
-  if (command === 'editerSql') {
+  if (command === 'editorSql') {
     const { tableName, datasourceId, info, id, sqlVariableDetails } = ele
     if (ele.type === 'sql') {
       sqlNode.value = {
@@ -452,7 +477,7 @@ const handleCommand = (ele, command) => {
     if (!!fakeDelId.length) {
       const idArr = allfields.value.reduce((pre, next) => {
         if (next.extField === 2) {
-          const idMap = next.originName.match(/\[(.+?)\]/g)
+          const idMap = next.originName.match(/\[(.+?)\]/g) || []
           const result = idMap.map(itm => {
             return itm.slice(1, -1)
           })
@@ -549,7 +574,7 @@ const menuList = [
   {
     svgName: icon_textBox_outlined,
     label: t('data_set.field_selection'),
-    command: 'editerField'
+    command: 'editorField'
   },
   {
     svgName: icon_deleteTrash_outlined,
@@ -562,7 +587,7 @@ const sqlMenu = [
   {
     svgName: icon_edit_outlined,
     label: t('data_set.edit_sql'),
-    command: 'editerSql'
+    command: 'editorSql'
   },
   {
     svgName: icon_rename_outlined,
@@ -731,20 +756,20 @@ const flatLine = (item, flatNodeList) => {
   }
   const from = { ...item, d: '' }
   ;(item.children || []).forEach(ele => {
-    let loaclSqlChangeFlag = true
+    let localSqlChangeFlag = true
     changedNodeId.value.some(element => {
       if (
         (element.from === item.id && ele.id === element.to) ||
         (element.from === ele.id && item.id === element.to)
       ) {
-        loaclSqlChangeFlag = false
+        localSqlChangeFlag = false
         return true
       }
       return false
     })
     flatNodeList.push({
       from,
-      sqlChangeFlag: loaclSqlChangeFlag && sqlChangeFlag,
+      sqlChangeFlag: localSqlChangeFlag && sqlChangeFlag,
       isShadow: ele.isShadow || item.isShadow,
       to: {
         ...ele
@@ -908,6 +933,7 @@ const drop_handler = ev => {
       id: currentNode.value.id,
       info: currentNode.value.info,
       tableName,
+      isCross: isCross.value,
       type
     })
       .then(res => {
@@ -1037,7 +1063,7 @@ defineExpose({
 
 const handleActiveNode = ele => {
   activeNodeId.value = ele.id
-  handleCommand(ele, 'editerField')
+  handleCommand(ele, 'editorField')
 }
 
 const emits = defineEmits([
@@ -1190,30 +1216,30 @@ const emits = defineEmits([
   <el-drawer
     :before-close="closeEditUnion"
     v-model="editUnion"
-    custom-class="union-item-drawer"
+    modal-class="union-item-drawer"
     size="600px"
     direction="rtl"
   >
     <template #header v-if="currentNode">
-      <div class="info-content">
+      <div style="width: 100%">
         <div class="info">
-          <span class="label">{{ t('data_set.table_name_de') }}</span>
-          <span :title="currentNode.tableName" class="name ellipsis">{{
+          <span :title="currentNode.tableName" class="label ellipsis">{{
             currentNode.tableName
           }}</span>
         </div>
-        <div class="info">
-          <span class="label">{{ t('data_set.table_remarks') }}</span>
-          <span :title="currentNode.noteName" style="max-width: 240px" class="name ellipsis">{{
-            currentNode.noteName || '-'
-          }}</span>
+        <div class="info" style="margin-top: 4px">
+          <span
+            :title="getDsName(currentNode.datasourceId)"
+            style="max-width: 550px"
+            class="name ellipsis"
+            >{{ t('auth.datasource') }}:{{ getDsName(currentNode.datasourceId) }}</span
+          >
         </div>
-        <span
-          :title="getDsName(currentNode.datasourceId)"
-          style="max-width: 550px"
-          class="ds ellipsis"
-          >{{ t('auth.datasource') }}:{{ getDsName(currentNode.datasourceId) }}</span
-        >
+        <div class="info" style="margin-top: 4px">
+          <span :title="currentNode.noteName" style="max-width: 500px" class="name ellipsis"
+            >{{ t('data_set.table_remarks') }}:{{ currentNode.noteName || '-' }}</span
+          >
+        </div>
       </div>
     </template>
     <union-field-list
@@ -1253,22 +1279,16 @@ const emits = defineEmits([
 
 .union-item-drawer {
   .ed-drawer__header {
-    height: 82px;
+    height: auto;
     font-family: var(--de-custom_font, 'PingFang');
 
     .ed-drawer__close-btn {
-      top: 26px;
-    }
-
-    .info-content {
-      display: flex;
-      flex-wrap: wrap;
+      top: 40.5px;
     }
 
     .info {
+      width: 100%;
       display: flex;
-      flex-direction: column;
-      width: 50%;
       .label {
         font-weight: 500;
         font-size: 16px;
@@ -1278,12 +1298,8 @@ const emits = defineEmits([
       .name {
         font-weight: 400;
         font-size: 14px;
-      }
-      .ds {
-        font-weight: 400;
-        font-size: 14px;
-        max-width: 500px;
         color: #646a73;
+        line-height: 22px;
       }
     }
   }
@@ -1296,7 +1312,7 @@ const emits = defineEmits([
   height: 100%;
   width: 100%;
   border: 1px solid #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
   font-family: var(--de-custom_font, 'PingFang');
   font-size: 14px;
   font-weight: 400;
@@ -1336,7 +1352,7 @@ const emits = defineEmits([
     left: -1px;
     top: -1px;
     background: var(--ed-color-primary);
-    border-radius: 4px 0px 0px 4px;
+    border-radius: 6px 0px 0px 4px;
   }
 }
 

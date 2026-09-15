@@ -1,4 +1,5 @@
 import request from '@/config/axios'
+import { nameTrim } from '@/utils/utils'
 
 export interface DatasetOrFolder {
   name: string
@@ -59,8 +60,20 @@ export const listDatasourceTables = async (data = {}): Promise<IResponse> => {
   })
 }
 
+export const getTableStatus = async (data = {}): Promise<IResponse> => {
+  return request.post({ url: '/datasource/getTableStatus', data }).then(res => {
+    return res
+  })
+}
+
 export const getSchema = (data = {}) => {
   return request.post({ url: '/datasource/getSchema', data })
+}
+
+export const previewCronNextTimes = (data = {}) => {
+  return request.post({ url: '/datasource/cronNextTimes', data }).then(res => {
+    return res?.data || []
+  })
 }
 
 export const previewData = (data = {}) => {
@@ -86,6 +99,7 @@ export const latestUse = async (data = {}) => {
 export const validateById = (id: number) => request.get({ url: '/datasource/validate/' + id })
 
 export const save = async (data = {}): Promise<Dataset> => {
+  nameTrim(data)
   return request.post({ url: '/datasource/save', data }).then(res => {
     return res?.data
   })
@@ -98,6 +112,7 @@ export const perDeleteDatasource = async (id): Promise<boolean> => {
 }
 
 export const update = async (data = {}): Promise<Dataset> => {
+  nameTrim(data)
   return request.post({ url: '/datasource/update', data }).then(res => {
     return res?.data
   })
@@ -110,12 +125,14 @@ export const move = async (data = {}): Promise<Dataset> => {
 }
 
 export const reName = async (data = {}): Promise<Dataset> => {
+  nameTrim(data)
   return request.post({ url: '/datasource/reName', data }).then(res => {
     return res?.data
   })
 }
 
 export const createFolder = async (data = {}): Promise<Dataset> => {
+  nameTrim(data)
   return request.post({ url: '/datasource/createFolder', data }).then(res => {
     return res?.data
   })
@@ -155,6 +172,8 @@ export const getById = (id: number) => request.get({ url: '/datasource/get/' + i
 
 export const getHidePwById = (id: number) => request.get({ url: '/datasource/hidePw/' + id })
 
+export const getSimpleDs = (id: number) => request.get({ url: '/datasource/getSimpleDs/' + id })
+
 export const uploadFile = async (data): Promise<IResponse> => {
   return request
     .post({
@@ -168,7 +187,13 @@ export const uploadFile = async (data): Promise<IResponse> => {
     })
 }
 
+export const loadRemoteFile = async (data = {}) => {
+  return request.post({ url: '/datasource/loadRemoteFile', data })
+}
+
 export const listSyncRecord = (page: number, limit: number, dsId: number | string) =>
   request.post({ url: '/datasource/listSyncRecord/' + dsId + '/' + page + '/' + limit })
 
 export const getDeEngine = () => request.get({ url: '/engine/getEngine' })
+
+export const supportSetKey = () => request.get({ url: '/engine/supportSetKey' })

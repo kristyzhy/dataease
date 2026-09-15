@@ -55,7 +55,7 @@
                vt.SNAPSHOT,
                vt.use_count,
                vtcm.category_id,
-               cor.time as 'recent_use_time'
+               cor.time as `recent_use_time`
         FROM visualization_template vt
                  LEFT JOIN visualization_template_category_map vtcm ON vt.id = vtcm.template_id
                  left JOIN core_opt_recent cor on cor.resource_type = 6 and vt.id = cor.resource_name

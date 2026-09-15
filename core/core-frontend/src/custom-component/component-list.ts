@@ -2,6 +2,10 @@
 import { deepCopy } from '@/utils/utils'
 import { guid } from '@/views/visualized/data/dataset/form/util'
 import { getViewConfig } from '@/views/chart/components/editor/util/chart'
+import { useI18n } from '@/hooks/web/useI18n'
+import { CommonBackground } from '@/components/visualization/component-background/Types'
+import { ShorthandMode } from '@/Types'
+const { t } = useI18n()
 
 export const commonStyle = {
   rotate: 0,
@@ -24,13 +28,13 @@ export const BASE_EVENTS = {
   showTips: false,
   type: 'jump', // openHidden  jump
   typeList: [
-    { key: 'jump', label: '跳转' },
-    { key: 'download', label: '下载' },
-    { key: 'share', label: '分享' },
-    { key: 'fullScreen', label: '全屏' },
-    { key: 'showHidden', label: '弹窗区域' },
-    { key: 'refreshDataV', label: '刷新' },
-    { key: 'refreshView', label: '刷新图表' }
+    { key: 'jump', label: 'jump' },
+    { key: 'download', label: 'download' },
+    { key: 'share', label: 'share' },
+    { key: 'fullScreen', label: 'fullScreen' },
+    { key: 'showHidden', label: 'showHidden' },
+    { key: 'refreshDataV', label: 'refreshDataV' },
+    { key: 'refreshView', label: 'refreshView' }
   ],
   jump: {
     value: 'https://',
@@ -151,7 +155,8 @@ export const HYPERLINKS = {
 
 // 嵌套页面信息
 export const FRAMELINKS = {
-  src: ''
+  src: '',
+  isApp: false
 }
 
 export const defaultStyleValue = {
@@ -175,25 +180,33 @@ export const MULTI_DIMENSIONAL = {
   z: 0
 }
 
-export const COMMON_COMPONENT_BACKGROUND_BASE = {
+export const COMMON_COMPONENT_BACKGROUND_BASE: CommonBackground = {
   backgroundColorSelect: true,
+  backdropFilterEnable: false,
   backgroundImageEnable: false,
   backgroundType: 'innerImage',
   innerImage: 'board/board_1.svg',
   outerImage: null,
-  innerPadding: 12,
-  borderRadius: 0
+  innerPadding: {
+    mode: ShorthandMode.Uniform,
+    top: 12
+  },
+  borderRadius: {
+    mode: ShorthandMode.Uniform,
+    topLeft: 0
+  },
+  backdropFilter: 4
 }
 
 export const COMMON_COMPONENT_BACKGROUND_LIGHT = {
   ...COMMON_COMPONENT_BACKGROUND_BASE,
-  backgroundColor: 'rgba(255,255,255,1)',
+  backgroundColor: 'rgba(255,255,255,0.1)',
   innerImageColor: 'rgba(16, 148, 229,1)'
 }
 
 export const COMMON_COMPONENT_BACKGROUND_DARK = {
   ...COMMON_COMPONENT_BACKGROUND_BASE,
-  backgroundColor: 'rgba(19,28,66,1)',
+  backgroundColor: 'rgba(19,28,66,0.1)',
   innerImageColor: '#1094E5'
 }
 
@@ -209,6 +222,13 @@ export const COMMON_COMPONENT_BACKGROUND_MAP = {
   dark: COMMON_COMPONENT_BACKGROUND_DARK
 }
 
+export const COMMON_TAB_TITLE_BACKGROUND = {
+  enable: false, // 是否启用tab标题背景
+  multiply: false, // 激活状态与非激活状态背景是否复用
+  active: COMMON_COMPONENT_BACKGROUND_LIGHT,
+  inActive: COMMON_COMPONENT_BACKGROUND_LIGHT
+}
+
 export const commonAttr = {
   animations: [],
   canvasId: 'canvas-main',
@@ -220,6 +240,7 @@ export const commonAttr = {
   maintainRadio: false, // 布局时保持宽高比例
   aspectRatio: 1, // 锁定时的宽高比例
   isShow: true, // 是否显示组件
+  dashboardHidden: false, // 仪表板组件隐藏
   category: 'base', //组件类型 base 基础组件 hidden隐藏组件
   // 当前组件动作
   dragging: false,
@@ -233,7 +254,8 @@ export const commonAttr = {
     'videoLinks',
     'streamLinks',
     'carouselInfo',
-    'events'
+    'events',
+    'decoration_style'
   ], // 编辑组件时记录当前使用的是哪个折叠面板，再次回来时恢复上次打开的折叠面板，优化用户体验
   linkage: {
     duration: 0, // 过渡持续时间
@@ -253,8 +275,8 @@ export const commonAttr = {
 const list = [
   {
     component: 'Group',
-    name: '组合',
-    label: '组合',
+    name: t('visualization.view_group'),
+    label: t('visualization.view_group'),
     propValue: '&nbsp;',
     icon: 'icon_graphical',
     innerType: 'Group',
@@ -266,8 +288,8 @@ const list = [
   {
     id: 100000001,
     component: 'GroupArea',
-    name: '组合区域',
-    label: '组合区域',
+    name: 'group_area',
+    label: 'group_area',
     propValue: '&nbsp;',
     icon: 'icon_graphical',
     innerType: 'GroupArea',
@@ -278,12 +300,13 @@ const list = [
   },
   {
     component: 'VQuery',
-    name: '查询',
-    label: '查询',
+    name: t('visualization.query_component'),
+    label: t('visualization.query_component'),
     propValue: '',
     icon: 'icon_search',
     innerType: 'VQuery',
     isHang: false,
+    freeze: false, // 是否冻结再顶部 主画布生效
     x: 1,
     y: 1,
     sizeX: 72,
@@ -305,8 +328,8 @@ const list = [
   },
   {
     component: 'UserView',
-    name: '图表',
-    label: '图表',
+    name: t('visualization.view'),
+    label: t('visualization.view'),
     propValue: { textValue: '', urlList: [] },
     icon: 'bar',
     innerType: 'bar',
@@ -326,8 +349,8 @@ const list = [
   },
   {
     component: 'DeVideo',
-    name: '视频',
-    label: '视频',
+    name: t('visualization.video'),
+    label: t('visualization.video'),
     innerType: 'DeVideo',
     editing: false,
     canvasActive: false,
@@ -345,8 +368,8 @@ const list = [
   },
   {
     component: 'DeStreamMedia',
-    name: '流媒体',
-    label: '流媒体',
+    name: t('visualization.stream_media'),
+    label: t('visualization.stream_media'),
     innerType: 'DeStreamMedia',
     editing: false,
     canvasActive: false,
@@ -364,8 +387,8 @@ const list = [
   },
   {
     component: 'DeFrame',
-    name: '网页',
-    label: '网页',
+    name: t('visualization.web'),
+    label: t('visualization.web'),
     innerType: 'DeFrame',
     editing: false,
     canvasActive: false,
@@ -384,8 +407,8 @@ const list = [
   },
   {
     component: 'DeTimeClock',
-    name: '时间组件',
-    label: '时间组件',
+    name: t('visualization.time_component'),
+    label: t('visualization.time_component'),
     icon: 'dv-more-time-clock',
     innerType: 'DeTimeClock',
     editing: false,
@@ -415,8 +438,8 @@ const list = [
   },
   {
     component: 'Picture',
-    name: '图片',
-    label: '图片',
+    name: t('visualization.picture'),
+    label: t('visualization.picture'),
     icon: 'dv-picture-real',
     innerType: 'Picture',
     editing: false,
@@ -441,8 +464,8 @@ const list = [
   },
   {
     component: 'CanvasIcon',
-    name: '图标',
-    label: '图标',
+    name: t('visualization.icon'),
+    label: t('visualization.icon'),
     propValue: '',
     icon: 'other_material_icon',
     innerType: '',
@@ -455,13 +478,14 @@ const list = [
     style: {
       width: 40,
       height: 40,
-      color: ''
+      color: '',
+      backdropFilter: 'blur(0px)'
     }
   },
   {
     component: 'CanvasBoard',
-    name: '边框',
-    label: '边框',
+    name: t('visualization.board'),
+    label: t('visualization.board'),
     propValue: '',
     icon: 'other_material_board',
     innerType: '',
@@ -474,26 +498,60 @@ const list = [
     style: {
       width: 600,
       height: 300,
-      color: 'rgb(255, 255, 255,1)'
+      color: 'rgb(255, 255, 255,1)',
+      backdropFilter: 'blur(0px)'
+    }
+  },
+  {
+    component: 'DeDecoration',
+    name: t('visualization.decoration'),
+    label: t('visualization.decoration'),
+    propValue: '&nbsp;',
+    icon: 'dv_decoration',
+    style: {
+      width: 400,
+      height: 300,
+      color0: '#298e73',
+      color1: '#2862b7',
+      color2: '#2862b7',
+      dur: 6,
+      reverse: false,
+      borderActive: false,
+      backdropFilter: 'blur(0px)'
+    }
+  },
+  {
+    component: 'DynamicBackground',
+    name: t('visualization.dynamic_background'),
+    label: t('visualization.dynamic_background'),
+    propValue: '&nbsp;',
+    icon: 'dv_dynamic_background',
+    style: {
+      width: 400,
+      height: 300,
+      backgroundColor: 'rgba(236,231,231,0.1)',
+      borderActive: false,
+      backdropFilter: 'blur(0px)'
     }
   },
   {
     component: 'RectShape',
-    name: '矩形',
-    label: '矩形',
+    name: t('visualization.rect_shape'),
+    label: t('visualization.rect_shape'),
     propValue: '&nbsp;',
     icon: 'icon_graphical',
     style: {
       width: 200,
       height: 200,
       backgroundColor: 'rgba(236,231,231,0.1)',
-      borderActive: true
+      borderActive: true,
+      backdropFilter: 'blur(0px)'
     }
   },
   {
     component: 'CircleShape',
-    name: '圆形',
-    label: '圆形',
+    name: t('visualization.circle_shape'),
+    label: t('visualization.circle_shape'),
     propValue: '&nbsp;',
     icon: 'icon_graphical',
     style: {
@@ -502,13 +560,15 @@ const list = [
       borderWidth: 1,
       borderStyle: 'solid',
       borderColor: '#cccccc',
-      backgroundColor: 'rgba(236,231,231,0.1)'
+      borderActive: true,
+      backgroundColor: 'rgba(236,231,231,0.1)',
+      backdropFilter: 'blur(0px)'
     }
   },
   {
     component: 'SvgTriangle',
-    name: '三角形',
-    label: '三角形',
+    name: t('visualization.triangle'),
+    label: t('visualization.triangle'),
     icon: 'icon_graphical',
     propValue: '',
     style: {
@@ -516,17 +576,19 @@ const list = [
       height: 200,
       borderWidth: 1,
       borderColor: '#cccccc',
-      backgroundColor: 'rgba(236,231,231,0.1)'
+      borderActive: true,
+      backgroundColor: 'rgba(236,231,231,0.1)',
+      backdropFilter: 'blur(0px)'
     }
   },
   {
     component: 'DeTabs',
-    name: '选项卡',
-    label: '选项卡',
+    name: t('visualization.tabs'),
+    label: t('visualization.tabs'),
     propValue: [
       {
         name: 'tab',
-        title: '新建Tab',
+        title: t('visualization.new_tab'),
         componentData: [],
         closable: true
       }
@@ -546,14 +608,20 @@ const list = [
       activeFontSize: 18,
       headHorizontalPosition: 'left',
       headFontColor: '#000000',
-      headFontActiveColor: '#000000'
+      headFontActiveColor: '#000000',
+      titleHide: false,
+      showTabTitle: true,
+      // #13540
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      textDecoration: 'none'
     }
   },
   {
     component: 'ScrollText',
-    name: '跑马灯',
-    label: '跑马灯',
-    propValue: '双击编辑文字',
+    name: t('visualization.scroll_text'),
+    label: t('visualization.scroll_text'),
+    propValue: t('visualization.component_input_tips'),
     innerType: 'ScrollText',
     icon: 'scroll-text',
     x: 1,
@@ -569,8 +637,43 @@ const list = [
       color: '',
       padding: 4,
       verticalAlign: 'middle',
-      scrollSpeed: 0,
-      fontFamily: 'Microsoft YaHei'
+      scrollSpeed: 0
+    }
+  },
+  {
+    component: 'DeScreen',
+    name: t('visualization.screen_page'),
+    label: t('visualization.screen_page'),
+    propValue: [
+      {
+        name: 'screen',
+        title: t('visualization.new_screen_page'),
+        screenId: null,
+        closable: true
+      }
+    ],
+    icon: 'tab-screen',
+    innerType: '',
+    editing: false,
+    canvasActive: false,
+    x: 1,
+    y: 1,
+    sizeX: 36,
+    sizeY: 14,
+    style: {
+      width: 600,
+      height: 300,
+      fontSize: 16,
+      activeFontSize: 18,
+      headHorizontalPosition: 'left',
+      headFontColor: '#000000',
+      headFontActiveColor: '#000000',
+      titleHide: false,
+      showTabTitle: true,
+      // #13540
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      textDecoration: 'none'
     }
   }
 ]
@@ -598,8 +701,9 @@ export function findNewComponentFromList(
         COMMON_COMPONENT_BACKGROUND_MAP[curOriginThemes.value]
       )
       newComponent.innerType = innerType
-      if (comp.component === 'DeTabs') {
+      if (['DeTabs', 'DeScreen'].includes(comp.component)) {
         newComponent.propValue[0].name = guid()
+        newComponent['titleBackground'] = deepCopy(COMMON_TAB_TITLE_BACKGROUND)
       }
     }
   })
@@ -609,9 +713,9 @@ export function findNewComponentFromList(
     newComponent.name = viewConfig?.title
     newComponent.label = viewConfig?.title
     newComponent.render = viewConfig?.render
-    newComponent.isPlugin = !!isPlugin
+    newComponent.isPlugin = !!isPlugin || !!viewConfig?.isPlugin
     if (isPlugin) {
-      newComponent.staticMap = staticMap
+      newComponent.staticMap = staticMap || viewConfig?.staticMap
     }
   }
   return newComponent
@@ -623,7 +727,14 @@ export function findBaseDeFaultAttr(componentName) {
     if (comp.component === componentName) {
       const stylePropertyInner = []
       Object.keys(comp.style).forEach(styleKey => {
-        stylePropertyInner.push(styleKey)
+        if (
+          (!['width', 'height'].includes(styleKey) &&
+            componentName === 'VQuery' &&
+            !Object.keys(commonStyle).includes(styleKey)) ||
+          componentName !== 'VQuery'
+        ) {
+          stylePropertyInner.push(styleKey)
+        }
       })
       result = {
         properties: ['common-style', 'background-overall-component'],

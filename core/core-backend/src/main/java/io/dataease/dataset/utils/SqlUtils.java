@@ -43,7 +43,7 @@ public class SqlUtils {
         String sqlRender = sqlNode.toString();
         // 处理sql中多余的`都替换成1个
         sqlRender = sqlRender.replaceAll("(`+)", "`");
-        return sqlRender.replaceAll("`", "");
+        return sqlRender;
     }
 
     private static void addTableSchema(SqlNode sqlNode, Boolean fromOrJoin, String schema, SqlParser.Config config) {
@@ -112,5 +112,4 @@ public class SqlUtils {
             DEException.throwException("使用 Calcite 进行语法分析发生了异常:" + e);
         }
     }
-
 }

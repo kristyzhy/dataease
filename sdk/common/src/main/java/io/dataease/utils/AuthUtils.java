@@ -19,6 +19,10 @@ public class AuthUtils {
         USER_INFO.set(userBO);
     }
 
+    public static void remove() {
+        USER_INFO.remove();
+    }
+
     public static boolean isSysAdmin() {
         TokenUserBO user = null;
         if (ObjectUtils.isEmpty(user = getUser())) {
@@ -31,6 +35,4 @@ public class AuthUtils {
     public static boolean isSysAdmin(Long userId) {
         return userId.equals(SYS_ADMIN_UID);
     }
-
-
 }

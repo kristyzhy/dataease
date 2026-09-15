@@ -18,6 +18,12 @@ public class HtmlResourceFilter implements Filter, Ordered {
     @Value("${dataease.http.cache:false}")
     private Boolean httpCache;
 
+    @Value("${dataease.http.frame-options:SAMEORIGIN}")
+    private String frameOptions;
+
+    @Value("${dataease.http.frame-ancestors:'self'}")
+    private String frameAncestors;
+
     @Override
     public int getOrder() {
         return 99;
@@ -37,6 +43,13 @@ public class HtmlResourceFilter implements Filter, Ordered {
             httpResponse.setHeader(HttpHeaders.PRAGMA, "no-cache");
             httpResponse.setHeader(HttpHeaders.EXPIRES, "0");
         }
+        if (frameOptions != null && !frameOptions.isBlank()) {
+            httpResponse.setHeader("X-Frame-Options", frameOptions);
+        }
+        String frameAncestorsValue = frameAncestors == null || frameAncestors.isBlank() ? "'self'" : frameAncestors;
+        httpResponse.setHeader("Content-Security-Policy", "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors " + frameAncestorsValue);
+        httpResponse.setHeader("X-Content-Type-Options", "nosniff");
+        httpResponse.setHeader("X-XSS-Protection", "1; mode=block");
         // 继续执行过滤器链
         try {
             filterChain.doFilter(servletRequest, httpResponse);

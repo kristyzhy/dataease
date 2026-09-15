@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { toRefs } from 'vue'
+import { useCache } from '@/hooks/web/useCache'
 
+const { wsCache } = useCache('localStorage')
 const props = defineProps({
   cardInfo: {
     type: Object,
@@ -17,39 +19,35 @@ const { cardInfo } = toRefs(props)
 
 const openBlank = () => {
   if (cardInfo.value.url) {
-    window.open(cardInfo.value.url)
+    const openType = wsCache.get('open-backend') === '1' ? '_self' : '_blank'
+    window.open(cardInfo.value.url, openType)
   }
 }
 </script>
 
 <template>
   <div class="doc-card" @click="openBlank">
-    <el-row class="base-show">
-      <Icon class-name="item-top-icon"
-        ><component class="svg-icon item-top-icon" :is="cardInfo.icon"></component
-      ></Icon>
-    </el-row>
-    <el-row class="base-show show-content"> {{ cardInfo.name }}</el-row>
+    <div class="base-show">
+      <Icon><component class="svg-icon item-top-icon" :is="cardInfo.icon"></component></Icon>
+    </div>
+    <div class="base-show show-content">{{ cardInfo.name }}</div>
   </div>
 </template>
 
 <style lang="less" scoped>
 .doc-card {
-  padding-top: 2px;
-  margin-top: 16px;
-  margin-left: 16px;
-  width: 80px;
-  height: 50px;
+  padding: 8px;
+  min-width: 96px;
+  min-height: 66px;
   cursor: pointer;
-  &:hover {
-    background-color: rgba(30, 39, 56, 0.05);
-  }
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  &:hover,
   &:active {
-    background-color: rgba(30, 39, 56, 0.1);
+    background-color: #1f23291a;
+    border-radius: 6px;
   }
-}
-.base-show {
-  justify-content: center;
 }
 
 .show-content {
@@ -58,6 +56,8 @@ const openBlank = () => {
   line-height: 22px;
   font-weight: 400;
   margin-top: 4px;
+  white-space: nowrap;
+  text-align: center;
 }
 
 .item-top-icon {

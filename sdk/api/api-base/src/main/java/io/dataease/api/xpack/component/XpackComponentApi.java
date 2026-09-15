@@ -1,6 +1,7 @@
 package io.dataease.api.xpack.component;
 
 import io.dataease.api.xpack.component.vo.XpackMenuVO;
+import io.dataease.extensions.datafilling.vo.XpackPluginsDfVO;
 import io.dataease.extensions.datasource.vo.XpackPluginsDatasourceVO;
 import io.dataease.extensions.view.vo.XpackPluginsViewVO;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +25,9 @@ public interface XpackComponentApi {
 
     @GetMapping("/dsPlugins")
     List<XpackPluginsDatasourceVO> dsPlugins();
+
+    @GetMapping("/dfPlugins")
+    List<XpackPluginsDfVO> dfPlugins();
 
     @GetMapping("/pluginStaticInfo/{moduleName}")
     void pluginStaticInfo(@PathVariable("moduleName") String moduleName);

@@ -51,4 +51,6 @@ public class VisualizationOuterParamsTargetViewInfoVO implements Serializable {
      * 复制来源ID
      */
     private String copyId;
+
+    private String matchMode;
 }

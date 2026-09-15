@@ -2,12 +2,18 @@ import {
   G2PlotChartView,
   G2PlotDrawOptions
 } from '@/views/chart/components/js/panel/types/impl/g2plot'
-import { cloneDeep, defaultTo, isEmpty, map } from 'lodash-es'
+import { cloneDeep, defaults, defaultTo, isEmpty, map } from 'lodash-es'
 import {
+  configAxisLabelLengthLimit,
+  configPlotTooltipEvent,
+  configRoundAngle,
   getPadding,
+  getTooltipContainer,
+  getTooltipItemConditionColor,
   getYAxis,
   getYAxisExt,
-  setGradientColor
+  setGradientColor,
+  TOOLTIP_TPL
 } from '@/views/chart/components/js/panel/common/common_antv'
 import type {
   BidirectionalBar as G2BidirectionalBar,
@@ -18,6 +24,7 @@ import { useI18n } from '@/hooks/web/useI18n'
 import { valueFormatter } from '@/views/chart/components/js/formatter'
 import type { Options } from '@antv/g2plot/esm'
 import { Group } from '@antv/g-canvas'
+import { getBidirectionalBarLabelFormatter } from './bidirectional-bar-label'
 
 const { t } = useI18n()
 /**
@@ -59,7 +66,8 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
     'tooltip-selector',
     'function-cfg',
     'jump-set',
-    'linkage'
+    'linkage',
+    'threshold'
   ]
   propertyInner = {
     'background-overall-component': ['all'],
@@ -92,7 +100,8 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
     'legend-selector': ['icon', 'orient', 'fontSize', 'color', 'hPosition', 'vPosition'],
     'function-cfg': ['emptyDataStrategy'],
     'label-selector': ['hPosition', 'vPosition', 'seriesLabelFormatter'],
-    'tooltip-selector': ['fontSize', 'color', 'backgroundColor', 'seriesTooltipFormatter', 'show']
+    'tooltip-selector': ['fontSize', 'color', 'backgroundColor', 'seriesTooltipFormatter', 'show'],
+    threshold: ['lineThreshold']
   }
 
   selectorSpec: EditorSelectorSpec = {
@@ -145,7 +154,7 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
     }
     const xAxis = chart.xAxis
     if (xAxis?.length === 1 && xAxis[0].deType === 1) {
-      const values = data2.map(item => item.field)
+      const values = options.data.map(item => item.field)
       options.meta = {
         field: {
           type: 'cat',
@@ -171,7 +180,8 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
         ...sourceData[0]
       }
     })
-
+    configPlotTooltipEvent(chart, newChart)
+    configAxisLabelLengthLimit(chart, newChart)
     return newChart
   }
 
@@ -204,19 +214,9 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
       ...options,
       layout: basicStyle.layout
     }
-    if (basicStyle.radiusColumnBar === 'roundAngle') {
-      const barStyle = {
-        radius: [
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius
-        ]
-      }
-      options = {
-        ...options,
-        barStyle
-      }
+    options = {
+      ...options,
+      ...configRoundAngle(chart, 'barStyle')
     }
     return options
   }
@@ -228,6 +228,12 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
     }
     if (tmpOptions.xAxis.label) {
       delete tmpOptions.xAxis.label.style.textAlign
+      const { lengthLimit } = parseJson(chart.customStyle).xAxis.axisLabel
+      defaults(tmpOptions.xAxis.label, {
+        formatter: value => {
+          return value?.length > lengthLimit ? value.substring(0, lengthLimit) + '...' : value
+        }
+      })
     }
     return tmpOptions
   }
@@ -283,7 +289,8 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
             const formatter = formatterMap[obj.id + '-' + obj.axisType]
             const value = valueFormatter(parseFloat(item.value as string), formatter.formatterCfg)
             const name = isEmpty(formatter.chartShowName) ? formatter.name : formatter.chartShowName
-            result.push({ ...item, name, value })
+            const color = getTooltipItemConditionColor(item)
+            result.push({ ...item, name, value, color })
           })
         const dynamicTooltipValue = optionsData.find(
           d => d.field === originalItems[0]['title']
@@ -299,7 +306,10 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
           })
         }
         return result
-      }
+      },
+      container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+      itemTpl: TOOLTIP_TPL,
+      enterable: true
     }
     return {
       ...options,
@@ -310,15 +320,13 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
   protected configLegend(chart: Chart, options: BidirectionalBarOptions): BidirectionalBarOptions {
     const o = super.configLegend(chart, options)
     if (o.legend) {
-      o.legend.itemName = {
-        formatter: (_text: string, _item: any, index: number) => {
-          const yaxis = chart.yAxis[0]
-          const yaxisExt = chart.yAxisExt[0]
-          if (index === 0) {
-            return yaxis.chartShowName ? yaxis.chartShowName : yaxis.name
-          }
-          return yaxisExt.chartShowName ? yaxisExt.chartShowName : yaxisExt.name
+      o.legend.itemName.formatter = (_text: string, _item: any, index: number) => {
+        const yaxis = chart.yAxis[0]
+        const yaxisExt = chart.yAxisExt[0]
+        if (index === 0) {
+          return yaxis.chartShowName ? yaxis.chartShowName : yaxis.name
         }
+        return yaxisExt.chartShowName ? yaxisExt.chartShowName : yaxisExt.name
       }
     }
     return o
@@ -417,9 +425,9 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
     const yAxisExt = chart.yAxisExt
     const labelAttr = parseJson(chart.customAttr).label
     const formatterMap = labelAttr.seriesLabelFormatter?.reduce((pre, next) => {
-      pre[next.id] = next
+      pre[next.seriesId ?? next.id] = next
       return pre
-    }, {})
+    }, {}) as Record<string, SeriesFormatter>
     let customAttr: DeepPartial<ChartAttr>
     const layoutHorizontal = options.layout === 'horizontal'
     if (chart.customAttr) {
@@ -438,7 +446,8 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
             layout,
             style: {
               fill: l.color,
-              fontSize: l.fontSize
+              fontSize: l.fontSize,
+              fontFamily: chart.fontFamily
             },
             formatter: param => {
               let yaxis = yAxis[0]
@@ -447,7 +456,7 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
                 yaxis = yAxisExt[0]
               }
               const value = param[param['series-field-key']]
-              const labelCfg = formatterMap?.[yaxis.id] as SeriesFormatter
+              const labelCfg = getBidirectionalBarLabelFormatter(formatterMap, yaxis.id, param)
               if (yaxis.formatterCfg) {
                 res = valueFormatter(value, yaxis.formatterCfg)
               }
@@ -485,6 +494,7 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
                   textAlign: label.position === 'middle' ? 'start' : textAlign,
                   textBaseline: 'top',
                   fontSize: labelCfg.fontSize,
+                  fontFamily: chart.fontFamily,
                   fill: labelCfg.color
                 }
               })
@@ -548,6 +558,7 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
 
   protected setupOptions(chart: Chart, options: BidirectionalBarOptions) {
     return flow(
+      this.addConditionsStyleColorToData,
       this.configTheme,
       this.configBasicStyle,
       this.configLabel,
@@ -557,7 +568,8 @@ export class BidirectionalHorizontalBar extends G2PlotChartView<
       this.configYAxis,
       this.configAnalyse,
       this.configSlider,
-      this.configEmptyDataStrategy
+      this.configEmptyDataStrategy,
+      this.configBarConditions
     )(chart, options)
   }
 

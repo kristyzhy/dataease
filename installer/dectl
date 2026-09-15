@@ -45,6 +45,7 @@ function usage() {
    echo "  backup                备份 DATAEASE 服务"
    echo "  restore xxx.tar.gz    还原 DATAEASE 服务"
    echo "  clear-images          清理 DATAEASE 旧版本的相关镜像"
+   echo "  clear-logs            清理 DATAEASE 历史日志"
    echo "  version               查看 DATAEASE 版本"
 }
 function _generate_compose_file_args() {
@@ -57,8 +58,8 @@ function _generate_compose_file_args() {
          compose_files="${compose_files} -f docker-compose-task.yml"
       fi
 
-      if [[ -f $DE_RUNNING_BASE/docker-compose-selenium.yml ]] && [[ "$DE_EXTERNAL_SELENIUM" != "true" ]];then
-         compose_files="${compose_files} -f docker-compose-selenium.yml"
+      if [[ -f $DE_RUNNING_BASE/docker-compose-playwright.yml ]] && [[ "$DE_EXTERNAL_PLAYWRIGHT" != "true" ]];then
+         compose_files="${compose_files} -f docker-compose-playwright.yml"
       fi
    fi
 }
@@ -319,7 +320,21 @@ function clear_images() {
       echo "清理完毕"
    fi
 }
+function clear_logs() {
+   echo "开始清理 DataEase 历史日志"
+   rm -rf ${DE_RUNNING_BASE}/logs/dataease/*.????-??-??.*.log
+   rm -rf ${DE_RUNNING_BASE}/logs/dataease/sync-task/task-handler-log/*
+   echo "" > ${DE_RUNNING_BASE}/logs/dataease/info.log
+   echo "" > ${DE_RUNNING_BASE}/logs/dataease/error.log
+   echo "清理完毕"
+}
 function backup() {
+   # 检查当前目录是否在 DataEase 安装目录或其子目录下
+   if [[ "$(pwd)" == "$DE_RUNNING_BASE" || "$(pwd)" == "$DE_RUNNING_BASE"/* ]]; then
+      echo -e "\033[31m当前目录为 DataEase 安装目录，请切换到其他目录后再执行备份操作！\033[0m"
+      exit 1
+   fi
+
    need_stop=0
    if [[ -z $1 ]];then
       echo "如需备份 DataEase 数据，建议您先停止 DataEase 服务，以保证备份数据的完整性。"
@@ -371,6 +386,7 @@ function restore() {
          mkdir -p $DE_RUNNING_BASE
       fi
       echo "恢复备份 $target"
+      rm -rf $DE_RUNNING_BASE/data/mysql/*
       tar -zxf $target --directory=$DE_RUNNING_BASE
       service dataease start
    else
@@ -406,6 +422,9 @@ function main() {
          ;;
       clear-images)
          clear_images
+         ;;
+      clear-logs)
+         clear_logs
          ;;
       version)
          version

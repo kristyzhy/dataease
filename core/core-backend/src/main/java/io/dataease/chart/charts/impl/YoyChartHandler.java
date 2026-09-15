@@ -1,7 +1,7 @@
 package io.dataease.chart.charts.impl;
 
-
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.dataease.api.dataset.union.DatasetGroupInfoDTO;
 import io.dataease.engine.sql.SQLProvider;
 import io.dataease.engine.trans.ExtWhere2Str;
 import io.dataease.engine.utils.Utils;
@@ -74,7 +74,7 @@ public class YoyChartHandler extends DefaultChartHandler {
             dsList.add(next.getValue().getType());
         }
         boolean needOrder = Utils.isNeedOrder(dsList);
-        boolean crossDs = Utils.isCrossDs(dsMap);
+        boolean crossDs = ((DatasetGroupInfoDTO) formatResult.getContext().get("dataset")).getIsCross();
         // 这里拿到的可能有一年前的数据
         var expandedResult = (T) super.calcChartResult(view, formatResult, filterResult, sqlMap, sqlMeta, provider);
         // 检查同环比过滤，拿到实际数据
@@ -86,7 +86,7 @@ public class YoyChartHandler extends DefaultChartHandler {
             var originSql = SQLProvider.createQuerySQL(sqlMeta, true, needOrder, view);
             originSql = provider.rebuildSQL(originSql, sqlMeta, crossDs, dsMap);
             var request = new DatasourceRequest();
-            request.setDsList(dsMap);
+            fillDatasourceRequest(request, crossDs, dsMap, sqlMap);
             request.setQuery(originSql);
             logger.debug("calcite yoy sql: " + originSql);
             // 实际过滤后的数据
@@ -120,7 +120,7 @@ public class YoyChartHandler extends DefaultChartHandler {
             expandedResult.setQuerySql(originSql);
         }
         // 同环比数据排序
-        expandedResult.setOriginData(sortData(view, expandedResult.getOriginData(),formatResult));
+        expandedResult.setOriginData(sortData(view, expandedResult.getOriginData(), formatResult));
         return expandedResult;
     }
 
@@ -128,7 +128,14 @@ public class YoyChartHandler extends DefaultChartHandler {
         // 维度排序
         List<ChartViewFieldDTO> xAxisSortList = view.getXAxis().stream().filter(x -> !StringUtils.equalsIgnoreCase("none", x.getSort())).toList();
         // 指标排序
-        List<ChartViewFieldDTO> yAxisSortList = view.getYAxis().stream().filter(y -> !StringUtils.equalsIgnoreCase("none", y.getSort())).toList();
+        List<ChartViewFieldDTO> yAxisSortList = view.getYAxis().stream().filter(y -> {
+            //需要针对区间条形图的时间类型判断一下
+            if (StringUtils.equalsIgnoreCase("bar-range", view.getType()) && StringUtils.equalsIgnoreCase(y.getGroupType(), "d") && y.getDeType() == 1) {
+                return false;
+            } else {
+                return !StringUtils.equalsIgnoreCase("none", y.getSort());
+            }
+        }).toList();
         // 不包含维度排序时，指标排序生效
         if (!data.isEmpty() && CollectionUtils.isEmpty(xAxisSortList) && CollectionUtils.isNotEmpty(yAxisSortList)) {
             // 指标排序仅第一个生效

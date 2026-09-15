@@ -5,7 +5,8 @@ import { toRefs } from 'vue'
 import eventBus from '@/utils/eventBus'
 import DragComponent from '@/custom-component/component-group/DragComponent.vue'
 import { commonHandleDragEnd, commonHandleDragStart } from '@/utils/canvasUtils'
-
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 const props = defineProps({
   propValue: {
     type: Array,
@@ -49,7 +50,7 @@ const newComponent = (componentName, innerType) => {
     <drag-component
       :themes="themes"
       :icon="dvRichText"
-      label="富文本"
+      :label="t('visualization.rich_text')"
       drag-info="UserView&rich-text"
       v-on:click="newComponent('UserView', 'rich-text')"
     ></drag-component>
@@ -57,7 +58,7 @@ const newComponent = (componentName, innerType) => {
       v-if="dvModel === 'dataV'"
       :themes="themes"
       :icon="dvScrollText"
-      label="跑马灯"
+      :label="t('visualization.scroll_text')"
       drag-info="ScrollText&ScrollText"
       v-on:click="newComponent('ScrollText', 'ScrollText')"
     ></drag-component>

@@ -1,8 +1,5 @@
 const suffix = `${import.meta.env.VITE_VERSION}-dataease`
 
-const dom = document.querySelector('head')
-const cb = dom.appendChild.bind(dom)
-
 const formatterUrl = <T extends Node>(node: T, prefix: string) => {
   if (['SCRIPT', 'LINK'].includes(node.nodeName)) {
     let url = ''
@@ -14,7 +11,7 @@ const formatterUrl = <T extends Node>(node: T, prefix: string) => {
 
     if (url.includes(suffix) || url.includes('dataease-private')) {
       const currentUrlprefix = new URL(url).origin
-      const newUrl = url.replace(currentUrlprefix, prefix)
+      const newUrl = url.startsWith(prefix) ? url : url.replace(currentUrlprefix, prefix)
       if (node instanceof HTMLLinkElement) {
         node.href = newUrl
       } else if (node instanceof HTMLScriptElement) {
@@ -35,9 +32,9 @@ const getPrefix = (): string => {
       } else if (ele instanceof HTMLScriptElement) {
         url = ele.src
       }
-      if (url.includes(suffix)) {
+      if (url.includes('0.0.0-dataease')) {
         prefix = new URL(url).origin
-        const index = url.indexOf(`/js/div_import_${suffix}`)
+        const index = url.indexOf(`/js/div_import_0.0.0-dataease`)
         if (index > 0) {
           prefix = url.substring(0, index)
         }
@@ -47,22 +44,33 @@ const getPrefix = (): string => {
   })
   return prefix
 }
-
-document.querySelector('head').appendChild = <T extends Node>(node: T) => {
+const element = document.createElement('head')
+document.body.appendChild(element)
+const dom = document.querySelector('head')
+dom.appendChild = <T extends Node>(node: T) => {
   const newNode = formatterUrl(node, getPrefix())
-  cb(newNode)
+  element.appendChild(newNode)
   return newNode
+}
+const rmc = dom.removeChild
+dom.removeChild = <T extends Node>(node: T) => {
+  if (element.contains(node)) {
+    element.removeChild(node)
+  } else {
+    rmc.bind(dom, node)
+  }
+  return node
 }
 import { App, createApp } from 'vue'
 import '@/style/index.less'
 import 'normalize.css/normalize.css'
 import '@antv/s2/dist/style.min.css'
 import AppElement from './App.vue'
-import { setupI18n } from '@/plugins/vue-i18n'
 import { setupStore } from '@/store'
 import { useEmbedded } from '@/store/modules/embedded'
 import { setupElementPlus, setupElementPlusIcons } from '@/plugins/element-plus'
 import { setupRouter } from '@/router/embedded'
+import { useCache } from '@/hooks/web/useCache'
 
 const setupAll = async (
   dom: string,
@@ -75,15 +83,21 @@ const setupAll = async (
   dvId: string,
   pid: string,
   chartId: string,
-  resourceId: string
+  resourceId: string,
+  dfId: string
 ): Promise<App<Element>> => {
   const app = createApp(AppElement, { componentName: type })
-  app.provide('embeddedParams', { chartId, resourceId, dvId, pid, busiFlag, outerParams, suffixId })
-  await setupI18n(app)
+  app.provide('embeddedParams', {
+    chartId,
+    resourceId,
+    dfId,
+    dvId,
+    pid,
+    busiFlag,
+    outerParams,
+    suffixId
+  })
   setupStore(app)
-  setupRouter(app)
-  setupElementPlus(app)
-  setupElementPlusIcons(app)
   const embeddedStore = useEmbedded()
   embeddedStore.setType(type)
   embeddedStore.setBusiFlag(busiFlag)
@@ -94,6 +108,12 @@ const setupAll = async (
   embeddedStore.setDvId(dvId)
   embeddedStore.setPid(pid)
   embeddedStore.setResourceId(resourceId)
+  embeddedStore.setDfId(dfId)
+  const i18 = await import('@/plugins/vue-i18n')
+  await i18.setupI18n(app)
+  setupRouter(app)
+  setupElementPlus(app)
+  setupElementPlusIcons(app)
   const directive = await import('@/directive')
   directive.installDirective(app)
   const res = await import('@/store/modules/user')
@@ -105,6 +125,12 @@ const setupAll = async (
   const appearanceRes = await import('@/store/modules/appearance')
   const appearanceStore = appearanceRes.useAppearanceStoreWithOut()
   appearanceStore.setAppearance(true)
+  const getDefaultSort = await import('@/api/common')
+  const defaultSort = await getDefaultSort.getDefaultSettings()
+  const { wsCache } = useCache()
+  wsCache.set('TreeSort-backend', defaultSort['basic.defaultSort'] ?? '1')
+  wsCache.set('open-backend', defaultSort['basic.defaultOpen'] ?? '0')
+  wsCache.set('embeddedExportMode-backend', defaultSort['basic.embeddedExportMode'] ?? 'sync')
   app.mount(dom)
   return app
 }
@@ -131,11 +157,13 @@ class DataEaseBi {
     | 'Dashboard'
     | 'ScreenPanel'
     | 'DashboardPanel'
+    | 'DataFilling'
   dvId: string
   busiFlag: 'dashboard' | 'dataV'
   outerParams: string
   suffixId: string
   resourceId: string
+  dfId: string
   pid: string
   chartId: string
   deOptions: Options
@@ -152,6 +180,7 @@ class DataEaseBi {
     this.pid = options.pid
     this.chartId = options.chartId
     this.resourceId = options.resourceId
+    this.dfId = options.dfId
   }
 
   async initialize(options: Options) {
@@ -167,7 +196,8 @@ class DataEaseBi {
       this.dvId,
       this.pid,
       this.chartId,
-      this.resourceId
+      this.resourceId,
+      this.dfId
     )
   }
 
@@ -178,7 +208,6 @@ class DataEaseBi {
     embeddedStore.setOuterParams(null)
     embeddedStore.setSuffixId(null)
     embeddedStore.setToken(null)
-    embeddedStore.setBaseUrl(null)
     embeddedStore.setChartId(null)
     embeddedStore.clearState()
     this.vm.unmount()
@@ -187,11 +216,11 @@ class DataEaseBi {
     this.busiFlag = null
     this.outerParams = null
     this.suffixId = null
-    this.baseUrl = null
     this.dvId = null
     this.pid = null
     this.chartId = null
     this.resourceId = null
+    this.dfId = null
     this.vm = null
   }
 }

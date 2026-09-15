@@ -1,6 +1,5 @@
 package io.dataease.dataset.manage;
 
-
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.dataease.api.permissions.dataset.api.ColumnPermissionsApi;
 import io.dataease.api.permissions.dataset.api.RowPermissionsApi;
@@ -138,8 +137,10 @@ public class PermissionManage {
         // 获取当前数据集下，当前用户、角色、组织所有的行权限（非白名单，非禁用）
         List<DataSetRowPermissionsTreeDTO> records = rowPermissionsTree(datasetId, user);
         // 构建权限tree中的field，如果field不存在，置为null
-        for (DataSetRowPermissionsTreeDTO record : records) {
-            getField(record.getTree());
+        if (ObjectUtils.isNotEmpty(datasetId)) {
+            for (DataSetRowPermissionsTreeDTO record : records) {
+                getField(record.getTree());
+            }
         }
         return records;
     }
@@ -154,7 +155,9 @@ public class PermissionManage {
         UserFormVO userEntity = getRowPermissionsApi().getUserById(userId);
         List<Long> roleIds = userEntity.getRoleIds().stream().map(x -> Long.valueOf(x)).collect(Collectors.toList());
         DatasetRowPermissionsTreeRequest dataSetRowPermissionsDTO = new DatasetRowPermissionsTreeRequest();
-        dataSetRowPermissionsDTO.setDatasetId(datasetId);
+        if (ObjectUtils.isNotEmpty(datasetId)) {
+            dataSetRowPermissionsDTO.setDatasetId(datasetId);
+        }
         dataSetRowPermissionsDTO.setEnable(true);
 
         if (ObjectUtils.isNotEmpty(userId)) {
@@ -191,33 +194,7 @@ public class PermissionManage {
             // 替换系统变量
             if (StringUtils.equalsIgnoreCase(record.getAuthTargetType(), "sysParams")) {
                 DatasetRowPermissionsTreeObj tree = JsonUtil.parseObject(record.getExpressionTree(), DatasetRowPermissionsTreeObj.class);
-                List<DatasetRowPermissionsTreeItem> items = new ArrayList<>();
-                for (DatasetRowPermissionsTreeItem datasetRowPermissionsTreeItem : tree.getItems()) {
-                    if (StringUtils.isNotEmpty(userEntity.getAccount()) && datasetRowPermissionsTreeItem.getValue().equalsIgnoreCase("${sysParams.userId}")) {
-                        datasetRowPermissionsTreeItem.setValue(userEntity.getAccount());
-                        items.add(datasetRowPermissionsTreeItem);
-                        continue;
-                    }
-                    if (StringUtils.isNotEmpty(userEntity.getEmail()) && datasetRowPermissionsTreeItem.getValue().equalsIgnoreCase("${sysParams.userEmail}")) {
-                        datasetRowPermissionsTreeItem.setValue(userEntity.getEmail());
-                        items.add(datasetRowPermissionsTreeItem);
-                        continue;
-                    }
-                    if (StringUtils.isNotEmpty(userEntity.getName()) && datasetRowPermissionsTreeItem.getValue().equalsIgnoreCase("${sysParams.userName}")) {
-                        datasetRowPermissionsTreeItem.setValue(userEntity.getName());
-                        items.add(datasetRowPermissionsTreeItem);
-                        continue;
-                    }
-
-                    String value = handleSysVariable(userEntity, datasetRowPermissionsTreeItem);
-                    if (value == null) {
-                        continue;
-                    } else {
-                        datasetRowPermissionsTreeItem.setValue(value);
-                    }
-                    items.add(datasetRowPermissionsTreeItem);
-                }
-                tree.setItems(items);
+                replaceSysVariables(tree, userEntity);
                 record.setTree(tree);
             }
             result.add(record);
@@ -225,10 +202,62 @@ public class PermissionManage {
         return result;
     }
 
+    private void replaceSysVariables(DatasetRowPermissionsTreeObj tree, UserFormVO userEntity) {
+        if (ObjectUtils.isEmpty(tree) || CollectionUtils.isEmpty(tree.getItems())) {
+            return;
+        }
+        List<DatasetRowPermissionsTreeItem> items = new ArrayList<>();
+        for (DatasetRowPermissionsTreeItem item : tree.getItems()) {
+            if (ObjectUtils.isEmpty(item)) {
+                continue;
+            }
+            if (StringUtils.equalsIgnoreCase(item.getType(), "tree") && ObjectUtils.isNotEmpty(item.getSubTree())) {
+                replaceSysVariables(item.getSubTree(), userEntity);
+                if (CollectionUtils.isNotEmpty(item.getSubTree().getItems())) {
+                    items.add(item);
+                }
+                continue;
+            }
+            if (replaceSysVariableValue(userEntity, item)) {
+                items.add(item);
+            }
+        }
+        tree.setItems(items);
+    }
+
+    private boolean replaceSysVariableValue(UserFormVO userEntity, DatasetRowPermissionsTreeItem item) {
+        String itemValue = item.getValue();
+        if (StringUtils.isNotEmpty(userEntity.getAccount()) && StringUtils.equalsIgnoreCase(itemValue, "${sysParams.userId}")) {
+            item.setValue(userEntity.getAccount());
+            return true;
+        }
+        if (StringUtils.isNotEmpty(userEntity.getEmail()) && StringUtils.equalsIgnoreCase(itemValue, "${sysParams.userEmail}")) {
+            item.setValue(userEntity.getEmail());
+            return true;
+        }
+        if (StringUtils.isNotEmpty(userEntity.getName()) && StringUtils.equalsIgnoreCase(itemValue, "${sysParams.userName}")) {
+            item.setValue(userEntity.getName());
+            return true;
+        }
+        if (StringUtils.isNotEmpty(userEntity.getPhone()) && StringUtils.equalsIgnoreCase(itemValue, "${sysParams.userPhone}")) {
+            item.setValue(userEntity.getPhone());
+            return true;
+        }
+        String value = handleSysVariable(userEntity, item);
+        if (value == null) {
+            return false;
+        }
+        item.setValue(value);
+        return true;
+    }
+
     private String handleSysVariable(UserFormVO userEntity, DatasetRowPermissionsTreeItem datasetRowPermissionsTreeItem) {
         String value = null;
         String sysVariable = datasetRowPermissionsTreeItem.getValue();
-        if (StringUtils.isEmpty(sysVariable) && !(sysVariable.startsWith("${") && sysVariable.endsWith("}"))) {
+        if (StringUtils.isEmpty(sysVariable) || !(sysVariable.startsWith("${") && sysVariable.endsWith("}"))) {
+            return value;
+        }
+        if (CollectionUtils.isEmpty(userEntity.getVariables())) {
             return value;
         }
         String variableId = sysVariable.substring(2, sysVariable.length() - 1);
@@ -246,6 +275,7 @@ public class PermissionManage {
                     for (SysVariableValueDto sysVariableValueDto : variable.getValueList()) {
                         if (sysVariableValueDto.getId().equals(variable.getVariableValueId())) {
                             value = sysVariableValueDto.getValue();
+                            break;
                         }
                     }
                 }

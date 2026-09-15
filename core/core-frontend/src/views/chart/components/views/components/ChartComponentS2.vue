@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import {
   computed,
+  CSSProperties,
   inject,
   nextTick,
   onBeforeUnmount,
@@ -15,20 +16,22 @@ import {
 } from 'vue'
 import { getData } from '@/api/chart'
 import chartViewManager from '@/views/chart/components/js/panel'
-import { useAppStoreWithOut } from '@/store/modules/app'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import ViewTrackBar from '@/components/visualization/ViewTrackBar.vue'
 import { storeToRefs } from 'pinia'
 import { S2ChartView } from '@/views/chart/components/js/panel/types/impl/s2'
-import { ElPagination } from 'element-plus-secondary'
+import { ElMessage, ElPagination } from 'element-plus-secondary'
 import ChartError from '@/views/chart/components/views/components/ChartError.vue'
-import { defaultsDeep, cloneDeep } from 'lodash-es'
+import { defaultsDeep, cloneDeep, debounce } from 'lodash-es'
 import { BASE_VIEW_CONFIG } from '../../editor/util/chart'
 import { customAttrTrans, customStyleTrans, recursionTransObj } from '@/utils/canvasStyle'
-import { deepCopy } from '@/utils/utils'
+import { deepCopy, isISOMobile, isMobile } from '@/utils/utils'
 import { useEmitt } from '@/hooks/web/useEmitt'
-import { trackBarStyleCheck } from '@/utils/canvasUtils'
+import { isDashboard, trackBarStyleCheck } from '@/utils/canvasUtils'
 import { type SpreadSheet } from '@antv/s2'
+import { parseJson } from '../../js/util'
+import { useI18n } from '@/hooks/web/useI18n'
+import { hasNextDrillLevel, isCurrentDrillField } from '@/views/chart/components/views/util/drill'
 
 const dvMainStore = dvMainStoreWithOut()
 const {
@@ -40,6 +43,7 @@ const {
   inMobile
 } = storeToRefs(dvMainStore)
 const { emitter } = useEmitt()
+const { t } = useI18n()
 
 const props = defineProps({
   element: {
@@ -82,10 +86,16 @@ const props = defineProps({
     type: String,
     required: false,
     default: 'common'
+  },
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
   }
 })
 
 const emit = defineEmits(['onPointClick', 'onChartClick', 'onDrillFilters', 'onJumpClick'])
+const dataVMobile = !isDashboard() && isMobile()
 
 const { view, showPosition, scale, terminal, drillLength, suffixId } = toRefs(props)
 
@@ -117,6 +127,7 @@ const state = reactive({
   imgEnlarge: false,
   imgSrc: ''
 })
+const PAGE_CHARTS = ['table-info', 'table-normal']
 // 图表数据不用全响应式
 let chartData = shallowRef<Partial<Chart['data']>>({
   fields: []
@@ -125,17 +136,20 @@ let chartData = shallowRef<Partial<Chart['data']>>({
 const containerId = 'container-' + showPosition.value + '-' + view.value.id + '-' + suffixId.value
 const viewTrack = ref(null)
 
-const calcData = (view: Chart, callback, resetPageInfo = true) => {
-  if (view.customAttr.basicStyle.tablePageStyle === 'general') {
+const calcData = (viewInfo: Chart, callback, resetPageInfo = true) => {
+  if (viewInfo.customAttr.basicStyle.tablePageStyle === 'general') {
     if (state.currentPageSize !== 0) {
-      view.chartExtRequest.pageSize = state.currentPageSize
+      viewInfo.chartExtRequest.pageSize = state.currentPageSize
+      state.pageInfo.pageSize = state.currentPageSize
+    } else {
+      viewInfo.chartExtRequest.pageSize = state.pageInfo.pageSize
     }
   } else {
-    delete view.chartExtRequest.pageSize
+    delete viewInfo.chartExtRequest?.pageSize
   }
-  if (view.tableId || view['dataFrom'] === 'template') {
+  if (viewInfo.tableId || viewInfo['dataFrom'] === 'template') {
     isError.value = false
-    const v = JSON.parse(JSON.stringify(view))
+    const v = JSON.parse(JSON.stringify(viewInfo))
     getData(v)
       .then(res => {
         if (res.code && res.code !== 0) {
@@ -144,7 +158,7 @@ const calcData = (view: Chart, callback, resetPageInfo = true) => {
         } else {
           chartData.value = res?.data as Partial<Chart['data']>
           state.totalItems = res?.totalItems
-          dvMainStore.setViewDataDetails(view.id, res)
+          dvMainStore.setViewDataDetails(viewInfo.id, res)
           emit('onDrillFilters', res?.drillFilters)
           renderChart(res as unknown as Chart, resetPageInfo)
         }
@@ -165,27 +179,98 @@ const renderChartFromDialog = (viewInfo: Chart, chartDataInfo) => {
   chartData.value = chartDataInfo
   renderChart(viewInfo, false)
 }
+// 处理存量图表的默认值
+const handleDefaultVal = (chart: Chart) => {
+  const customAttr = parseJson(chart.customAttr)
+  // 明细表默认合并单元格，存量的不合并
+  if (customAttr.tableCell.mergeCells === undefined) {
+    customAttr.tableCell.mergeCells = false
+  }
+  if (chart.type === 'table-pivot') {
+    if (!customAttr.tableTotal?.row?.subTotalsDimensionsNew) {
+      customAttr.tableTotal.row.subTotalsDimensionsNew =
+        !!customAttr.tableTotal.row.subTotalsDimensionsNew
+    }
+    const { tableHeader } = customAttr
+    // 存量透视表处理
+    if (!tableHeader.tableHeaderColBgColor) {
+      tableHeader.tableHeaderColBgColor = tableHeader.tableHeaderBgColor
+      tableHeader.tableHeaderColFontColor = tableHeader.tableHeaderFontColor
+      tableHeader.tableTitleColFontSize = tableHeader.tableTitleFontSize
+      tableHeader.tableHeaderColAlign = tableHeader.tableHeaderAlign
+      tableHeader.isColBolder = tableHeader.isBolder
+      tableHeader.isColItalic = tableHeader.isItalic
+
+      tableHeader.tableHeaderCornerBgColor = tableHeader.tableHeaderBgColor
+      tableHeader.tableHeaderCornerFontColor = tableHeader.tableHeaderFontColor
+      tableHeader.tableTitleCornerFontSize = tableHeader.tableTitleFontSize
+      tableHeader.tableHeaderCornerAlign = tableHeader.tableHeaderAlign
+      tableHeader.isCornerBolder = tableHeader.isBolder
+      tableHeader.isCornerItalic = tableHeader.isItalic
+    }
+  }
+}
+
+/**
+ * 根据图表请求状态恢复 S2 下钻状态
+ * 仪表板在 resize/scale 重绘时可能复用原始 view，但数据仍是下钻后的结果
+ * 这里通过 chartExtRequest.drill 反推 drillFilters，避免表头字段回退
+ *
+ */
+const restoreDrillState = (chart: ChartObj) => {
+  const drillRequests = chart.chartExtRequest?.drill
+  const drillFields = chart.drillFields ?? []
+  if (!drillRequests?.length || chart.drillFilters?.length || drillFields.length < 2) {
+    return
+  }
+  if (drillRequests.length >= drillFields.length) {
+    return
+  }
+  const drillFilters = []
+  for (let index = 0; index < drillRequests.length; index++) {
+    const request = drillRequests[index]
+    const drillField = drillFields[index]
+    const dimension = request.dimensionList?.find(item => item.id === drillField?.id)
+    if (!dimension) {
+      return
+    }
+    drillFilters.push({
+      fieldId: dimension.id,
+      value: dimension.value !== undefined && dimension.value !== null ? [dimension.value] : []
+    })
+  }
+  chart.drill = true
+  chart.drillFilters = drillFilters
+}
+
 const renderChart = (viewInfo: Chart, resetPageInfo: boolean) => {
   if (!viewInfo) {
     return
   }
+  handleDefaultVal(viewInfo)
   // view 为引用对象 需要存库 view.data 直接赋值会导致保存不必要的数据
   actualChart = deepCopy({
     ...defaultsDeep(viewInfo, cloneDeep(BASE_VIEW_CONFIG)),
-    data: chartData.value
+    data: chartData.value,
+    fontFamily: props.fontFamily
   } as ChartObj)
+  restoreDrillState(actualChart)
 
   recursionTransObj(customAttrTrans, actualChart.customAttr, scale.value, terminal.value)
   recursionTransObj(customStyleTrans, actualChart.customStyle, scale.value, terminal.value)
 
+  setupPage(actualChart, resetPageInfo)
+  nextTick(() => debounceRender(resetPageInfo))
+}
+
+const debounceRender = debounce(() => {
   myChart?.facet?.timer?.stop()
   myChart?.facet?.cancelScrollFrame()
   myChart?.destroy()
-  myChart = null
-  setupPage(actualChart, resetPageInfo)
+  myChart?.getCanvasElement()?.remove()
   const chartView = chartViewManager.getChartView(
-    viewInfo.render,
-    viewInfo.type
+    actualChart.render,
+    actualChart.type
   ) as S2ChartView<any>
   myChart = chartView.drawChart({
     container: containerId,
@@ -193,21 +278,25 @@ const renderChart = (viewInfo: Chart, resetPageInfo: boolean) => {
     chartObj: myChart,
     pageInfo: state.pageInfo,
     action,
-    resizeAction
+    resizeAction,
+    touchAction
   })
   myChart?.render()
-  dvMainStore.setViewInstanceInfo(viewInfo.id, myChart)
+  dvMainStore.setViewInstanceInfo(actualChart.id, myChart)
   initScroll()
-}
+}, 500)
 
 const setupPage = (chart: ChartObj, resetPageInfo?: boolean) => {
   const customAttr = chart.customAttr
-  if (chart.type !== 'table-info' || customAttr.basicStyle.tablePageMode !== 'page') {
+  if (!PAGE_CHARTS.includes(chart.type) || customAttr.basicStyle.tablePageMode !== 'page') {
     state.showPage = false
     return
   }
   const pageInfo = state.pageInfo
-  pageInfo.pageSize = customAttr.basicStyle.tablePageSize ?? 20
+  state.pageStyle = customAttr.basicStyle.tablePageStyle
+  if (state.pageStyle !== 'general') {
+    pageInfo.pageSize = customAttr.basicStyle.tablePageSize ?? 20
+  }
   if (state.totalItems > state.pageInfo.pageSize || state.pageStyle === 'general') {
     pageInfo.total = state.totalItems
     state.showPage = true
@@ -217,12 +306,7 @@ const setupPage = (chart: ChartObj, resetPageInfo?: boolean) => {
   if (resetPageInfo) {
     state.pageInfo.currentPage = 1
   }
-  state.pageStyle = customAttr.basicStyle.tablePageStyle
-  if (state.pageStyle === 'general') {
-    if (state.currentPageSize == 0) {
-      state.currentPageSize = pageInfo.pageSize
-    }
-  }
+  dvMainStore.setViewPageInfo(chart.id, state.pageInfo)
 }
 
 const mouseMove = () => {
@@ -244,7 +328,8 @@ const initScroll = () => {
       myChart &&
       senior?.scrollCfg?.open &&
       chartData.value.tableRow?.length &&
-      (view.value.type === 'table-normal' || (view.value.type === 'table-info' && !state.showPage))
+      PAGE_CHARTS.includes(props.view.type) &&
+      !state.showPage
     ) {
       // 防止多次渲染
       myChart.facet.timer?.stop()
@@ -263,23 +348,61 @@ const initScroll = () => {
           ? 1
           : customAttr.tableHeader.tableTitleHeight
       const scrollBarSize = myChart.theme.scrollBar.size
-      const scrollHeight =
-        rowHeight * chartData.value.tableRow.length + headerHeight - offsetHeight + scrollBarSize
+      const basicStyle = customAttr.basicStyle
+
+      // 开启自动换行时，使用 facet 的 viewCellHeights 或 scrollTargetMaxOffset 获取实际的最大滚动距离
+      let maxScrollY: number
+      if (basicStyle?.autoWrap) {
+        // 从滚动条获取实际的滚动范围
+        const vScrollBar = myChart.facet?.vScrollBar
+        if (vScrollBar) {
+          // 直接取滚动条配置的最大滚动距离
+          maxScrollY = vScrollBar.scrollTargetMaxOffset
+        } else {
+          // 如果无法获取滚动条信息，尝试使用 viewCellHeights
+          const viewCellHeights = myChart.facet?.viewCellHeights
+          if (viewCellHeights) {
+            const rowsHeight = viewCellHeights.getTotalHeight()
+            const viewHeight = offsetHeight - headerHeight
+            maxScrollY = Math.max(0, rowsHeight - viewHeight + scrollBarSize)
+          } else {
+            maxScrollY =
+              rowHeight * chartData.value.tableRow.length +
+              headerHeight -
+              offsetHeight +
+              scrollBarSize
+          }
+        }
+      } else {
+        maxScrollY =
+          rowHeight * chartData.value.tableRow.length + headerHeight - offsetHeight + scrollBarSize
+      }
+
       // 显示内容没撑满
-      if (scrollHeight < scrollBarSize) {
+      if (maxScrollY < scrollBarSize) {
         return
       }
-      // 到底了重置一下,1是误差
-      if (scrolledOffset >= scrollHeight - 1) {
+      // 到底了重置一下，使用实际的最大滚动距离判断
+      if (scrolledOffset >= maxScrollY - 1) {
         myChart.store.set('scrollY', 0)
         myChart.render()
         scrolledOffset = 0
       }
-      const viewedHeight = offsetHeight - headerHeight - scrollBarSize + scrolledOffset
-      const scrollViewCount = chartData.value.tableRow.length - viewedHeight / rowHeight
+
+      let scrollViewCount: number
+      if (basicStyle?.autoWrap && myChart.facet?.viewCellHeights) {
+        // 如果开启了自动换行，计算当前未展示的内容高度所对应的比例，再乘以总行数，以获得大致的未展示行数
+        const totalHeight = myChart.facet.viewCellHeights.getTotalHeight()
+        const unViewedRatio = totalHeight > 0 ? (maxScrollY - scrolledOffset) / totalHeight : 0
+        scrollViewCount = chartData.value.tableRow.length * unViewedRatio
+      } else {
+        const viewedHeight = offsetHeight - headerHeight - scrollBarSize + scrolledOffset
+        scrollViewCount = chartData.value.tableRow.length - viewedHeight / rowHeight
+      }
+
       const duration = (scrollViewCount / senior.scrollCfg.row) * senior.scrollCfg.interval
       myChart.facet.scrollWithAnimation(
-        { offsetY: { value: scrollHeight, animate: false } },
+        { offsetY: { value: maxScrollY, animate: false } },
         duration,
         initScroll
       )
@@ -288,7 +411,7 @@ const initScroll = () => {
 }
 
 const showPage = computed(() => {
-  if (view.value.type !== 'table-info') {
+  if (!PAGE_CHARTS.includes(view.value.type)) {
     return false
   }
   return state.showPage
@@ -306,6 +429,8 @@ const handleCurrentChange = pageNum => {
 const handlePageSizeChange = pageSize => {
   if (state.pageStyle === 'general') {
     state.currentPageSize = pageSize
+    emitter.emit('set-page-size', pageSize)
+    state.pageInfo.currentPage = 1
   }
   let extReq = { pageSize: pageSize }
   if (chartExtRequest.value) {
@@ -321,6 +446,15 @@ const pointClickTrans = () => {
   }
 }
 
+const touchAction = (callback, fieldId) => {
+  if (fieldId) {
+    state.curActionId = fieldId
+  }
+  if (!trackMenu.value.length) {
+    callback?.()
+  }
+}
+
 const action = param => {
   state.pointParam = param
   state.curActionId = param.data.name
@@ -329,6 +463,21 @@ const action = param => {
   pointClickTrans()
   // 下钻 联动 跳转
   if (trackMenu.value.length < 2) {
+    if (view.value.drillFields.length > 0 && trackMenu.value.length === 0) {
+      if (showPosition.value === 'viewDialog') {
+        return
+      }
+      if (view.value.type === 'table-pivot') {
+        return
+      }
+      // 存在下钻时，只有点击当前下钻层级的字段才提示已到最后一层，点击其他字段不提示
+      const currentDrillField = view.value.drillFields[drillLength.value]
+      if (currentDrillField?.id !== state.curActionId) {
+        return
+      }
+      ElMessage.error(t('chart.last_layer'))
+      return
+    }
     // 只有一个事件直接调用
     trackClick(trackMenu.value[0])
   } else {
@@ -338,12 +487,17 @@ const action = param => {
       top: param.y + 10
     }
     trackBarStyleCheck(props.element, barStyleTemp, props.scale, trackMenu.value.length)
-    state.trackBarStyle.left = barStyleTemp.left + 'px'
-    state.trackBarStyle.top = barStyleTemp.top + 'px'
-    viewTrack.value.trackButtonClick()
+    if (dataVMobile) {
+      state.trackBarStyle.left = barStyleTemp.left + 40 + 'px'
+      state.trackBarStyle.top = barStyleTemp.top + 70 + 'px'
+    } else {
+      state.trackBarStyle.left = barStyleTemp.left + 'px'
+      state.trackBarStyle.top = barStyleTemp.top + 'px'
+    }
+
+    viewTrack.value.trackButtonClick(view.value.id)
   }
 }
-const appStore = useAppStoreWithOut()
 
 const trackClick = trackAction => {
   const param = state.pointParam
@@ -461,12 +615,24 @@ const trackMenuCmp = computed(() => {
       jumpCount++
     }
   })
+  if (view.value?.drillFields && view.value?.drillFilters && view.value.drillFilters.length > 0) {
+    const lastItem = view.value?.drillFields[view.value.drillFilters.length]
+    const sourceInfo = view.value.id + '#' + lastItem.id
+    if (nowPanelTrackInfo.value[sourceInfo]) {
+      linkageCount++
+    }
+    if (nowPanelJumpInfo.value[sourceInfo]) {
+      jumpCount++
+    }
+  }
   jumpCount &&
     view.value?.jumpActive &&
     (!mobileInPc.value || inMobile.value) &&
     trackMenuInfo.push('jump')
   linkageCount && view.value?.linkageActive && trackMenuInfo.push('linkage')
-  view.value.drillFields.length && trackMenuInfo.push('drill')
+  view.value.type !== 'table-pivot' &&
+    hasNextDrillLevel(view.value.drillFields, drillLength.value) &&
+    trackMenuInfo.push('drill')
   // 如果同时配置jump linkage drill 切配置联动时同时下钻 在实际只显示两个 '跳转' '联动和下钻'
   if (trackMenuInfo.length === 3 && props.element.actionSelection.linkageActive === 'auto') {
     trackMenuInfo = ['jump', 'linkageAndDrill']
@@ -501,10 +667,10 @@ const trackMenuCalc = itemId => {
     trackMenuInfo.push('jump')
   linkageCount && view.value?.linkageActive && trackMenuInfo.push('linkage')
   // 判断是否有下钻 同时判断下钻到第几层
-  if (view.value.drillFields.length && view.value.drillFields[drillLength.value].id === itemId) {
+  if (isCurrentDrillField(view.value.drillFields, drillLength.value, itemId)) {
     drillCount++
   }
-  drillCount && trackMenuInfo.push('drill')
+  view.value.type !== 'table-pivot' && drillCount && trackMenuInfo.push('drill')
   // 如果同时配置jump linkage drill 切配置联动时同时下钻 在实际只显示两个 '跳转' '联动和下钻'
   if (trackMenuInfo.length === 3 && props.element.actionSelection.linkageActive === 'auto') {
     trackMenuInfo = ['jump', 'linkageAndDrill']
@@ -563,9 +729,13 @@ const resize = (width, height) => {
     clearTimeout(timer)
   }
   timer = setTimeout(() => {
-    myChart?.changeSheetSize(width, height)
-    myChart?.facet.timer?.stop()
-    myChart?.render()
+    if (!myChart?.facet) {
+      debounceRender(false)
+    } else {
+      myChart?.facet?.timer?.stop()
+      myChart?.changeSheetSize(width, height)
+      myChart?.render()
+    }
     initScroll()
   }, 500)
 }
@@ -587,7 +757,7 @@ onMounted(() => {
     }
     preSize[0] = size.inlineSize
     preSize[1] = size.blockSize
-    resize(size.inlineSize, size.blockSize)
+    resize(size.inlineSize, Math.round(size.blockSize))
   })
 
   resizeObserver.observe(document.getElementById(containerId))
@@ -604,17 +774,17 @@ onBeforeUnmount(() => {
 })
 
 const autoStyle = computed(() => {
-  return {
-    height: 20 * scale.value + 8 + 'px',
-    width: 100 / scale.value + '%!important',
-    left: 50 * (1 - 1 / scale.value) + '%', // 放大余量 除以 2
-    transform: 'scale(' + scale.value + ') translateZ(0)'
-  }
-})
-
-const autoHeightStyle = computed(() => {
-  return {
-    height: 20 * scale.value + 8 + 'px'
+  const adaptorScale =
+    (scale.value * (canvasStyleData.value.component.seniorStyleSetting?.pagerSize || 14)) / 14
+  if (isISOMobile()) {
+    return {
+      height: 20 * adaptorScale + 8 + 'px',
+      width: 100 / adaptorScale + '%!important',
+      left: 50 * (1 - 1 / adaptorScale) + '%', // 放大余量 除以 2
+      transform: 'scale(' + adaptorScale + ') translateZ(0)'
+    } as CSSProperties
+  } else {
+    return { zoom: adaptorScale }
   }
 })
 
@@ -636,9 +806,11 @@ const tablePageClass = computed(() => {
     <view-track-bar
       ref="viewTrack"
       :track-menu="trackMenu"
+      :font-family="fontFamily"
       class="track-bar"
       :style="state.trackBarStyle"
       @trackClick="trackClick"
+      :is-data-v-mobile="dataVMobile"
       @mousemove="mouseMove"
     />
     <div v-if="!isError" class="canvas-content">
@@ -657,7 +829,7 @@ const tablePageClass = computed(() => {
         @keydown.stop
         @keyup.stop
       >
-        <div>共{{ state.pageInfo.total }}条</div>
+        <div>{{ t('chart.total') }} {{ state.pageInfo.total }} {{ t('chart.items') }}</div>
         <el-pagination
           v-if="state.pageStyle !== 'general'"
           class="table-page-content"
@@ -672,7 +844,7 @@ const tablePageClass = computed(() => {
           v-else
           class="table-page-content"
           layout="prev, pager, next, sizes, jumper"
-          v-model:page-size="state.currentPageSize"
+          v-model:page-size="state.pageInfo.pageSize"
           v-model:current-page="state.pageInfo.currentPage"
           :pager-count="5"
           :total="state.pageInfo.total"

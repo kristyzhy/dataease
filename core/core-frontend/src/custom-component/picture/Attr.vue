@@ -5,7 +5,7 @@ import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapsho
 
 import { storeToRefs } from 'pinia'
 import { ElIcon, ElMessage } from 'element-plus-secondary'
-import { ref, onMounted, onBeforeUnmount, watch, PropType, reactive, toRefs, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, PropType } from 'vue'
 import { beforeUploadCheck, uploadFileResult } from '@/api/staticResource'
 import { imgUrlTrans } from '@/utils/imgUtils'
 import eventBus from '@/utils/eventBus'
@@ -13,7 +13,7 @@ import ImgViewDialog from '@/custom-component/ImgViewDialog.vue'
 import { useI18n } from '@/hooks/web/useI18n'
 const { t } = useI18n()
 
-const props = defineProps({
+defineProps({
   themes: {
     type: String as PropType<EditorTheme>,
     default: 'dark'
@@ -31,7 +31,6 @@ const dialogVisible = ref(false)
 const uploadDisabled = ref(false)
 const files = ref(null)
 const maxImageSize = 15000000
-const state = reactive({})
 
 const handlePictureCardPreview = file => {
   dialogImageUrl.value = file.url
@@ -42,17 +41,17 @@ const handleRemove = (_, fileList) => {
   uploadDisabled.value = false
   curComponent.value.propValue.url = null
   fileList.value = []
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('handleRemove')
 }
 async function upload(file) {
   uploadFileResult(file.file, fileUrl => {
-    snapshotStore.recordSnapshotCache()
+    snapshotStore.recordSnapshotCache('pic-upload')
     curComponent.value.propValue.url = fileUrl
   })
 }
 
 const onStyleChange = () => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('pic-onStyleChange')
 }
 
 const goFile = () => {
@@ -66,14 +65,14 @@ const reUpload = e => {
     return
   }
   uploadFileResult(file, fileUrl => {
-    snapshotStore.recordSnapshotCache()
+    snapshotStore.recordSnapshotCache('uploadFileResult')
     curComponent.value.propValue.url = fileUrl
     fileList.value = [{ url: imgUrlTrans(curComponent.value.propValue.url) }]
   })
 }
 
 const sizeMessage = () => {
-  ElMessage.success('图片大小不符合')
+  ElMessage.error('图片大小不能超过15M')
 }
 const init = () => {
   if (curComponent.value.propValue.url) {
@@ -82,10 +81,6 @@ const init = () => {
     fileList.value = []
   }
 }
-
-const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
-})
 
 watch(
   () => curComponent.value.propValue.url,
@@ -124,7 +119,12 @@ onBeforeUnmount(() => {
       :background-color-picker-width="197"
       :background-border-select-width="197"
     >
-      <el-collapse-item :effect="themes" title="图片" name="picture" v-show="!mobileInPc">
+      <el-collapse-item
+        :effect="themes"
+        :title="t('visualization.picture')"
+        name="picture"
+        v-show="!mobileInPc"
+      >
         <el-row class="img-area" :class="`img-area_${themes}`">
           <el-col style="width: 130px !important">
             <el-upload
@@ -152,7 +152,7 @@ onBeforeUnmount(() => {
             class="image-hint"
             :class="`image-hint_${themes}`"
           >
-            支持JPG、PNG、GIF、SVG
+            {{ t('visualization.pic_upload_tips2') }}
           </span>
 
           <el-button
@@ -162,14 +162,14 @@ onBeforeUnmount(() => {
             text
             @click="goFile"
           >
-            重新上传
+            {{ t('visualization.re_upload') }}
           </el-button>
         </el-row>
         <el-row class="pic-adaptor">
           <el-form-item
             v-if="curComponent.style.adaptation"
             class="form-item"
-            label="图片适应方式"
+            :label="t('visualization.pic_adaptor_type')"
             size="small"
             :effect="themes"
             :class="'form-item-' + themes"
@@ -180,9 +180,15 @@ onBeforeUnmount(() => {
               @change="onStyleChange"
               :effect="themes"
             >
-              <el-radio label="adaptation" :effect="themes">适应组件</el-radio>
-              <el-radio label="original" :effect="themes">原始尺寸</el-radio>
-              <el-radio label="equiratio" :effect="themes">等比适应</el-radio>
+              <el-radio value="adaptation" :effect="themes">{{
+                t('visualization.pic_adaptation')
+              }}</el-radio>
+              <el-radio value="original" :effect="themes">{{
+                t('visualization.pic_original')
+              }}</el-radio>
+              <el-radio value="equiratio" :effect="themes">{{
+                t('visualization.pic_equiratio')
+              }}</el-radio>
             </el-radio-group>
           </el-form-item>
         </el-row>
@@ -235,7 +241,7 @@ onBeforeUnmount(() => {
 :deep(.ed-upload--picture-card) {
   background: #eff0f1;
   border: 1px dashed #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
 
   .ed-icon {
     color: #1f2329;
@@ -250,7 +256,6 @@ onBeforeUnmount(() => {
 .img-area {
   height: 80px;
   width: 80px;
-  margin-top: 10px;
   overflow: hidden;
 
   &.img-area_dark {
@@ -319,7 +324,7 @@ onBeforeUnmount(() => {
     margin-top: 8px;
     background: #fff;
     height: 32px;
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid #dcdfe6;
     display: flex;
     color: #cccccc;
@@ -333,8 +338,8 @@ onBeforeUnmount(() => {
     }
 
     &.active {
-      color: #3370ff;
-      border-color: #3370ff;
+      color: var(--ed-color-primary, #3370ff);
+      border-color: var(--ed-color-primary, #3370ff);
     }
   }
 

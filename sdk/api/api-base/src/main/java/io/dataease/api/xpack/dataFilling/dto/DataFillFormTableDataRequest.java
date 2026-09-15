@@ -9,7 +9,6 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 
-
 @Data
 @Accessors(chain = true)
 public class DataFillFormTableDataRequest implements Serializable {
@@ -28,4 +27,5 @@ public class DataFillFormTableDataRequest implements Serializable {
 
     private List<String> primaryKeyValueList;
 
+    private List<DataFillFormTableDataSearchParam> searchParams;
 }

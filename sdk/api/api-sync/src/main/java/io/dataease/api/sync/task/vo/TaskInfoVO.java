@@ -132,4 +132,8 @@ public class TaskInfoVO {
      */
     private boolean withinCycle;
 
+    /**
+     * 所有内容可编辑
+     */
+    private boolean editable;
 }

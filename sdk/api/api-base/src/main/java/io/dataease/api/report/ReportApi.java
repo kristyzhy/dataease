@@ -57,7 +57,6 @@ public interface ReportApi {
     @PostMapping("/delete")
     void delete(@RequestBody List<Long> taskIdList);
 
-
     @Operation(summary = "查询详情")
     @GetMapping("/info/{taskId}")
     ReportInfoVO info(@PathVariable("taskId") Long taskId);
@@ -75,9 +74,11 @@ public interface ReportApi {
     @PostMapping("/deleteLog")
     void deleteInstance(@RequestBody ReportInstanceDelRequest request);
 
+    @Operation(summary = "日志错误信息")
     @PostMapping("/logMsg")
     String logMsg(@RequestBody ReportInstanceMsgRequest request);
 
+    @Operation(summary = "导出")
     @PostMapping("/export")
     ResponseEntity<ByteArrayResource> export(@RequestBody ReportExportRequest request);
 }

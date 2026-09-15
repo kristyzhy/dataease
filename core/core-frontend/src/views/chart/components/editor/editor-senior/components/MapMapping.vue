@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, PropType, reactive, ref, watch } from 'v
 import { getGeoJsonFile, parseJson } from '../../../js/util'
 import { forEach, debounce } from 'lodash-es'
 import { toRefs } from 'vue'
+import { getCustomGeoArea } from '@/api/map'
 
 const props = defineProps({
   chart: {
@@ -17,8 +18,17 @@ const props = defineProps({
 
 const emit = defineEmits(['onMapMappingChange'])
 const { chart, themes } = toRefs(props)
+const state = reactive({
+  mappingForm: {},
+  currentData: [],
+  useGlobalAreaMapping: false
+})
 watch(
-  [() => chart.value?.senior.areaMapping, () => chart.value?.customAttr.map.id],
+  [
+    () => chart.value?.senior.areaMapping,
+    () => chart.value?.customAttr.map.id,
+    state.useGlobalAreaMapping
+  ],
   () => {
     init()
   },
@@ -34,10 +44,6 @@ const areaData = reactive([])
 const dynamicAreaId = computed(() => {
   return chart.value?.customAttr.map.id
 })
-const state = reactive({
-  mappingForm: {},
-  currentData: []
-})
 const pageInfo = reactive({
   pageSize: 10,
   total: 100,
@@ -47,11 +53,19 @@ const init = async () => {
   const chartObj = JSON.parse(JSON.stringify(chart.value))
   if (chartObj?.senior) {
     let senior = parseJson(chartObj.senior)
-    state.mappingForm = senior.areaMapping
-    let curAreaMapping = state.mappingForm?.[dynamicAreaId.value]
-    if (!curAreaMapping) {
-      curAreaMapping = await getAreaMapping(dynamicAreaId.value)
+    const useGlobalAreaMapping = senior.useGlobalAreaMapping
+    state.useGlobalAreaMapping = useGlobalAreaMapping
+    let curAreaMapping = null
+    if (useGlobalAreaMapping) {
+      curAreaMapping = await getAreaMapping(dynamicAreaId.value, useGlobalAreaMapping)
+    } else {
+      state.mappingForm = senior.areaMapping
+      curAreaMapping = state.mappingForm?.[dynamicAreaId.value]
+      if (!curAreaMapping) {
+        curAreaMapping = await getAreaMapping(dynamicAreaId.value)
+      }
     }
+    curAreaMapping = curAreaMapping || {}
     const tmp = []
     forEach(curAreaMapping, (val, key) => {
       tmp.push({
@@ -65,17 +79,36 @@ const init = async () => {
   }
 }
 
-const getAreaMapping = async areaId => {
+const getAreaMapping = async (areaId, useGlobalAreaMapping = false) => {
   if (!areaId) {
     return {}
   }
-  const geoJson = await getGeoJsonFile(areaId)
+  if (areaId.startsWith('custom_')) {
+    const areaList = (await getCustomGeoArea(areaId)).data
+    return areaList.reduce((p, n) => {
+      p[n.name] = n.name
+      return p
+    }, {})
+  }
+  const geoJson = await getGeoJsonFile(areaId, useGlobalAreaMapping)
+  if (useGlobalAreaMapping && geoJson?.['deMapping']) {
+    return geoJson?.['deMapping']
+  }
+  const names = Object.keys(geoJson?.features[0]?.properties).filter(key => key.startsWith('NAME_'))
+  const nameKey = names[names.length - 1]
   return geoJson.features.reduce((p, n) => {
-    p[n.properties.name] = n.properties.name
+    if (n.properties.name) {
+      p[n.properties.name] = n.properties.name
+    } else {
+      p[n.properties[nameKey]] = n.properties[nameKey]
+    }
     return p
   }, {})
 }
 const triggerEdit = scope => {
+  if (state.useGlobalAreaMapping) {
+    return
+  }
   editAreaId.value = `#area-${scope.$index}-input`
   curOriginName.value = scope.row.originName
   curMappedName.value = scope.row.mappedName
@@ -93,7 +126,8 @@ const finishEdit = () => {
     }, {})
   }
   const oldMappedName = areaNameMap[curOriginName.value]
-  if (oldMappedName === curMappedName.value) {
+  if (!curMappedName.value || oldMappedName === curMappedName.value) {
+    curMappedName.value = oldMappedName
     return
   }
   areaNameMap[curOriginName.value] = curMappedName.value
@@ -103,11 +137,13 @@ const finishEdit = () => {
   onMapMappingChange()
 }
 const updateAreaData = debounce(() => {
+  const keyword = search.value.trim().toLocaleLowerCase()
   const filteredData = state.currentData.filter(item => {
-    if (!search.value?.trim()) {
+    if (!keyword) {
       return true
     }
-    return item.mappedName?.includes(search.value)
+    // 地名映射忽略大小写搜索
+    return item.mappedName?.toLocaleLowerCase().includes(keyword)
   })
   const start = (pageInfo.currentPage - 1) * pageInfo.pageSize
   const end = start + pageInfo.pageSize
@@ -115,7 +151,11 @@ const updateAreaData = debounce(() => {
   pageInfo.total = filteredData.length
 }, 300)
 const onMapMappingChange = () => {
-  emit('onMapMappingChange', state.mappingForm)
+  const global = state.useGlobalAreaMapping
+  emit('onMapMappingChange', global ? {} : state.mappingForm, global)
+  if (global) {
+    init()
+  }
 }
 onMounted(() => {
   init()
@@ -123,6 +163,16 @@ onMounted(() => {
 </script>
 <template>
   <div style="width: 100%">
+    <div style="padding-bottom: 8px">
+      <el-checkbox
+        size="small"
+        :effect="themes"
+        v-model="state.useGlobalAreaMapping"
+        @change="onMapMappingChange"
+      >
+        {{ $t('chart.used_global_map_mapping') }}
+      </el-checkbox>
+    </div>
     <el-table
       size="mini"
       class="area-map-table"
@@ -155,7 +205,7 @@ onMounted(() => {
             @click="triggerEdit(scope)"
           >
             <span :title="scope.row.mappedName">{{ scope.row.mappedName }}</span>
-            <el-icon><Edit /></el-icon>
+            <el-icon v-if="!state.useGlobalAreaMapping"><Edit /></el-icon>
           </el-button>
         </template>
       </el-table-column>
@@ -239,6 +289,9 @@ onMounted(() => {
   :deep(.area-map-table-header-cell-dark) {
     background-color: #1a1a1a;
     color: @canvas-main-font-color-dark;
+    &:hover {
+      background-color: #1a1a1a;
+    }
   }
   :deep(.area-map-table-row-dark) {
     .area-map-table-cell-dark {
@@ -255,6 +308,9 @@ onMounted(() => {
   &-dark {
     :deep(.ed-table__empty-block) {
       background-color: @side-content-background;
+    }
+    :deep(.ed-table__header-wrapper) {
+      border-top: unset;
     }
   }
 }

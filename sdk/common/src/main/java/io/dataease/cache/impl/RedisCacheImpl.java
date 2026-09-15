@@ -25,13 +25,11 @@ public class RedisCacheImpl implements DECacheService {
 
     private static CacheManager cacheManager;
 
-
     private static CacheManager getCacheManager() {
         if (cacheManager == null)
             cacheManager = CommonBeanFactory.getBean(CacheManager.class);
         return cacheManager;
     }
-
 
     private ValueOperations ops() {
         ValueOperations valueOperations = redisTemplate.opsForValue();
@@ -70,10 +68,10 @@ public class RedisCacheImpl implements DECacheService {
 
     @Override
     public void keyRemove(String cacheName, String key) {
-        // redisTemplate.delete(cacheName + SEPARATOR + key);
         Cache cache = getCacheManager().getCache(cacheName);
         if (null == cache) return;
         cache.evictIfPresent(key);
+        redisTemplate.delete(cacheName + SEPARATOR + key);
     }
 
     @PostConstruct

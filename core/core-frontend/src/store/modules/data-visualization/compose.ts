@@ -9,8 +9,11 @@ import {
   commonAttr,
   COMMON_COMPONENT_BACKGROUND_MAP
 } from '@/custom-component/component-list'
-import { createGroupStyle, getComponentRotatedStyle, groupStyleRevert } from '@/utils/style'
+import { createGroupStyle, getComponentRotatedStyle } from '@/utils/style'
 import eventBus from '@/utils/eventBus'
+import { canvasIdMapCheck, checkJoinGroup, isTabCanvas } from '@/utils/canvasUtils'
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 
 const dvMainStore = dvMainStoreWithOut()
 const { curComponent, componentData, curOriginThemes } = storeToRefs(dvMainStore)
@@ -30,6 +33,7 @@ export const composeStore = defineStore('compose', {
       },
       editorMap: {},
       isCtrlOrCmdDown: false,
+      isSpaceDown: false,
       isShiftDown: false,
       laterIndex: null, //最后点击组件的索引
       editor: null
@@ -42,6 +46,9 @@ export const composeStore = defineStore('compose', {
 
     setLaterIndex(value) {
       this.laterIndex = value
+    },
+    setSpaceDownStatus(value) {
+      this.isSpaceDown = value
     },
     setIsCtrlOrCmdDownStatus(value) {
       this.isCtrlOrCmdDown = value
@@ -153,9 +160,9 @@ export const composeStore = defineStore('compose', {
           })
 
           components.push(...component.propValue)
-        } else if (['DeTabs', 'GroupArea'].includes(component.component)) {
+        } else if (['GroupArea'].includes(component.component)) {
           // do nothing GroupAreas组合视阔区 DeTabs 均不加入分组中
-        } else {
+        } else if (checkJoinGroup(component)) {
           components.push(component)
         }
       })
@@ -168,8 +175,8 @@ export const composeStore = defineStore('compose', {
         id: newId,
         component: 'Group',
         canvasActive: false,
-        name: '组合',
-        label: '组合',
+        name: t('visualization.view_group'),
+        label: t('visualization.view_group'),
         icon: 'group',
         expand: true,
         commonBackground: {
@@ -204,7 +211,7 @@ export const composeStore = defineStore('compose', {
     // 将已经放到 Group 组件数据删除，也就是在 componentData 中删除，因为它们已经从 componentData 挪到 Group 组件中了
     batchDeleteComponent(deleteData) {
       deleteData.forEach(component => {
-        if (!['DeTabs', 'GroupArea'].includes(component.component)) {
+        if (!['GroupArea'].includes(component.component)) {
           for (let i = 0, len = componentData.value.length; i < len; i++) {
             if (component.id == componentData.value[i].id) {
               componentData.value.splice(i, 1)
@@ -215,15 +222,41 @@ export const composeStore = defineStore('compose', {
       })
     },
 
-    decompose(canvasId = 'canvas-main') {
+    decompose() {
+      const canvasId = curComponent.value.canvasId
       const editor = this.editorMap[canvasId]
+      if (!editor) {
+        return
+      }
       const parentStyle = { ...curComponent.value.style }
       const components = curComponent.value.propValue
       const editorRect = editor.getBoundingClientRect()
-      dvMainStore.deleteComponentById(curComponent.value.id)
+      const isInTab = isTabCanvas(canvasId)
+      let decomposeComponentData = componentData.value
+      let parentGroupStyle = null
+      if (isInTab) {
+        const pathMap = {}
+        componentData.value.forEach(componentItem => {
+          canvasIdMapCheck(componentItem, null, pathMap)
+        })
+        const pComponent = pathMap[curComponent.value.id]
+        const pComponentTarget = pComponent.propValue.filter(
+          item => canvasId.indexOf(item.name) > -1
+        )
+        if (pComponentTarget && pComponentTarget.length > 0) {
+          decomposeComponentData = pComponentTarget[0].componentData
+        }
+        parentGroupStyle = curComponent.value.groupStyle
+      }
+      dvMainStore.deleteComponentById(curComponent.value.id, decomposeComponentData)
       components.forEach(component => {
-        decomposeComponent(component, editorRect, parentStyle)
-        dvMainStore.addComponent({ component: component, index: undefined, isFromGroup: true })
+        decomposeComponent(component, editorRect, parentStyle, canvasId, parentGroupStyle)
+        dvMainStore.addComponent({
+          component: component,
+          index: undefined,
+          isFromGroup: true,
+          componentData: decomposeComponentData
+        })
       })
     },
     calcComposeArea(areaDataValue = this.areaData) {

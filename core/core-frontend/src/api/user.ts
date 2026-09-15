@@ -18,6 +18,9 @@ export const userSelectedForRoleApi = (page: number, limit: number, data) =>
 export const userPageApi = (page: number, limit: number, data) =>
   request.post({ url: `/user/pager/${page}/${limit}`, data })
 
+export const personSysVariableInfoApi = uid =>
+  request.get({ url: `/user/personSysVariableInfo/${uid}` })
+
 export const userCreateApi = data => request.post({ url: '/user/create', data })
 
 export const userEditApi = data => request.post({ url: '/user/edit', data })
@@ -31,6 +34,8 @@ export const userDelApi = uid => request.post({ url: `/user/delete/${uid}` })
 export const queryFormApi = uid => request.get({ url: `/user/queryById/${uid}` })
 
 export const personInfoApi = () => request.get({ url: `/user/personInfo` })
+
+export const ipInfoApi = () => request.get({ url: `/user/ipInfo` })
 
 export const roleCreateApi = data => request.post({ url: '/role/create', data })
 
@@ -77,3 +82,5 @@ export const defaultPwdApi = () => request.get({ url: '/user/defaultPwd' })
 export const resetPwdApi = uid => request.post({ url: `/user/resetPwd/${uid}` })
 
 export const switchEnableApi = data => request.post({ url: '/user/enable', data })
+
+export const userUnlockApi = uid => request.post({ url: `/user/unlock/${uid}` })

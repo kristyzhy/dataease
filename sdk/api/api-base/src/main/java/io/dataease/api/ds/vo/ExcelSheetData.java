@@ -21,5 +21,5 @@ public class ExcelSheetData {
     private String sheetId;
     private String sheetExcelId;
     private List<Map<String, Object>> jsonArray;
-
+    private boolean newSheet;
 }

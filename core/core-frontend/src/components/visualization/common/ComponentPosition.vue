@@ -1,11 +1,10 @@
 <template>
-  <el-form label-position="left" :label-width="14">
+  <el-form size="small" label-position="left" :label-width="14">
     <el-row :gutter="8" v-for="(x, i) in positionKeysGroup" :key="i">
       <el-col :span="12" v-for="({ key, label, min, max, step }, j) in x" :key="j">
         <el-form-item class="form-item" :class="'form-item-' + themes" :label="label">
           <el-input-number
             :effect="themes"
-            size="middle"
             :disabled="curComponent['isLock']"
             :min="min"
             :max="max"
@@ -17,6 +16,20 @@
         </el-form-item>
       </el-col>
     </el-row>
+    <el-form-item
+      v-if="curComponent && curComponent.component === 'DeTabs'"
+      class="form-item"
+      :class="'form-item-' + themes"
+    >
+      <el-checkbox
+        size="small"
+        :effect="themes"
+        v-model="curComponent['resizeInnerKeep']"
+        @change="snapshotChange"
+      >
+        {{ t('visualization.keep_size') }}
+      </el-checkbox>
+    </el-form-item>
     <el-form-item class="form-item" :class="'form-item-' + themes">
       <el-checkbox
         v-if="curComponent"
@@ -25,7 +38,7 @@
         v-model="curComponent['maintainRadio']"
         @change="maintainRadioChange"
       >
-        保持宽高比
+        {{ t('visualization.keep_ratio') }}
       </el-checkbox>
     </el-form-item>
     <el-row v-if="curComponent && curComponent.multiDimensional">
@@ -37,14 +50,13 @@
             v-model="curComponent.multiDimensional.enable"
             @change="multiDimensionalChange"
           >
-            3D旋转
+            {{ t('visualization.rotation_3d') }}
           </el-checkbox>
         </el-form-item>
         <template v-if="curComponent.multiDimensional.enable">
           <el-form-item class="form-item" :class="'form-item-' + themes" label="X">
             <el-input-number
               :effect="themes"
-              size="middle"
               :disabled="curComponent['isLock']"
               :min="-360"
               :max="360"
@@ -57,7 +69,6 @@
           <el-form-item class="form-item" :class="'form-item-' + themes" label="Y">
             <el-input-number
               :effect="themes"
-              size="middle"
               :disabled="curComponent['isLock']"
               :min="-360"
               :max="360"
@@ -70,7 +81,6 @@
           <el-form-item class="form-item" :class="'form-item-' + themes" label="Z">
             <el-input-number
               :effect="themes"
-              size="middle"
               :disabled="curComponent['isLock']"
               :min="-360"
               :max="360"
@@ -91,14 +101,15 @@ import { computed, ref, watch } from 'vue'
 import { positionData } from '@/utils/attr'
 import { storeToRefs } from 'pinia'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
-import _ from 'lodash'
+import { forEach } from 'lodash-es'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import { groupSizeStyleAdaptor, groupStyleRevert } from '@/utils/style'
 import { isGroupCanvas, isTabCanvas } from '@/utils/canvasUtils'
+import { useI18n } from '@/hooks/web/useI18n'
 const parentNode = ref(null)
 const canvasId = ref('canvas-main')
 const snapshotStore = snapshotStoreWithOut()
-
+const { t } = useI18n()
 const dvMainStore = dvMainStoreWithOut()
 const { curComponent, canvasStyleData } = storeToRefs(dvMainStore)
 const positionMounted = ref({
@@ -126,7 +137,7 @@ const positionKeys = computed(() => {
 
 const positionKeysGroup = computed(() => {
   const _list = []
-  _.forEach(positionKeys.value, (x, i) => {
+  forEach(positionKeys.value, (x, i) => {
     const index = i % 2
     if (_list[index] === undefined) {
       _list[index] = []
@@ -174,16 +185,20 @@ const onPositionChange = key => {
     groupSizeStyleAdaptor(curComponent.value)
   }
 
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('onPositionChange')
 }
 
 const maintainRadioChange = () => {
   curComponent.value.aspectRatio = curComponent.value.style.width / curComponent.value.style.height
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('maintainRadioChange')
 }
 const multiDimensionalChange = () => {
   // do change
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('multiDimensionalChange')
+}
+
+const snapshotChange = () => {
+  snapshotStore.recordSnapshotCache('snapshotChange')
 }
 
 const positionInit = () => {
@@ -220,7 +235,7 @@ watch(
   display: flex !important;
   .ed-form-item__label {
     line-height: 24px;
-    margin-bottom: 0;
+    margin: 3px 0 !important;
   }
 }
 </style>

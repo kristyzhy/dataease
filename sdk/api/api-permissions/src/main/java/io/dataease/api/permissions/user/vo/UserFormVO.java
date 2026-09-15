@@ -44,6 +44,12 @@ public class UserFormVO implements Serializable {
     @Schema(description = "模式")
     private String model;
 
+    @Schema(description = "MFA状态")
+    private Boolean mfaEnable = false;
+
+    @Schema(description = "用户来源")
+    private Integer origin = 0;
+
     @Schema(description = "系统变量")
     private List<SysVariableValueItem> variables;
 }

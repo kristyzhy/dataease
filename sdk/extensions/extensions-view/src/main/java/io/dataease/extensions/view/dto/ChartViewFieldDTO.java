@@ -1,6 +1,8 @@
 package io.dataease.extensions.view.dto;
 
+import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -27,9 +29,18 @@ public class ChartViewFieldDTO extends ChartViewFieldBaseDTO implements Serializ
 
     private boolean hide;
 
+    private String groupType;
+
     /**
      * 字段来源
      */
     @JsonIgnore
     private FieldSource source;
+
+    /**
+     * 显隐
+     */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    private Boolean show;
+    private String field;
 }

@@ -4,25 +4,65 @@
     :label-tooltips="tooltips"
     setting-key="basic"
     :setting-title="t('system.basic_settings')"
-    :setting-data="state.templateList"
-    @edit="edit"
+    :setting-data="baseInfoSettings"
+    @edit="
+      edit(
+        t('system.basic_settings'),
+        baseInfoSettings.map(ele => ele.pkey.split('.')[1])
+      )
+    "
   />
-  <basic-edit ref="editor" @saved="refresh" />
+  <InfoTemplate
+    v-if="loginInoSettings?.length"
+    ref="loginTemplate"
+    class="login-setting-template"
+    :label-tooltips="tooltips"
+    setting-key="basic"
+    :setting-title="t('system.login_settings')"
+    :setting-data="loginInoSettings"
+    @edit="
+      edit(
+        t('system.login_settings'),
+        loginInoSettings.map(ele => ele.pkey.split('.')[1])
+      )
+    "
+  />
+
+  <InfoTemplate
+    v-if="thirdInfoSettings?.length"
+    ref="thirdTemplate"
+    class="login-setting-template"
+    :label-tooltips="tooltips"
+    setting-key="basic"
+    :setting-title="t('setting_basic.third_platform_settings')"
+    :setting-data="thirdInfoSettings"
+    @edit="
+      edit(
+        t('setting_basic.third_platform_settings'),
+        thirdInfoSettings.map(ele => ele.pkey.split('.')[1])
+      )
+    "
+  />
+  <basic-edit ref="editor" :label-tooltips="tooltips" @saved="refresh" />
 </template>
 
 <script lang="ts" setup>
-import { ref } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import InfoTemplate from '../../common/InfoTemplate.vue'
 import BasicEdit from './BasicEdit.vue'
 import request from '@/config/axios'
 import { SettingRecord } from '@/views/system/common/SettingTemplate'
 import { reactive } from 'vue'
+import { isDesktop } from '@/utils/ModelUtil'
 import { cloneDeep } from 'lodash-es'
 import { useI18n } from '@/hooks/web/useI18n'
 const { t } = useI18n()
 const editor = ref()
 const infoTemplate = ref()
+const loginTemplate = ref()
+const thirdTemplate = ref()
 const showDefaultLogin = ref(false)
+const desktop = isDesktop()
 const pvpOptions = [
   { value: '0', label: t('commons.date.permanent') },
   { value: '1', label: t('commons.date.one_year') },
@@ -30,7 +70,15 @@ const pvpOptions = [
   { value: '3', label: t('commons.date.three_months') },
   { value: '4', label: t('commons.date.one_month') }
 ]
+const embeddedExportModeOptions = [
+  { value: 'sync', label: t('setting_basic.exportModeSync') },
+  { value: 'async', label: t('setting_basic.exportModeAsync') }
+]
 const tooltips = [
+  {
+    key: 'setting_basic.defaultOpen',
+    val: t('setting_basic.default_open_tips')
+  },
   {
     key: 'setting_basic.frontTimeOut',
     val: t('system.to_take_effect')
@@ -45,8 +93,22 @@ const tooltips = [
   },
   {
     key: 'setting_basic.shareDisable',
-    val: '开启后仪表板以及大屏分享无效'
+    val: t('setting_basic.share_disable_tips')
   }
+]
+const loginSettings = [
+  'setting_basic.dip',
+  'setting_basic.pvp',
+  'setting_basic.defaultLogin',
+  'setting_basic.loginLimit',
+  'setting_basic.loginLimitRate',
+  'setting_basic.loginLimitTime'
+]
+
+const thirdSettings = [
+  'setting_basic.autoCreateUser',
+  'setting_basic.platformOid',
+  'setting_basic.platformRid'
 ]
 const state = reactive({
   templateList: [] as SettingRecord[],
@@ -70,7 +132,18 @@ const state = reactive({
     { value: '1', label: 'LDAP' },
     { value: '2', label: 'OIDC' },
     { value: '3', label: 'CAS' },
-    { value: '9', label: 'OAUTH2' }
+    { value: '9', label: 'OAuth2' },
+    { value: '10', label: 'Saml2' }
+  ],
+  sortOptions: [
+    { value: '0', label: t('resource_sort.time_asc') },
+    { value: '1', label: t('resource_sort.time_desc') },
+    { value: '2', label: t('resource_sort.name_asc') },
+    { value: '3', label: t('resource_sort.name_desc') }
+  ],
+  openOptions: [
+    { value: '0', label: t('open_opt.new_page') },
+    { value: '1', label: t('open_opt.local_page') }
   ]
 })
 let originData = []
@@ -79,10 +152,28 @@ const selectedOName = ref('')
 const selectedRid = ref<string[]>([])
 const selectedRName = ref<string[]>([])
 const selectedPvp = ref('0')
+
+const baseInfoSettings = computed(() =>
+  state.templateList.filter(
+    item =>
+      !loginSettings.concat(thirdSettings).includes(item.pkey) &&
+      (!desktop || item.pkey !== 'setting_basic.defaultOpen')
+  )
+)
+
+const thirdInfoSettings = computed(() =>
+  state.templateList.filter(item => thirdSettings.includes(item.pkey))
+)
+const loginInoSettings = computed(() => {
+  const list = state.templateList.filter(item => loginSettings.includes(item.pkey))
+  return list
+})
+
 const search = cb => {
   const url = '/sysParameter/basic/query'
   originData = []
   state.templateList = []
+  const resultList = []
   request.get({ url }).then(async res => {
     originData = cloneDeep(res.data)
     const data = res.data
@@ -93,7 +184,8 @@ const search = cb => {
         item.pkey === 'basic.dip' ||
         item.pkey === 'basic.pwdStrategy' ||
         item.pkey === 'basic.shareDisable' ||
-        item.pkey === 'basic.sharePeRequire'
+        item.pkey === 'basic.sharePeRequire' ||
+        item.pkey === 'basic.loginLimit'
       ) {
         item.pval = item.pval === 'true' ? t('chart.open') : t('system.not_enabled')
       } else if (item.pkey === 'basic.platformOid') {
@@ -133,30 +225,68 @@ const search = cb => {
             item.pval = state.loginOptions[0].label
           }
         }
+      } else if (item.pkey === 'basic.defaultSort') {
+        if (item.pval) {
+          const r = state.sortOptions.filter(cur => cur.value === item.pval)
+          if (r?.length) {
+            item.pval = r[0].label
+          } else {
+            item.pval = state.sortOptions[1].label
+          }
+        } else {
+          item.pval = state.sortOptions[1].label
+        }
+      } else if (item.pkey === 'basic.defaultOpen') {
+        if (item.pval) {
+          const r = state.openOptions.filter(cur => cur.value === item.pval)
+          if (r?.length) {
+            item.pval = r[0].label
+          } else {
+            item.pval = state.openOptions[0].label
+          }
+        } else {
+          item.pval = state.openOptions[0].label
+        }
+      } else if (item.pkey === 'basic.embeddedExportMode') {
+        if (item.pval) {
+          const r = embeddedExportModeOptions.filter(cur => cur.value === item.pval)
+          item.pval = r?.length ? r[0].label : embeddedExportModeOptions[0].label
+        } else {
+          item.pval = embeddedExportModeOptions[0].label
+        }
       } else {
         item.pval = item.pval
       }
       item.pkey = 'setting_' + item.pkey
       if (!item.pkey.includes('defaultLogin') || showDefaultLogin.value) {
-        state.templateList.push(item)
+        resultList.push(item)
       }
     }
+    state.templateList.splice(0, resultList.length, ...resultList)
     cb && cb()
   })
 }
 const refresh = () => {
   search(() => {
-    infoTemplate?.value.init()
+    nextTick(() => {
+      infoTemplate?.value?.init()
+      loginTemplate?.value?.init()
+      thirdTemplate?.value?.init()
+    })
   })
 }
 refresh()
 
-const edit = () => {
+const edit = (val, arr) => {
   editor?.value.edit(
     cloneDeep(originData),
     cloneDeep(state.orgOptions),
     cloneDeep(state.roleOptions),
-    cloneDeep(state.loginOptions)
+    cloneDeep(state.loginOptions),
+    cloneDeep(state.sortOptions),
+    cloneDeep(state.openOptions),
+    val,
+    arr
   )
 }
 const loadOrgOptions = async () => {
@@ -241,3 +371,8 @@ const resetDefaultLogin = () => {
   }
 }
 </script>
+<style lang="less" scoped>
+.login-setting-template {
+  margin-top: 16px;
+}
+</style>

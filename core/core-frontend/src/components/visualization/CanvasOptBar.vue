@@ -1,11 +1,14 @@
 <template>
   <div
-    v-if="existLinkage && !dvMainStore.mobileInPc"
+    v-if="existLinkage && (!dvMainStore.mobileInPc || isMobile())"
     class="bar-main-right"
-    :class="{ 'bar-main-edit-right': dvEditMode }"
+    :class="{
+      'bar-main-preview-fixed': dvPreviewMode,
+      'bar-main-preview-fixed-fullscreen': fullscreenFlag
+    }"
     @mousedown="handOptBarMousedown"
   >
-    <el-button size="mini" type="warning" @click="clearAllLinkage"
+    <el-button type="warning" @click="clearAllLinkage"
       ><el-icon class="bar-base-icon">
         <Icon name="dv-bar-unLinkage"><dvBarUnLinkage class="svg-icon" /></Icon></el-icon
       >{{ $t('visualization.remove_all_linkage') }}</el-button
@@ -19,8 +22,10 @@ import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { computed } from 'vue'
 import { isMainCanvas } from '@/utils/canvasUtils'
 import { useEmitt } from '@/hooks/web/useEmitt'
-
+import { isMobile } from '@/utils/utils'
+import { storeToRefs } from 'pinia'
 const dvMainStore = dvMainStoreWithOut()
+const { fullscreenFlag } = storeToRefs(dvMainStore)
 
 const props = defineProps({
   canvasStyleData: {
@@ -35,6 +40,10 @@ const props = defineProps({
     type: String,
     required: false,
     default: 'canvas-main'
+  },
+  isFixed: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -48,9 +57,10 @@ const clearAllLinkage = () => {
   useEmitt().emitter.emit('clearPanelLinkage', { viewId: 'all' })
 }
 
-const dvEditMode = computed(() => {
-  return dvMainStore.dvInfo.type === 'dataV' && dvMainStore.editMode === 'preview'
+const dvPreviewMode = computed(() => {
+  return dvMainStore.dvInfo.type === 'dataV' && props.isFixed
 })
+
 const existLinkage = computed(() => {
   if (isMainCanvas(props.canvasId)) {
     let linkageFiltersCount = 0
@@ -67,7 +77,7 @@ const existLinkage = computed(() => {
         })
       } else if (item.component === 'DeTabs') {
         item.propValue.forEach(tabItem => {
-          tabItem.componentData.forEach(tabComponent => {
+          tabItem.componentData?.forEach(tabComponent => {
             if (tabComponent.linkageFilters && tabComponent.linkageFilters.length > 0) {
               linkageFiltersCount++
             }
@@ -87,7 +97,7 @@ const existLinkage = computed(() => {
   top: 2px;
   right: 2px;
   opacity: 0.8;
-  z-index: 1;
+  z-index: 2;
   position: absolute;
 }
 
@@ -103,5 +113,15 @@ const existLinkage = computed(() => {
   &:hover {
     opacity: 0.8;
   }
+}
+
+.bar-main-preview-fixed {
+  position: fixed;
+  top: 120px;
+  right: 5px;
+}
+
+.bar-main-preview-fixed-fullscreen {
+  top: 5px !important;
 }
 </style>

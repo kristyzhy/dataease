@@ -14,6 +14,7 @@
               <el-select
                 :style="{ width: styleOptionKey.width }"
                 :effect="themes"
+                :disabled="disabled"
                 v-model="styleForm[styleOptionKey.value]"
                 size="small"
                 @change="
@@ -56,7 +57,9 @@
                 class="color-picker-style"
                 :prefix-icon="styleColorKey.icon"
                 :triggerWidth="styleColorKey.width"
+                :disabled="disabled"
                 is-custom
+                show-alpha
                 :predefine="state.predefineColors"
                 @change="
                   changeStyle({ key: styleColorKey.value, value: styleForm[styleColorKey.value] })
@@ -83,6 +86,7 @@
               <el-select
                 :style="{ width: styleOptionMountedKey.width }"
                 :effect="themes"
+                :disabled="disabled"
                 v-model="styleMounted[styleOptionMountedKey.value]"
                 size="small"
                 @change="sizeChange(styleOptionMountedKey.value)"
@@ -116,6 +120,7 @@
               <el-select
                 :style="{ width: styleOptionKey.width }"
                 :effect="themes"
+                :disabled="disabled"
                 v-model="styleForm[styleOptionKey.value]"
                 size="small"
                 @change="changeStylePre(styleOptionKey.value)"
@@ -142,7 +147,7 @@
           </template>
           <div
             class="icon-btn"
-            :class="{ dark: themes === 'dark', active: styleForm.fontWeight === 'bold' }"
+            :class="{ dark: themes === 'dark', active: styleForm.fontWeight === 'bold', disabled }"
             @click="checkBold"
           >
             <el-icon>
@@ -157,11 +162,29 @@
           </template>
           <div
             class="icon-btn"
-            :class="{ dark: themes === 'dark', active: styleForm.fontStyle === 'italic' }"
+            :class="{ dark: themes === 'dark', active: styleForm.fontStyle === 'italic', disabled }"
             @click="checkItalic"
           >
             <el-icon>
               <Icon name="icon_italic_outlined"><icon_italic_outlined class="svg-icon" /></Icon>
+            </el-icon>
+          </div>
+        </el-tooltip>
+        <el-tooltip v-if="styleForm.textDecoration !== undefined" effect="dark" placement="bottom">
+          <template #content>
+            {{ t('visualization.text_decoration') }}
+          </template>
+          <div
+            class="icon-btn"
+            :class="{
+              dark: themes === 'dark',
+              active: styleForm.textDecoration === 'underline',
+              disabled
+            }"
+            @click="checkTextDecoration"
+          >
+            <el-icon>
+              <Icon name="style-underline"><styleUnderline class="svg-icon" /></Icon>
             </el-icon>
           </div>
         </el-tooltip>
@@ -174,7 +197,11 @@
               </template>
               <div
                 class="icon-btn"
-                :class="{ dark: themes === 'dark', active: styleForm.textAlign === 'left' }"
+                :class="{
+                  dark: themes === 'dark',
+                  active: styleForm.textAlign === 'left',
+                  disabled
+                }"
                 @click="setPosition('textAlign', 'left')"
               >
                 <el-icon>
@@ -190,7 +217,11 @@
               </template>
               <div
                 class="icon-btn"
-                :class="{ dark: themes === 'dark', active: styleForm.textAlign === 'center' }"
+                :class="{
+                  dark: themes === 'dark',
+                  active: styleForm.textAlign === 'center',
+                  disabled
+                }"
                 @click="setPosition('textAlign', 'center')"
               >
                 <el-icon>
@@ -206,7 +237,11 @@
               </template>
               <div
                 class="icon-btn"
-                :class="{ dark: themes === 'dark', active: styleForm.textAlign === 'right' }"
+                :class="{
+                  dark: themes === 'dark',
+                  active: styleForm.textAlign === 'right',
+                  disabled
+                }"
                 @click="setPosition('textAlign', 'right')"
               >
                 <el-icon>
@@ -228,7 +263,8 @@
               class="icon-btn"
               :class="{
                 dark: themes === 'dark',
-                active: styleForm.headHorizontalPosition === 'left'
+                active: styleForm.headHorizontalPosition === 'left',
+                disabled
               }"
               @click="setPosition('headHorizontalPosition', 'left')"
             >
@@ -247,7 +283,8 @@
               class="icon-btn"
               :class="{
                 dark: themes === 'dark',
-                active: styleForm.headHorizontalPosition === 'center'
+                active: styleForm.headHorizontalPosition === 'center',
+                disabled
               }"
               @click="setPosition('headHorizontalPosition', 'center')"
             >
@@ -266,7 +303,8 @@
               class="icon-btn"
               :class="{
                 dark: themes === 'dark',
-                active: styleForm.headHorizontalPosition === 'right'
+                active: styleForm.headHorizontalPosition === 'right',
+                disabled
               }"
               @click="setPosition('headHorizontalPosition', 'right')"
             >
@@ -290,22 +328,25 @@ import dvStyleHeadFontActiveColor from '@/assets/svg/dv-style-headFontActiveColo
 import dvStyleHeadFontColor from '@/assets/svg/dv-style-headFontColor.svg'
 import dvStyleScrollSpeed from '@/assets/svg/dv-style-scroll-speed.svg'
 import dvStyleOpacity from '@/assets/svg/dv-style-opacity.svg'
+import dvStyleBlur from '@/assets/svg/dv-style-blur.svg'
 import dvStyleFontSize from '@/assets/svg/dv-style-fontSize.svg'
 import dvStyleLetterSpacing from '@/assets/svg/dv-style-letterSpacing.svg'
 import dvStyleActiveFont from '@/assets/svg/dv-style-activeFont.svg'
 import dvStyleFontFamily from '@/assets/svg/dv-style-fontFamily.svg'
 import icon_bold_outlined from '@/assets/svg/icon_bold_outlined.svg'
 import icon_italic_outlined from '@/assets/svg/icon_italic_outlined.svg'
+import styleUnderline from '@/assets/svg/style-underline.svg'
 import icon_leftAlignment_outlined from '@/assets/svg/icon_left-alignment_outlined.svg'
 import icon_centerAlignment_outlined from '@/assets/svg/icon_center-alignment_outlined.svg'
 import icon_rightAlignment_outlined from '@/assets/svg/icon_right-alignment_outlined.svg'
-import { computed, h, reactive, ref, toRefs, watch } from 'vue'
+import { computed, reactive, ref, toRefs, watch } from 'vue'
 import { COLOR_PANEL } from '@/views/chart/components/editor/util/chart'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { useI18n } from '@/hooks/web/useI18n'
 import Icon from '@/components/icon-custom/src/Icon.vue'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import { storeToRefs } from 'pinia'
+import { ElIcon } from 'element-plus-secondary'
 const { t } = useI18n()
 const dvMainStore = dvMainStoreWithOut()
 const snapshotStore = snapshotStoreWithOut()
@@ -316,12 +357,14 @@ const props = withDefaults(
   defineProps<{
     themes?: EditorTheme
     element: any
+    disabled?: boolean
   }>(),
   {
-    themes: 'dark'
+    themes: 'dark',
+    disabled: false
   }
 )
-const { themes, element } = toRefs(props)
+const { themes, element, disabled } = toRefs(props)
 const emits = defineEmits(['onStyleAttrChange'])
 const styleMounted = ref({
   opacity: 1,
@@ -359,6 +402,7 @@ const scrollSpeedList = [
 ]
 
 const opacitySizeList = [
+  { name: '0', value: 0 },
   { name: '0.1', value: 0.1 },
   { name: '0.2', value: 0.2 },
   { name: '0.3', value: 0.3 },
@@ -370,6 +414,39 @@ const opacitySizeList = [
   { name: '0.9', value: 0.9 },
   { name: '1', value: 1 }
 ]
+const backdropBlurList = [
+  { name: '0', value: 'blur(0px)' },
+  { name: '1', value: 'blur(1px)' },
+  { name: '2', value: 'blur(2px)' },
+  { name: '3', value: 'blur(3px)' },
+  { name: '4', value: 'blur(4px)' },
+  { name: '5', value: 'blur(5px)' },
+  { name: '6', value: 'blur(6px)' },
+  { name: '7', value: 'blur(7px)' },
+  { name: '8', value: 'blur(8px)' },
+  { name: '9', value: 'blur(9px)' },
+  { name: '10', value: 'blur(10px)' },
+  { name: '11', value: 'blur(11px)' },
+  { name: '12', value: 'blur(12px)' },
+  { name: '13', value: 'blur(13px)' },
+  { name: '14', value: 'blur(14px)' },
+  { name: '15', value: 'blur(15px)' },
+  { name: '16', value: 'blur(16px)' },
+  { name: '17', value: 'blur(17px)' },
+  { name: '18', value: 'blur(18px)' },
+  { name: '19', value: 'blur(19px)' },
+  { name: '20', value: 'blur(20px)' },
+  { name: '21', value: 'blur(21px)' },
+  { name: '22', value: 'blur(22px)' },
+  { name: '23', value: 'blur(23px)' },
+  { name: '24', value: 'blur(24px)' },
+  { name: '25', value: 'blur(25px)' },
+  { name: '26', value: 'blur(26px)' },
+  { name: '27', value: 'blur(27px)' },
+  { name: '28', value: 'blur(28px)' },
+  { name: '29', value: 'blur(29px)' },
+  { name: '30', value: 'blur(30px)' }
+]
 
 const styleForm = computed<any>(() => element.value.style)
 const state = reactive({
@@ -379,20 +456,25 @@ const state = reactive({
 })
 
 const styleColorKeyArray = [
-  { value: 'color', label: '颜色', width: 90, icon: dvStyleColor },
+  { value: 'color', label: t('visualization.color'), width: 90, icon: dvStyleColor },
   {
     value: 'headFontColor',
-    label: '头部字体颜色',
+    label: t('visualization.head_font_color'),
     width: 90,
     icon: dvStyleHeadFontColor
   },
   {
     value: 'headFontActiveColor',
-    label: '激活字体颜色',
+    label: t('visualization.head_font_active_color'),
     width: 90,
     icon: dvStyleHeadFontActiveColor
   },
-  { value: 'backgroundColor', label: '背景色', width: 90, icon: dvStyleBackgroundColor }
+  {
+    value: 'backgroundColor',
+    label: t('visualization.background_color'),
+    width: 90,
+    icon: dvStyleBackgroundColor
+  }
 ]
 
 const letterSpacingList = computed(() => {
@@ -414,12 +496,18 @@ const fontSizeList = computed(() => {
       value: i
     })
   }
+  for (let i = 70; i <= 300; i = i + 10) {
+    arr.push({
+      name: i + '',
+      value: i
+    })
+  }
   return arr
 })
 const styleOptionKeyArrayPre = [
   {
     value: 'fontFamily',
-    label: '字体',
+    label: t('visualization.font_family'),
     customOption: fontFamilyList,
     width: '188px',
     icon: dvStyleFontFamily
@@ -430,21 +518,21 @@ const styleOptionKeyArrayPre = [
 const styleOptionMountedKeyArray = [
   {
     value: 'letterSpacing',
-    label: '字间距',
+    label: t('visualization.letter_spacing'),
     customOption: letterSpacingList.value,
     width: '90px',
     icon: dvStyleLetterSpacing
   },
   {
     value: 'fontSize',
-    label: '字体大小',
+    label: t('visualization.font_size'),
     customOption: fontSizeList.value,
     width: '90px',
     icon: dvStyleFontSize
   },
   {
     value: 'activeFontSize',
-    label: '激活字体大小',
+    label: t('visualization.active_font_size'),
     customOption: fontSizeList.value,
     width: '90px',
     icon: dvStyleActiveFont
@@ -455,17 +543,24 @@ const styleOptionMountedKeyArray = [
 const styleOptionKeyArray = [
   {
     value: 'scrollSpeed',
-    label: '滚动速度',
+    label: t('visualization.scroll_speed'),
     customOption: scrollSpeedList,
     width: '90px',
     icon: dvStyleScrollSpeed
   },
   {
     value: 'opacity',
-    label: '不透明度',
+    label: t('visualization.opacity'),
     customOption: opacitySizeList,
     width: '90px',
     icon: dvStyleOpacity
+  },
+  {
+    value: 'backdropFilter',
+    label: t('visualization.background_opacity'),
+    customOption: backdropBlurList,
+    width: '90px',
+    icon: dvStyleBlur
   }
 ]
 
@@ -491,11 +586,12 @@ const sizeChange = key => {
 }
 
 const changeStyle = params => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('changeStyle')
   emits('onStyleAttrChange', params)
 }
 
 const checkBold = () => {
+  if (disabled.value) return
   if (styleForm.value.fontWeight === 'normal') {
     styleForm.value.fontWeight = 'bold'
   } else {
@@ -505,6 +601,7 @@ const checkBold = () => {
 }
 
 const checkItalic = () => {
+  if (disabled.value) return
   if (styleForm.value.fontStyle === 'normal') {
     styleForm.value.fontStyle = 'italic'
   } else {
@@ -513,7 +610,18 @@ const checkItalic = () => {
   changeStyle({ key: 'fontStyle', value: styleForm.value.fontStyle })
 }
 
+const checkTextDecoration = () => {
+  if (disabled.value) return
+  if (styleForm.value.textDecoration === 'none') {
+    styleForm.value.textDecoration = 'underline'
+  } else {
+    styleForm.value.textDecoration = 'none'
+  }
+  changeStyle({ key: 'textDecoration', value: styleForm.value.textDecoration })
+}
+
 function setPosition(key, p: 'left' | 'center' | 'right') {
+  if (disabled.value) return
   styleForm.value[key] = p
   changeStyle({ key: key, value: p })
 }
@@ -537,13 +645,6 @@ watch(
 </style>
 
 <style scoped lang="less">
-.custom-item-text {
-  font-size: 12px !important;
-  font-weight: 400 !important;
-  line-height: 20px;
-  color: #646a73 !important;
-}
-
 :deep(.ed-radio) {
   margin-right: 0;
 }
@@ -559,7 +660,7 @@ watch(
   .ed-checkbox__label {
     .bash-icon {
       background: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
-      border-radius: 4px;
+      border-radius: 6px;
       color: var(--ed-color-primary);
     }
   }
@@ -569,7 +670,7 @@ watch(
   .ed-radio__label {
     .bash-icon {
       background: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
-      border-radius: 4px;
+      border-radius: 6px;
     }
   }
 }
@@ -603,12 +704,20 @@ watch(
   width: 24px;
   height: 24px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 6px;
   padding-top: 1px;
 
   color: #1f2329;
 
   cursor: pointer;
+
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    &:hover {
+      background-color: transparent;
+    }
+  }
 
   &.dark {
     color: #a6a6a6;
@@ -649,10 +758,62 @@ watch(
   }
 }
 .custom-row-inner {
-  margin: 8px 0px 24px;
+  margin: 0 0 16px;
 }
 
 .dark-icon {
   color: #ffffff;
+}
+
+.icon-checkbox {
+  :deep(.ed-checkbox__input) {
+    display: none;
+  }
+  :deep(.ed-checkbox__label) {
+    padding: 0;
+  }
+}
+
+.icon-btn {
+  font-size: 16px;
+  line-height: 16px;
+  width: 24px;
+  height: 24px;
+  text-align: center;
+  border-radius: 6px;
+  padding-top: 4px;
+
+  color: #1f2329;
+
+  cursor: pointer;
+
+  &.dark {
+    color: #a6a6a6;
+    &.active {
+      color: var(--ed-color-primary);
+      background-color: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
+    }
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  &.active {
+    color: var(--ed-color-primary);
+    background-color: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
+  }
+
+  &:hover {
+    background-color: rgba(31, 35, 41, 0.1);
+  }
+}
+
+.form-item-dark {
+  :deep(.ed-color-picker__trigger) {
+    border-color: #5f5f5f;
+  }
+  :deep(.ed-color-picker__custom-icon::after) {
+    background-color: #5f5f5f;
+  }
 }
 </style>

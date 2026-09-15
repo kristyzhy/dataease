@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import icon_admin_outlined from '@/assets/svg/icon_admin_outlined.svg'
 import { ElColorPicker, ElPopover } from 'element-plus-secondary'
-import { computed, nextTick, onMounted, reactive, ref, toRefs, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import { COLOR_CASES, COLOR_PANEL } from '@/views/chart/components/editor/util/chart'
 import GradientColorSelector from '@/views/chart/components/editor/editor-style/components/GradientColorSelector.vue'
@@ -23,8 +23,8 @@ const props = withDefaults(
       customColor: any
       colorIndex: number
     }
-    propertyInner: Array<string>
-    chart: ChartObj
+    propertyInner?: Array<string>
+    chart?: ChartObj
     sub?: boolean
   }>(),
   {
@@ -234,9 +234,20 @@ const changeColorOption = (option?) => {
   }
 }
 const resetCustomColor = () => {
-  state.value.basicStyleForm[seriesColorName.value] = []
-  changeBasicStyle(seriesColorName.value)
-  setupSeriesColor()
+  const type = props.chart?.type
+  const { basicStyleForm } = state.value
+
+  if (type?.includes('map')) {
+    changeColorOption()
+  } else {
+    basicStyleForm[seriesColorName.value] = []
+    changeBasicStyle(seriesColorName.value)
+    const colorScheme = basicStyleForm[colorSchemeName.value]
+    basicStyleForm[colorsName.value] =
+      colorCases.find(ele => ele.value === colorScheme)?.colors ?? colorCases[0].colors
+    changeBasicStyle(colorsName.value)
+    setupSeriesColor()
+  }
 }
 
 const switchColorCase = () => {
@@ -296,7 +307,8 @@ const colorItemBorderColor = (index, state) => {
 </script>
 
 <template>
-  <div
+  <el-form
+    size="small"
     style="width: 100%"
     :style="{ 'margin-bottom': customColorExtendSettingOpened ? '16px' : 0 }"
   >
@@ -368,6 +380,7 @@ const colorItemBorderColor = (index, state) => {
                 class="select-color-item"
                 :class="{ active: state.basicStyleForm[colorSchemeName] === option.value }"
                 @click="selectColorCase(option)"
+                :title="option.name"
               >
                 <div style="float: left">
                   <span
@@ -486,11 +499,8 @@ const colorItemBorderColor = (index, state) => {
             ></div>
           </div>
           <div :id="`series-color-picker-${sub ? 1 : 0}-${index}`"></div>
-          <span
-            :title="item.name"
-            class="color-item-name"
-            :class="themes === 'dark' ? 'dark' : ''"
-            >{{ item.name }}</span
+          <span class="color-item-name" :title="item.name" :class="themes === 'dark' ? 'dark' : ''">
+            {{ item.name }}</span
           >
         </div>
       </div>
@@ -508,7 +518,7 @@ const colorItemBorderColor = (index, state) => {
         />
       </div>
     </teleport>
-  </div>
+  </el-form>
 </template>
 
 <style scoped lang="less">
@@ -521,6 +531,7 @@ const colorItemBorderColor = (index, state) => {
 .custom-color-selector {
   :deep(.ed-input__prefix) {
     width: calc(100% - 22px);
+    .ed-input__prefix,
     .ed-input__prefix-inner {
       width: 100%;
     }
@@ -545,8 +556,8 @@ const colorItemBorderColor = (index, state) => {
   margin-top: 30px;
   line-height: 28px;
 
-  border-radius: 4px;
-  border: 1px solid #bbbfc4;
+  border-radius: 6px;
+  border: 1px solid #d9dcdf;
   padding: 0 7px;
   width: 28px;
   height: 28px;
@@ -646,7 +657,7 @@ const colorItemBorderColor = (index, state) => {
       justify-content: start;
       align-items: flex-start;
       .color-item-name {
-        max-width: 120px;
+        max-width: 160px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -686,7 +697,7 @@ const colorItemBorderColor = (index, state) => {
     width: 100%;
 
     font-size: var(--ed-font-size-base);
-    padding: 0 32px 0 20px;
+    padding: 0 20px 0 20px;
     position: relative;
     white-space: nowrap;
     overflow: hidden;
@@ -721,6 +732,10 @@ const colorItemBorderColor = (index, state) => {
 
   .cases-list__text {
     margin-left: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 40px;
   }
 }
 .series-color-picker-wrapper {

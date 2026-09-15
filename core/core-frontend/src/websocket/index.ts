@@ -4,7 +4,6 @@ import { useCache } from '@/hooks/web/useCache'
 import { useEmitt } from '@/hooks/web/useEmitt'
 const { wsCache } = useCache()
 let stompClient: Stomp.Client
-let timeInterval: NodeJS.Timer | null = null
 import dev from '../../config/dev'
 const env = import.meta.env
 const basePath = env.VITE_API_BASEPATH
@@ -22,6 +21,9 @@ export default {
       }
     ]
     function isLoginStatus() {
+      if (wsCache.get('app.desktop')) {
+        return true
+      }
       return wsCache.get('user.token') && wsCache.get('user.uid')
     }
 
@@ -36,7 +38,6 @@ export default {
       if (window.DataEaseBi?.baseUrl) {
         prefix = window.DataEaseBi.baseUrl
       } else {
-        // const href = window.location.href
         prefix = location.origin + location.pathname
         if (env.MODE === 'dev') {
           prefix = dev.server.proxy[basePath].target + '/'
@@ -45,21 +46,23 @@ export default {
       if (!prefix.endsWith('/')) {
         prefix += '/'
       }
-      const socket = new SockJS(prefix + 'websocket?userId=' + wsCache.get('user.uid'))
+      const userId = wsCache.get('app.desktop') ? 1 : wsCache.get('user.uid')
+      const socket = new SockJS(prefix + 'websocket?userId=' + userId)
       stompClient = Stomp.over(socket)
       const heads = {
-        userId: wsCache.get('user.uid')
+        userId: userId
       }
       stompClient.connect(
         heads,
         () => {
           channels.forEach(channel => {
-            stompClient.subscribe('/user/' + wsCache.get('user.uid') + channel.topic, res => {
+            stompClient.subscribe('/user/' + userId + channel.topic, res => {
               res && res.body && useEmitt().emitter.emit(channel.event, res.body)
             })
           })
         },
         error => {
+          disconnect()
           console.error('连接失败: ' + error)
         }
       )
@@ -76,11 +79,12 @@ export default {
           }
         )
       }
+      stompClient = null
     }
 
     function initialize() {
       connection()
-      timeInterval = setInterval(() => {
+      const timeInterval = setInterval(() => {
         if (!isLoginStatus()) {
           disconnect()
           return

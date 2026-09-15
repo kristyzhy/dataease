@@ -3,7 +3,15 @@ import {
   G2PlotDrawOptions
 } from '@/views/chart/components/js/panel/types/impl/g2plot'
 import type { Bar, BarOptions } from '@antv/g2plot/esm/plots/bar'
-import { getPadding, setGradientColor } from '@/views/chart/components/js/panel/common/common_antv'
+import {
+  configAxisLabelLengthLimit,
+  configPlotTooltipEvent,
+  configRoundAngle,
+  getPadding,
+  getTooltipContainer,
+  setGradientColor,
+  TOOLTIP_TPL
+} from '@/views/chart/components/js/panel/common/common_antv'
 import { cloneDeep, find } from 'lodash-es'
 import { flow, hexColorToRGBA, parseJson } from '@/views/chart/components/js/util'
 import { valueFormatter } from '@/views/chart/components/js/formatter'
@@ -14,6 +22,8 @@ import {
 } from '@/views/chart/components/js/panel/charts/bar/common'
 import { Datum } from '@antv/g2plot/esm/types/common'
 import { useI18n } from '@/hooks/web/useI18n'
+import { DEFAULT_BASIC_STYLE } from '@/views/chart/components/editor/util/chart'
+import { Group } from '@antv/g-canvas'
 
 const { t } = useI18n()
 const DEFAULT_DATA = []
@@ -38,7 +48,7 @@ export class RangeBar extends G2PlotChartView<BarOptions, Bar> {
       type: 'q'
     }
   }
-  properties = BAR_RANGE_EDITOR_PROPERTY
+  properties = BAR_RANGE_EDITOR_PROPERTY.filter(p => p !== 'threshold')
   propertyInner = {
     ...BAR_EDITOR_PROPERTY_INNER,
     'label-selector': ['hPosition', 'color', 'fontSize', 'labelFormatter', 'showGap'],
@@ -59,7 +69,8 @@ export class RangeBar extends G2PlotChartView<BarOptions, Bar> {
       'splitLine',
       'axisForm',
       'axisLabel',
-      'position'
+      'position',
+      'showLengthLimit'
     ]
   }
   axis: AxisType[] = [...BAR_AXIS_TYPE, 'yAxisExt']
@@ -100,9 +111,6 @@ export class RangeBar extends G2PlotChartView<BarOptions, Bar> {
       case 'y_M_d':
         dateFormat = 'YYYY' + dateSplit + 'MM' + dateSplit + 'DD'
         break
-      // case 'H_m_s':
-      //   dateFormat = 'HH:mm:ss'
-      //   break
       case 'y_M_d_H':
         dateFormat = 'YYYY' + dateSplit + 'MM' + dateSplit + 'DD' + ' HH'
         break
@@ -161,7 +169,19 @@ export class RangeBar extends G2PlotChartView<BarOptions, Bar> {
     const newChart = new BarClass(container, options)
 
     newChart.on('interval:click', action)
-
+    if (options.label) {
+      newChart.on('label:click', e => {
+        action({
+          x: e.x,
+          y: e.y,
+          data: {
+            data: e.target.attrs.data
+          }
+        })
+      })
+    }
+    configPlotTooltipEvent(chart, newChart)
+    configAxisLabelLengthLimit(chart, newChart)
     return newChart
   }
 
@@ -232,7 +252,10 @@ export class RangeBar extends G2PlotChartView<BarOptions, Bar> {
                 }
               }
               return { value: res, values: param.values, name: param.field }
-            }
+            },
+            container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+            itemTpl: TOOLTIP_TPL,
+            enterable: true
           }
         } else {
           tooltip = false
@@ -296,20 +319,24 @@ export class RangeBar extends G2PlotChartView<BarOptions, Bar> {
         }
       }
     }
-    if (basicStyle.radiusColumnBar === 'roundAngle') {
-      const barStyle = {
-        radius: [
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius
-        ]
-      }
-      options = {
-        ...options,
-        barStyle
-      }
+
+    options = {
+      ...options,
+      ...configRoundAngle(chart, 'barStyle')
     }
+    let barWidthRatio
+    const _v = basicStyle.columnWidthRatio ?? DEFAULT_BASIC_STYLE.columnWidthRatio
+    if (_v >= 1 && _v <= 100) {
+      barWidthRatio = _v / 100.0
+    } else if (_v < 1) {
+      barWidthRatio = 1 / 100.0
+    } else if (_v > 100) {
+      barWidthRatio = 1
+    }
+    if (barWidthRatio) {
+      options.barWidthRatio = barWidthRatio
+    }
+
     return options
   }
 
@@ -365,7 +392,22 @@ export class RangeBar extends G2PlotChartView<BarOptions, Bar> {
               valueFormatter(param.values[1], labelAttr.labelFormatter)
           }
         }
-        return res
+        const group = new Group({})
+        group.addShape({
+          type: 'text',
+          attrs: {
+            x: 0,
+            y: 0,
+            data: param,
+            text: res,
+            textAlign: 'start',
+            textBaseline: 'top',
+            fontSize: labelAttr.fontSize,
+            fontFamily: chart.fontFamily,
+            fill: labelAttr.color
+          }
+        })
+        return group
       }
     }
     return {

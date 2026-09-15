@@ -66,7 +66,7 @@ declare interface ChartBasicStyle {
   /**
    * 表格列宽模式: 自适应和自定义
    */
-  tableColumnMode: 'adapt' | 'custom' | 'field' | 'dialog'
+  tableColumnMode: 'adapt' | 'custom' | 'field' | 'colAdapt' | 'dialog'
   /**
    * 表格列宽
    */
@@ -104,6 +104,18 @@ declare interface ChartBasicStyle {
    * 表格展示形式,平铺和树形
    */
   tableLayoutMode: 'grid' | 'tree'
+  /**
+   * 表格默认展开层级
+   */
+  defaultExpandLevel: number | 'all'
+  /**
+   * 表格指标展示位置
+   */
+  quotaPosition: 'col' | 'row'
+  /**
+   * 行头指标列名称
+   */
+  quotaColLabel: string
   /**
    * 仪表盘样式
    */
@@ -162,6 +174,22 @@ declare interface ChartBasicStyle {
    */
   lineSmooth: boolean
   /**
+   * 双线组合图左轴线宽
+   */
+  leftLineWidth: number
+  /**
+   * 双线组合图左轴折点形状
+   */
+  leftLineSymbol: string
+  /**
+   * 双线组合图左轴折点大小
+   */
+  leftLineSymbolSize: number
+  /**
+   * 双线组合图左轴平滑折线
+   */
+  leftLineSmooth: boolean
+  /**
    * 自适应
    */
   barDefault: boolean
@@ -170,13 +198,17 @@ declare interface ChartBasicStyle {
    */
   barWidth: number
   /**
-   * 柱子形状：直角｜圆角
+   * 柱子形状：直角｜圆角｜顶部圆角
    */
-  radiusColumnBar?: 'rightAngle' | 'roundAngle'
+  radiusColumnBar?: 'rightAngle' | 'roundAngle' | 'topRoundAngle'
   /**
    * 圆角柱倒角
    */
   columnBarRightAngleRadius: number
+  /**
+   * 一般柱状图宽度占比，0 - 100 范围数值
+   */
+  columnWidthRatio: number
   /**
    * 柱间距
    */
@@ -193,6 +225,22 @@ declare interface ChartBasicStyle {
    * 散点气泡大小
    */
   scatterSymbolSize: number
+  /**
+   * 箱线图是否显示异常值点
+   */
+  showOutliers: boolean
+  /**
+   * 箱线图异常点颜色模式，默认跟随所属箱体或分组系列
+   */
+  outlierColorMode: 'series' | 'custom'
+  /**
+   * 箱线图异常点自定义颜色，仅在自定义颜色模式下生效
+   */
+  outlierColor: string
+  /**
+   * 箱线图异常点半径大小
+   */
+  outlierSize: number
   /**
    * 雷达图外形形状
    */
@@ -285,6 +333,13 @@ declare interface ChartBasicStyle {
    * 汇总表总计标签
    */
   summaryLabel: string
+
+  seriesSummary?: Array<{
+    show: boolean
+    field: string
+    summary: string
+    originName?: string
+  }>
   /**
    * 符号地图符号大小最小值
    */
@@ -326,6 +381,62 @@ declare interface ChartBasicStyle {
    * 表格鼠标悬浮样式
    */
   showHoverStyle: boolean
+  /**
+   * 明细表单元格自动换行
+   */
+  autoWrap: boolean
+  /**
+   * 最大行数
+   */
+  maxLines?: number
+  /**
+   * 雷达图辅助点
+   */
+  radarShowPoint: boolean
+  /**
+   * 雷达图辅助点大小
+   */
+  radarPointSize: number
+  /**
+   * 雷达图面积颜色开关
+   */
+  radarAreaColor: boolean
+  /**
+   * 圆形填充图边线颜色
+   */
+  circleBorderColor: string
+  /**
+   * 圆形填充图边线宽度
+   */
+  circleBorderWidth: number
+  /**
+   * 圆形填充图间距
+   */
+  circlePadding: number
+  /**
+   * 透视表行头模式
+   */
+  tableRowHeaderMode: 'adapt' | 'fixed' | 'percent'
+  /**
+   * 透视表行头宽度
+   */
+  tableRowHeaderWidth: number
+  /**
+   * 透视表行头宽度百分比
+   */
+  tableRowHeaderWidthPercent: number
+  /**
+   * 表格空数据提示字体颜色
+   */
+  tableEmptyFontColor: string
+  /**
+   * 表格空数据提示字体大小
+   */
+  tableEmptyFontSize: number
+  /**
+   * 主题反色，浅色主题黑色，深色主题白色
+   */
+  themeContrastColor?: string
 }
 /**
  * 表头属性
@@ -335,14 +446,20 @@ declare interface ChartTableHeaderAttr {
    * 表头背景颜色
    */
   tableHeaderBgColor: string
+  tableHeaderCornerBgColor: string
+  tableHeaderColBgColor: string
   /**
    * 表头字体大小
    */
   tableTitleFontSize: number
+  tableTitleCornerFontSize: number
+  tableTitleColFontSize: number
   /**
    * 表头字体颜色
    */
   tableHeaderFontColor: string
+  tableHeaderCornerFontColor: string
+  tableHeaderColFontColor: string
   /**
    * 表头行高
    */
@@ -350,7 +467,9 @@ declare interface ChartTableHeaderAttr {
   /**
    * 表头对齐方式
    */
-  tableHeaderAlign: 'left' | 'center' | 'right'
+  tableHeaderAlign: 'left' | 'center' | 'right' | 'custom'
+  tableHeaderCornerAlign: 'left' | 'center' | 'right'
+  tableHeaderColAlign: 'left' | 'center' | 'right'
   /**
    * 显示序号
    */
@@ -389,10 +508,51 @@ declare interface ChartTableHeaderAttr {
    * 斜体
    */
   isItalic: boolean
+  isCornerItalic: boolean
+  isColItalic: boolean
   /**
    * 加粗
    */
   isBolder: boolean
+  isCornerBolder: boolean
+  isColBolder: boolean
+  /**
+   * 表头分组开关
+   */
+  headerGroup: boolean
+  /**
+   * 表头分组设置
+   */
+  headerGroupConfig: {
+    /**
+     * 分组结构
+     */
+    columns: Columns
+    /**
+     * 分组名称
+     */
+    meta: {
+      /**
+       * 字段id
+       */
+      field: string
+      /**
+       * 名称
+       */
+      name: string
+    }[]
+  }
+  /**
+   * 透视表行头冻结
+   */
+  rowHeaderFreeze: boolean
+  /**
+   * 对齐设置
+   */
+  alignConfig: {
+    id: string
+    align: 'left' | 'center' | 'right'
+  }[]
 }
 /**
  * 单元格属性
@@ -413,7 +573,7 @@ declare interface ChartTableCellAttr {
   /**
    * 单元格对齐方式
    */
-  tableItemAlign: 'left' | 'center' | 'right'
+  tableItemAlign: 'left' | 'center' | 'right' | 'custom'
   /**
    * 单元格行高
    */
@@ -459,6 +619,17 @@ declare interface ChartTableCellAttr {
    * 冻结行
    */
   tableRowFreezeHead: number
+  /**
+   * 合并单元格
+   */
+  mergeCells: boolean
+  /**
+   * 对齐设置
+   */
+  alignConfig: {
+    id: string
+    align: string
+  }[]
 }
 
 /**
@@ -507,6 +678,10 @@ declare interface TotalConfig {
    */
   subTotalsDimensions: string[]
   /**
+   * 兼容旧版的判断
+   */
+  subTotalsDimensionsNew: boolean
+  /**
    * 总计汇总设置
    */
   calcTotals: CalcTotals
@@ -537,11 +712,18 @@ declare interface CalcTotals {
  */
 declare interface CalcTotalCfg extends Axis {
   dataeaseName: string
+  /**
+   * 聚合方式
+   */
   aggregation: 'MIN' | 'MAX' | 'AVG' | 'SUM' | 'CUSTOM' | ''
   /**
    * 自定义汇总表达式
    */
   originName: string
+  /**
+   * 别名
+   */
+  label: string
 }
 
 /**
@@ -618,6 +800,18 @@ declare interface ChartMiscAttr {
    * 水波图形状
    */
   liquidShape: string
+  /**
+   * 水波图边框显示
+   */
+  liquidShowBorder: boolean
+  /**
+   * 水波图边框宽度
+   */
+  liquidBorderWidth: number
+  /**
+   * 水波图边框距离
+   */
+  liquidBorderDistance: number
   /**
    * 地图倾角
    */
@@ -797,6 +991,10 @@ declare interface ChartMiscAttr {
      */
     fieldId: string
   }
+  /**
+   * 子弹图
+   */
+  bullet: BulletAtt
 }
 /**
  * 动态极值配置
@@ -934,6 +1132,10 @@ declare interface ChartLabelAttr {
    * 全部显示
    */
   fullDisplay: boolean
+  /**
+   * 仪表盘占比显示格式
+   */
+  proportionSeriesFormatter: SeriesFormatter
 }
 /**
  * 提示设置
@@ -957,6 +1159,15 @@ declare interface ChartTooltipAttr {
    * 格式化
    */
   tooltipFormatter: BaseFormatter
+  /**
+   * 是否显示指标值
+   */
+  showQuota?: boolean
+  /**
+   * 箱线图是否展开五数统计、样本数和异常值数量
+   * 关闭时仅显示分组字段以及指标中位数
+   */
+  showBoxPlotDetails?: boolean
   /**
    * 背景颜色
    */
@@ -1182,6 +1393,10 @@ declare interface ChartIndicatorNameStyle {
    * 指标/名称间距
    */
   nameValueSpacing: number
+  /**
+   * 指标名称位置
+   */
+  namePosition?: 'top' | 'bottom'
 }
 
 /**
@@ -1215,4 +1430,55 @@ declare interface ConversionTagAtt {
    * 精度
    */
   precision: number
+}
+
+declare interface ColumnNode {
+  key: string
+  children?: Columns
+}
+
+declare type Columns = Array<ColumnNode>
+
+declare interface BulletAtt {
+  bar: BulletAttr<BulletBarAtt>
+}
+declare interface BulletBarAtt {
+  /**
+   * 背景区间类型
+   */
+  showType?: 'dynamic' | 'fixed'
+  /**
+   * 自定义子弹背景区间
+   */
+  fixedRange?: BulletBarAtt[]
+  /**
+   * 自定义区间个数
+   */
+  fixedRangeNumber?: number
+  /**
+   * 自定义子弹背景区间分界值
+   */
+  fixedRangeValue?: number
+  /**
+   * 显示名称
+   */
+  name?: string
+  /**
+   * 当目标值为固定值时，显示目标值
+   */
+  value?: number
+  /**
+   * 子弹图形形状
+   */
+  symbol?: 'circle' | 'square' | 'line' | 'diamond' | 'triangle'
+  symbolSize?: number
+  fill?: string | string[]
+  fillOpacity?: number
+  radius?: number | number[]
+  size?: number
+}
+declare interface BulletAttr<T> {
+  measures?: T
+  target?: T
+  ranges?: T
 }

@@ -4,6 +4,7 @@ import { useI18n } from '@/hooks/web/useI18n'
 import { COLOR_PANEL, DEFAULT_FUNCTION_CFG } from '@/views/chart/components/editor/util/chart'
 import { equalsAny, includesAny } from '../../util/StringUtils'
 import { parseJson } from '../../../js/util'
+import icon_info_outlined from '@/assets/svg/icon_info_outlined.svg'
 
 const { t } = useI18n()
 
@@ -93,6 +94,9 @@ const initFieldCtrl = () => {
     })
   }
 }
+const isCirclePacking = computed(() => {
+  return equalsAny(props.chart.type, 'circle-packing')
+})
 onMounted(() => {
   init()
 })
@@ -109,7 +113,17 @@ onMounted(() => {
             v-model="state.functionForm.sliderShow"
             @change="changeFunctionCfg"
           >
-            {{ t('chart.slider') }}
+            <span class="data-area-label">
+              <span style="margin-right: 4px">{{ t('chart.slider') }}</span>
+              <el-tooltip class="item" effect="dark" placement="bottom">
+                <template #content>
+                  <div>{{ t('chart.enable_slider_tip') }}</div>
+                </template>
+                <el-icon class="hint-icon" :class="{ 'hint-icon--dark': themes === 'dark' }">
+                  <Icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></Icon>
+                </el-icon>
+              </el-tooltip>
+            </span>
           </el-checkbox>
         </el-form-item>
         <div style="padding-left: 22px">
@@ -192,11 +206,15 @@ onMounted(() => {
           @change="changeFunctionCfg"
         >
           <el-radio :effect="themes" :label="'breakLine'">
-            {{ isRichText ? '置为"-"' : t('chart.break_line') }}
+            {{ isRichText ? t('visualization.set_as_tips') + '"-"' : t('chart.break_line') }}
           </el-radio>
-          <el-radio v-if="isRichText" :effect="themes" :label="'custom'"> 自定义 </el-radio>
+          <el-radio v-if="isRichText" :effect="themes" :label="'custom'">
+            {{ t('visualization.custom') }}
+          </el-radio>
           <template v-if="!isRichText">
-            <el-radio :effect="themes" :label="'setZero'">{{ t('chart.set_zero') }}</el-radio>
+            <el-radio v-if="!isCirclePacking" :effect="themes" :label="'setZero'">{{
+              t('chart.set_zero')
+            }}</el-radio>
             <el-radio v-if="showIgnoreOption" :effect="themes" :label="'ignoreData'">
               {{ t('chart.ignore_data') }}
             </el-radio>
@@ -288,5 +306,13 @@ span {
 }
 .form-item-checkbox {
   margin-bottom: 10px !important;
+}
+.data-area-label {
+  text-align: left;
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
 }
 </style>

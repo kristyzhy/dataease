@@ -21,12 +21,12 @@
           <el-dropdown-menu class="de-card-dropdown">
             <slot>
               <el-dropdown-item command="templateEdit">
-                <el-icon><EditPen /></el-icon>
-                编辑
+                <el-icon class="opt-icon"><EditPen /></el-icon>
+                <span class="opt-name">{{ t('commons.edit') }}</span>
               </el-dropdown-item>
               <el-dropdown-item command="delete">
-                <el-icon><Delete /></el-icon>
-                {{ $t('chart.delete') }}
+                <el-icon class="opt-icon"><Delete /></el-icon>
+                <span class="opt-name">{{ t('chart.delete') }}</span>
               </el-dropdown-item>
             </slot>
           </el-dropdown-menu>
@@ -39,8 +39,9 @@
 <script setup lang="ts">
 import { imgUrlTrans } from '@/utils/imgUtils'
 import { computed, toRefs } from 'vue'
+import { useI18n } from '@/hooks/web/useI18n'
 const emits = defineEmits(['command'])
-
+const { t } = useI18n()
 const props = defineProps({
   model: {
     type: Object
@@ -87,7 +88,7 @@ const handleCommand = key => {
   position: relative;
   background: #ffffff;
   border: 1px solid #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
   margin: 0 16px 16px 0;
   overflow: hidden;
   .custom-item-checkbox {
@@ -131,12 +132,12 @@ const handleCommand = key => {
 
     .el-icon-more:hover {
       background: rgba(31, 35, 41, 0.1);
-      border-radius: 4px;
+      border-radius: 6px;
     }
 
     .el-icon-more:active {
       background: rgba(31, 35, 41, 0.2);
-      border-radius: 4px;
+      border-radius: 6px;
     }
   }
 
@@ -176,8 +177,19 @@ const handleCommand = key => {
 
 .icon-screen-new {
   background: var(--ed-color-primary);
-  border-radius: 4px;
+  border-radius: 6px;
   color: #fff;
   padding: 3px;
+}
+.opt-icon {
+  font-size: 16px;
+  color: rgba(100, 106, 115, 1);
+}
+.opt-name {
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 22px;
+  margin-left: 3px;
+  color: rgba(31, 35, 41, 1);
 }
 </style>

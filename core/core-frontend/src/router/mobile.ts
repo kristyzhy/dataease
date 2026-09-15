@@ -1,5 +1,5 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
-import type { RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router_2'
+import type { RouteRecordRaw } from 'vue-router_2'
 import type { App } from 'vue'
 
 export const routes: AppRouteRecordRaw[] = [
@@ -51,13 +51,6 @@ export const routes: AppRouteRecordRaw[] = [
     hidden: true,
     meta: {},
     component: () => import('@/views/mobile/panel/Mobile.vue')
-  },
-  {
-    path: '/dvCanvas',
-    name: 'dv',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/mobile/panel/NotSupport.vue')
   },
   {
     path: '/DashboardEmpty',

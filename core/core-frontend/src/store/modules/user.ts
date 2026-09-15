@@ -2,8 +2,10 @@ import { defineStore } from 'pinia'
 import { store } from '../index'
 import { useCache } from '@/hooks/web/useCache'
 import { useLocaleStoreWithOut } from './locale'
+import { useLocale } from '@/hooks/web/useLocale'
 const { wsCache } = useCache()
-const locale = useLocaleStoreWithOut()
+const { changeLocale } = useLocale()
+
 interface UserState {
   token: string
   uid: string
@@ -11,6 +13,7 @@ interface UserState {
   oid: string
   language: string
   exp: number
+  time: number
 }
 
 export const userStore = defineStore('user', {
@@ -21,7 +24,8 @@ export const userStore = defineStore('user', {
       name: null,
       oid: null,
       language: 'zh-CN',
-      exp: null
+      exp: null,
+      time: null
     }
   },
   getters: {
@@ -42,28 +46,30 @@ export const userStore = defineStore('user', {
     },
     getExp(): number {
       return this.exp
+    },
+    getTime(): number {
+      return this.time
     }
   },
   actions: {
     async setUser() {
-      const desktop = wsCache.get('app.desktop')
-      let res = null
-      if (desktop) {
-        res = { data: { uid: '1', name: 'DataEase 用户', oid: '1', language: 'zh-CN' } }
-      } else {
-        const user = await import('@/api/user')
-        res = await user.userInfo()
-      }
+      const user = await import('@/api/user')
+      const res = await user.userInfo()
       const data = res.data
       data.token = wsCache.get('user.token')
       data.exp = wsCache.get('user.exp')
-      const keys: string[] = ['token', 'uid', 'name', 'oid', 'language', 'exp']
+      data.time = wsCache.get('user.time')
+      const keys: string[] = ['token', 'uid', 'name', 'oid', 'language', 'exp', 'time']
 
       keys.forEach(key => {
         const dkey = key === 'uid' ? 'id' : key
         this[key] = data[dkey]
         wsCache.set('user.' + key, this[key])
       })
+      const locale = useLocaleStoreWithOut()
+      if (locale.getCurrentLocale?.lang !== this.language && !window.DataEaseBi) {
+        window.location.reload()
+      }
       this.setLanguage(this.language)
     },
     setToken(token: string) {
@@ -73,6 +79,10 @@ export const userStore = defineStore('user', {
     setExp(exp: number) {
       wsCache.set('user.exp', exp)
       this.exp = exp
+    },
+    setTime(time: number) {
+      wsCache.set('user.time', time)
+      this.time = time
     },
     setUid(uid: string) {
       wsCache.set('user.uid', uid)
@@ -87,15 +97,17 @@ export const userStore = defineStore('user', {
       this.oid = oid
     },
     setLanguage(language: string) {
+      const locale = useLocaleStoreWithOut()
       if (!language || language === 'zh_CN') {
         language = 'zh-CN'
       }
       wsCache.set('user.language', language)
       this.language = language
       locale.setLang(language)
+      changeLocale(language as any)
     },
     clear() {
-      const keys: string[] = ['token', 'uid', 'name', 'oid', 'language', 'exp']
+      const keys: string[] = ['token', 'uid', 'name', 'oid', 'language', 'exp', 'time']
       keys.forEach(key => wsCache.delete('user.' + key))
     }
   }

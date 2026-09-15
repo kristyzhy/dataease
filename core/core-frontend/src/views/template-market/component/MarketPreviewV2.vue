@@ -2,17 +2,30 @@
   <el-row style="width: 100%">
     <el-row style="display: table; width: 100%">
       <el-col style="float: left" :class="state.asideActive ? 'aside-active' : 'aside-inActive'">
-        <el-tooltip class="box-item" effect="dark" content="展开" placement="right">
+        <el-tooltip
+          class="box-item"
+          effect="dark"
+          :content="t('relation.expand')"
+          placement="right"
+        >
           <el-icon v-show="!state.asideActive" class="insert" @click="asideActiveChange(true)">
             <Icon name="market-expand"><marketExpand class="svg-icon" /></Icon>
           </el-icon>
         </el-tooltip>
         <el-row v-show="state.asideActive" style="padding: 24px 12px 0">
-          <el-row style="align-items: center">
-            <span class="custom-breadcrumb-item" @click="closePreview()">模版中心</span>
-            <el-icon><ArrowRight /></el-icon> <span class="custom-breadcrumb-item-to">预览</span>
+          <el-row style="display: flex; align-items: center">
+            <span class="custom-breadcrumb-item" @click="closePreview()">{{
+              t('template_manage.template_center')
+            }}</span>
+            <el-icon style="color: #8f959e"><ArrowRight /></el-icon>
+            <span class="custom-breadcrumb-item-to">{{ t('template_manage.preview') }}</span>
 
-            <el-tooltip class="box-item" effect="dark" content="收起" placement="right">
+            <el-tooltip
+              class="box-item"
+              effect="dark"
+              :content="t('relation.retract')"
+              placement="right"
+            >
               <div @click="asideActiveChange(false)" class="insert-retract">
                 <el-icon>
                   <Icon name="icon_left_outlined"><icon_left_outlined class="svg-icon" /></Icon>
@@ -26,17 +39,22 @@
               prefix-icon="Search"
               class="title-name-search"
               :placeholder="t('visualization.enter_template_name_tips')"
-              clearable="true"
+              clearable
             />
             <el-icon
               class="insert-filter filter-icon-span"
               :class="state.extFilterActive ? 'filter-icon-active' : ''"
               @click="extFilterActiveChange()"
-              ><Filter
-            /></el-icon>
+            >
+              <iconFilter />
+            </el-icon>
           </el-row>
-          <el-row v-show="state.extFilterActive">
-            <el-select v-model="state.templateType" style="margin-top: 8px" placeholder="请选择">
+          <el-row style="width: 100%" v-show="state.extFilterActive">
+            <el-select
+              v-model="state.templateType"
+              style="margin-top: 8px"
+              :placeholder="t('common.selectText')"
+            >
               <el-option
                 v-for="item in state.templateTypeOptions"
                 :key="item.value"
@@ -45,11 +63,11 @@
               />
             </el-select>
           </el-row>
-          <el-row v-show="state.extFilterActive">
+          <el-row style="width: 100%" v-show="state.extFilterActive">
             <el-select
               v-model="state.templateSourceType"
               style="margin-top: 8px"
-              placeholder="请选择"
+              :placeholder="t('common.selectText')"
             >
               <el-option
                 v-for="item in state.templateSourceOptions"
@@ -59,10 +77,10 @@
               />
             </el-select>
           </el-row>
-          <el-divider />
+          <el-divider class="mp-divider" />
         </el-row>
 
-        <el-row
+        <el-main
           v-show="state.asideActive"
           class="aside-list"
           :class="state.extFilterActive ? 'aside-list-filter-active' : ''"
@@ -89,21 +107,21 @@
           </el-collapse>
           <el-row v-show="!state.hasResult" class="custom-position">
             <div style="text-align: center">
-              <Icon name="no_result"
-                ><no_result style="margin-bottom: 16px; font-size: 75px" class="svg-icon"
-              /></Icon>
+              <Icon name="no_result">
+                <no_result style="margin-bottom: 16px; font-size: 75px" class="svg-icon" />
+              </Icon>
               <br />
-              <span>没有找到相关模板</span>
+              <span>{{ t('work_branch.relevant_templates_found') }}</span>
             </div>
           </el-row>
-        </el-row>
+        </el-main>
       </el-col>
       <el-col
         style="float: left"
         class="main-area"
         :class="state.asideActive ? 'main-area-active' : ''"
       >
-        <el-row v-if="state.curTemplate">
+        <el-row v-if="state.curTemplate" style="padding: 24px 24px 0">
           <span class="template-title">{{ state.curTemplate.title }}</span>
           <div style="flex: 1; text-align: right">
             <el-button
@@ -111,12 +129,13 @@
               type="primary"
               :disabled="!createAuth[state.curTemplate?.templateType]"
               @click="templateApply(state.curTemplate)"
-              >{{ t('visualization.apply_this_template') }}</el-button
             >
+              {{ t('visualization.apply_this_template') }}
+            </el-button>
           </div>
         </el-row>
-        <el-row class="img-main">
-          <img style="height: 100%" :src="imgUrlTrans(state.templatePreviewUrl)" alt="" />
+        <el-row v-if="state.curTemplate" class="img-main">
+          <img :src="imgUrlTrans(state.templatePreviewUrl)" alt="" />
         </el-row>
       </el-col>
     </el-row>
@@ -126,12 +145,13 @@
 <script setup lang="ts">
 import marketExpand from '@/assets/svg/market-expand.svg'
 import icon_left_outlined from '@/assets/svg/icon_left_outlined.svg'
+import iconFilter from '@/assets/svg/icon-filter.svg'
 import no_result from '@/assets/svg/no_result.svg'
 import { searchMarketPreview } from '@/api/templateMarket'
 import { onMounted, reactive, watch, ref } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import TemplateMarketPreviewItem from '@/views/template-market/component/TemplateMarketPreviewItem.vue'
-import { deepCopy } from '@/utils/utils'
+import { deepCopy, getActiveCategories } from '@/utils/utils'
 import { imgUrlTrans } from '@/utils/imgUtils'
 
 const { t } = useI18n()
@@ -180,30 +200,30 @@ const state = reactive({
   templateSourceOptions: [
     {
       value: 'all',
-      label: '全部来源'
+      label: t('work_branch.all_source')
     },
     {
       value: 'market',
-      label: '模板市场'
+      label: t('work_branch.template_market_official')
     },
     {
       value: 'manage',
-      label: '模板管理'
+      label: t('template_manage.name')
     }
   ],
   templateType: 'all',
   templateTypeOptions: [
     {
       value: 'all',
-      label: '全部类型'
+      label: t('work_branch.all_types')
     },
     {
       value: 'PANEL',
-      label: '仪表板'
+      label: t('work_branch.dashboard')
     },
     {
       value: 'SCREEN',
-      label: '大屏'
+      label: t('work_branch.big_screen')
     }
   ]
 })
@@ -249,6 +269,11 @@ const initMarketTemplate = () => {
       state.marketTemplatePreviewShowList = rsp.data.contents
       state.hasResult = true
       state.categories = rsp.data.categories
+      initTemplateShow()
+      const activeCategoriesShow = getActiveCategories(state.currentMarketTemplateShowList)
+      state.categories = rsp.data.categories.filter(category =>
+        activeCategoriesShow.has(category.label)
+      )
       activeCategories.value = deepCopy(state.categories)
       if (props.previewId) {
         state.marketTemplatePreviewShowList.forEach(categoryTemplates => {
@@ -344,23 +369,26 @@ onMounted(() => {
 .market-collapse {
   width: 100%;
   border: 0;
-  ::v-deep(.ed-collapse-item__content) {
-    padding: 8px 0;
-    border: 0;
+  :deep(.ed-collapse-item__content) {
+    padding: 8px 0 !important;
+    border: unset !important;
   }
-  ::v-deep(.ed-collapse-item__header) {
-    border: 0;
+  :deep(.ed-collapse-item__header) {
+    border: unset !important;
   }
-  ::v-deep(.ed-collapse-item__wrap) {
-    border: 0;
-    background-color: rgba(245, 246, 247, 1);
+  :deep(.ed-collapse-item__wrap) {
+    border: unset !important;
+    background-color: rgba(245, 246, 247, 1) !important;
   }
 }
 .aside-list {
-  padding: 0px 12px 12px 12px;
+  padding: 0 12px 12px 12px;
   width: 100%;
   height: calc(100vh - 200px);
-  overflow-y: auto;
+  overflow-x: hidden;
+  :deep(.ed-collapse) {
+    --ed-collapse-header-font-size: 14px !important;
+  }
 }
 
 .aside-list-filter-active {
@@ -368,7 +396,7 @@ onMounted(() => {
 }
 
 .template-main {
-  border-radius: 4px;
+  border-radius: 6px;
   box-shadow: 0 0 2px 0 rgba(31, 31, 31, 0.15), 0 1px 2px 0 rgba(31, 31, 31, 0.15);
   border: solid 2px #fff;
   padding-bottom: 24px;
@@ -434,7 +462,7 @@ onMounted(() => {
 }
 
 .aside-active {
-  width: 206px;
+  width: 224px;
   height: calc(100vh - 56px);
   background-color: rgba(245, 246, 247, 1);
 }
@@ -445,20 +473,19 @@ onMounted(() => {
 }
 
 .main-area-active {
-  width: calc(100% - 206px) !important;
+  width: calc(100% - 224px) !important;
   background: #ffffff;
 }
 
 .main-area {
   width: 100%;
-  padding: 24px;
   text-align: center;
   height: calc(100vh - 56px);
   transition: 0.5s;
 }
 
 .title-name-search {
-  width: 140px;
+  flex: 1;
   float: left;
 }
 
@@ -483,6 +510,7 @@ onMounted(() => {
   white-space: nowrap;
   cursor: pointer;
   color: var(--TextPrimary, #1f2329);
+  background: rgba(255, 255, 255, 1);
   -webkit-appearance: none;
   text-align: center;
   box-sizing: border-box;
@@ -491,16 +519,14 @@ onMounted(() => {
   transition: 0.1s;
   border-radius: 3px;
 
-  &:active {
-    color: #000;
-    border-color: #3a8ee6;
-    background-color: red;
-    outline: 0;
+  &:hover {
+    background-color: rgba(245, 246, 247, 1);
+    border-color: rgba(187, 191, 196, 1);
   }
 
-  &:hover {
-    background-color: rgba(31, 35, 41, 0.1);
-    color: #3a8ee6;
+  &:active {
+    background-color: rgba(239, 240, 241, 1);
+    border-color: rgba(187, 191, 196, 1);
   }
 }
 
@@ -522,7 +548,7 @@ onMounted(() => {
 
 .insert-retract {
   position: absolute;
-  left: 182px;
+  left: 199px;
   top: 2px;
   border: 1px solid #dee0e3;
   background: #fff;
@@ -554,6 +580,7 @@ onMounted(() => {
   cursor: pointer;
   color: #646a73;
   transition: 0.1s;
+  z-index: 9999;
   &:active {
     color: #000;
     border-color: #3a8ee6;
@@ -580,12 +607,19 @@ onMounted(() => {
 }
 .img-main {
   display: inherit;
-  border-radius: 4px;
   background: #0f1114;
   overflow-x: auto;
   overflow-y: hidden;
-  height: calc(100% - 50px) !important;
+  width: 100%;
+  height: calc(100% - 76px) !important;
 }
+
+.img-main img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* 保持图片比例，不裁剪 */
+}
+
 .open-button {
   cursor: pointer;
   font-size: 30px;
@@ -604,37 +638,80 @@ onMounted(() => {
 }
 .filter-icon-span {
   float: left;
-  border: 1px solid #dcdfe6;
+  border: 1px solid #d9dcdf;
   width: 32px;
   height: 32px;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 7px;
   margin-left: 8px;
 }
 
 .filter-icon-active {
-  border: 1px solid var(--ed-color-primary);
+  border: 1px solid var(--ed-color-primary) !important;
   color: var(--ed-color-primary);
-}
-
-.filter-icon-active {
-  border: 1px solid var(--ed-color-primary);
-  color: var(--ed-color-primary);
+  &:hover {
+    background-color: rgba(225, 234, 255, 1);
+  }
 }
 
 .search-area {
   width: 100%;
   position: relative;
+  display: flex;
 }
 
 .custom-breadcrumb-item {
   font-size: 14px;
   cursor: pointer;
-  color: rgba(100, 106, 115, 1);
+  font-weight: 400;
+  color: #646a73;
+  height: 22px;
+  line-height: 22px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  position: relative;
+  margin-right: 4px;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(100% + 8px);
+    height: 100%;
+    transform: translate(-50%, -50%);
+    display: none;
+    border-radius: 6px;
+  }
+
+  &:hover {
+    color: var(--ed-color-primary, #3370ff);
+    &::after {
+      background: var(--ed-color-primary-1a, #3370ff1a);
+      display: block;
+    }
+  }
+
+  &:active {
+    color: #245bdb;
+    &::after {
+      background-color: var(--ed-color-primary-33, #3370ff33);
+      display: block;
+    }
+  }
 }
 
 .custom-breadcrumb-item-to {
   font-size: 14px;
-  color: rgba(31, 35, 41, 1);
+  font-weight: 400;
+  color: #1f2329;
+  cursor: default;
+  margin-left: 4px;
+}
+.mp-divider {
+  border-color: rgba(31, 35, 41, 0.15);
+  margin-top: 16px;
+  margin-bottom: 8px;
 }
 </style>

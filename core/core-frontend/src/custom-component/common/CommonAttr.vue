@@ -2,7 +2,6 @@
 import { computed, nextTick, onMounted, ref, toRefs } from 'vue'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia'
-import { styleData } from '@/utils/attr'
 import ComponentPosition from '@/components/visualization/common/ComponentPosition.vue'
 import BackgroundOverallCommon from '@/components/visualization/component-background/BackgroundOverallCommon.vue'
 import { useI18n } from '@/hooks/web/useI18n'
@@ -13,6 +12,8 @@ import CommonEvent from '@/custom-component/common/CommonEvent.vue'
 import CarouselSetting from '@/custom-component/common/CarouselSetting.vue'
 import CommonBorderSetting from '@/custom-component/common/CommonBorderSetting.vue'
 import CollapseSwitchItem from '../../components/collapse-switch-item/src/CollapseSwitchItem.vue'
+import TabBackgroundOverall from '@/custom-component/de-tabs/TabBackgroundOverall.vue'
+import CustomTabsSortSide from '@/custom-component/de-tabs/CustomTabsSortSide.vue'
 const snapshotStore = snapshotStoreWithOut()
 
 const { t } = useI18n()
@@ -23,7 +24,7 @@ const props = withDefaults(
     type?: 'light' | 'dark'
     themes?: EditorTheme
     element: any
-    showStyle: boolean
+    showStyle?: boolean
     backgroundColorPickerWidth?: number
     backgroundBorderSelectWidth?: number
   }>(),
@@ -35,7 +36,7 @@ const props = withDefaults(
   }
 )
 
-const { themes, element, showStyle } = toRefs(props)
+const { themes, element } = toRefs(props)
 const dvMainStore = dvMainStoreWithOut()
 const { dvInfo, batchOptStatus, mobileInPc } = storeToRefs(dvMainStore)
 const activeName = ref(element.value.collapseName)
@@ -54,7 +55,18 @@ const dashboardActive = computed(() => {
 
 const onBackgroundChange = val => {
   element.value.commonBackground = val
+  snapshotStore.recordSnapshotCacheToMobile('commonBackground')
   emits('onAttrChange', { custom: 'commonBackground' })
+}
+
+const onTitleBackgroundEnableChange = () => {
+  snapshotStore.recordSnapshotCacheToMobile('titleBackground')
+}
+
+const onTitleBackgroundChange = val => {
+  element.value.titleBackground = val
+  snapshotStore.recordSnapshotCacheToMobile('titleBackground')
+  emits('onAttrChange', { custom: 'titleBackground' })
 }
 
 const onStyleAttrChange = ({ key, value }) => {
@@ -66,7 +78,10 @@ const containerRef = ref()
 const containerWidth = ref()
 
 const borderSettingShow = computed(() => {
-  return !!element.value.style['borderStyle']
+  return (
+    !!element.value.style['borderStyle'] &&
+    !['DeDecoration', 'DynamicBackground'].includes(element.value.component)
+  )
 })
 
 // 暂时关闭
@@ -79,16 +94,49 @@ const eventsShow = computed(() => {
 })
 
 const carouselShow = computed(() => {
-  return element.value.component === 'DeTabs' && element.value.carousel && !mobileInPc.value
+  return (
+    ['DeTabs', 'DeScreen'].includes(element.value.component) &&
+    element.value.carousel &&
+    !mobileInPc.value
+  )
 })
 
 const backgroundCustomShow = computed(() => {
   return (
     dashboardActive.value ||
     (!dashboardActive.value &&
-      !['CanvasBoard', 'CanvasIcon', 'CircleShape', 'RectShape'].includes(element.value.component))
+      ![
+        'CanvasBoard',
+        'CanvasIcon',
+        'CircleShape',
+        'RectShape',
+        'DeDecoration',
+        'DynamicBackground'
+      ].includes(element.value.component))
   )
 })
+
+const titleBackgroundShow = computed(
+  () => ['DeTabs', 'DeScreen'].includes(element.value.component) && element.value.titleBackground
+)
+
+const tabTitleShow = computed(() => {
+  return (
+    element.value && element.value.style && ['DeTabs', 'DeScreen'].includes(element.value.component)
+  )
+})
+
+const styleShow = computed(() => {
+  return (
+    element.value &&
+    element.value.style &&
+    !['DeDecoration', 'DynamicBackground', 'DeTabs', 'DeScreen'].includes(
+      element.value.component
+    ) &&
+    Object.keys(element.value.style).length > 0
+  )
+})
+
 onMounted(() => {
   const erd = elementResizeDetectorMaker()
   containerWidth.value = containerRef.value?.offsetWidth
@@ -103,12 +151,17 @@ onMounted(() => {
 <template>
   <div class="v-common-attr" ref="containerRef">
     <el-collapse v-model="activeName" @change="onChange()">
-      <el-collapse-item :effect="themes" title="位置" name="position" v-if="positionComponentShow">
+      <el-collapse-item
+        :effect="themes"
+        :title="t('visualization.position')"
+        name="position"
+        v-if="positionComponentShow"
+      >
         <component-position :themes="themes" />
       </el-collapse-item>
       <el-collapse-item
         :effect="themes"
-        title="背景"
+        :title="t('visualization.background')"
         name="background"
         v-if="element && backgroundCustomShow"
       >
@@ -116,16 +169,62 @@ onMounted(() => {
           :themes="themes"
           :common-background-pop="element.commonBackground"
           component-position="component"
+          :component-name="element.component"
           @onBackgroundChange="onBackgroundChange"
           :background-color-picker-width="backgroundColorPickerWidth"
           :background-border-select-width="backgroundBorderSelectWidth"
         />
       </el-collapse-item>
-      <slot></slot>
-      <el-collapse-item
-        v-if="element && element.style"
+
+      <collapse-switch-item
         :effect="themes"
-        title="样式"
+        :title="t('visualization.title_background')"
+        name="titleBackground"
+        v-model="element.titleBackground.enable"
+        @modelChange="val => onTitleBackgroundEnableChange(val)"
+        v-if="element && titleBackgroundShow"
+      >
+        <div
+          class="switch-item-content"
+          :class="{ 'switch-item-content--disabled': !element.titleBackground.enable }"
+        >
+          <tab-background-overall
+            :themes="themes"
+            :element="element"
+            component-position="component"
+            @onTitleBackgroundChange="onTitleBackgroundChange"
+          ></tab-background-overall>
+        </div>
+      </collapse-switch-item>
+      <slot></slot>
+      <collapse-switch-item
+        v-if="tabTitleShow"
+        v-model="element.style.showTabTitle"
+        @modelChange="
+          () => onStyleAttrChange({ key: 'showTabTitle', value: element.style.showTabTitle })
+        "
+        :themes="themes"
+        :title="t('visualization.tab_title')"
+        name="tabTitle"
+        class="common-style-area"
+      >
+        <div
+          class="switch-item-content"
+          :class="{ 'switch-item-content--disabled': !element.style.showTabTitle }"
+        >
+          <common-style-set
+            @onStyleAttrChange="onStyleAttrChange"
+            :disabled="!element.style.showTabTitle"
+            :themes="themes"
+            :element="element"
+          ></common-style-set>
+          <CustomTabsSortSide :themes="themes" :config="element"></CustomTabsSortSide>
+        </div>
+      </collapse-switch-item>
+      <el-collapse-item
+        v-if="styleShow"
+        :effect="themes"
+        :title="t('visualization.style')"
         name="style"
         class="common-style-area"
       >
@@ -136,9 +235,9 @@ onMounted(() => {
         ></common-style-set>
       </el-collapse-item>
       <el-collapse-item
-        v-if="element && element.events && eventsShow && !mobileInPc"
+        v-if="element && element.events && eventsShow"
         :effect="themes"
-        title="事件"
+        :title="t('visualization.event')"
         name="events"
         class="common-style-area"
       >
@@ -147,17 +246,24 @@ onMounted(() => {
       <collapse-switch-item
         v-if="element && borderSettingShow"
         v-model="element.style.borderActive"
-        @modelChange="val => onStyleAttrChange({ key: 'borderActive', value: val })"
+        @modelChange="
+          () => onStyleAttrChange({ key: 'borderActive', value: element.style.borderActive })
+        "
         :themes="themes"
-        title="边框"
+        :title="t('visualization.board')"
         name="borderSetting"
         class="common-style-area"
       >
-        <common-border-setting
-          :style-info="element.style"
-          :themes="themes"
-          @onStyleAttrChange="onStyleAttrChange"
-        ></common-border-setting>
+        <div
+          class="switch-item-content"
+          :class="{ 'switch-item-content--disabled': !element.style.borderActive }"
+        >
+          <common-border-setting
+            :style-info="element.style"
+            :themes="themes"
+            @onStyleAttrChange="onStyleAttrChange"
+          ></common-border-setting>
+        </div>
       </collapse-switch-item>
       <slot name="threshold" />
       <slot name="carousel" />
@@ -167,6 +273,13 @@ onMounted(() => {
 </template>
 
 <style lang="less" scoped>
+.switch-item-content {
+  &--disabled {
+    opacity: 0.6;
+    pointer-events: none;
+    user-select: none;
+  }
+}
 .v-common-attr {
   .ed-input-group__prepend {
     padding: 0 10px;
@@ -187,7 +300,7 @@ onMounted(() => {
     }
   }
   :deep(.ed-collapse-item__content) {
-    padding: 16px 8px 0;
+    padding: 16px 8px 8px !important;
     border: none;
   }
   :deep(.ed-form-item) {
@@ -348,7 +461,7 @@ onMounted(() => {
   width: 24px;
   height: 24px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 6px;
   padding-top: 4px;
 
   color: #1f2329;

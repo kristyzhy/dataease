@@ -1,8 +1,8 @@
 package io.dataease.engine.trans;
 
-import io.dataease.engine.constant.DeTypeConstants;
+import io.dataease.constant.DeTypeConstants;
+import io.dataease.constant.SQLConstants;
 import io.dataease.engine.constant.ExtFieldConstant;
-import io.dataease.engine.constant.SQLConstants;
 import io.dataease.engine.func.FunctionConstant;
 import io.dataease.engine.utils.Utils;
 import io.dataease.extensions.datasource.api.PluginManageApi;
@@ -17,12 +17,14 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.*;
 
+import static io.dataease.constant.SQLConstants.FIELD_DOT_FIX;
+
 /**
  * @Author Junjun
  */
 public class Field2SQLObj {
 
-    public static void field2sqlObj(SQLMeta meta, List<DatasetTableFieldDTO> fields, List<DatasetTableFieldDTO> originFields, boolean isCross, Map<Long, DatasourceSchemaDTO> dsMap, List<CalParam> fieldParam, List<CalParam> chartParam, PluginManageApi pluginManage) {
+    public static void field2sqlObj(SQLMeta meta, List<DatasetTableFieldDTO> fields, List<DatasetTableFieldDTO> originFields, boolean isCross, Map<Long, DatasourceSchemaDTO> dsMap, List<CalParam> fieldParam, List<CalParam> chartParam, PluginManageApi pluginManage, boolean forSqlbot) {
         SQLObj tableObj = meta.getTable();
         if (ObjectUtils.isEmpty(tableObj)) {
             return;
@@ -38,12 +40,13 @@ public class Field2SQLObj {
         }
 
         if (ObjectUtils.isNotEmpty(fields)) {
+            Set<String> aliasSet = new HashSet<>();
             for (int i = 0; i < fields.size(); i++) {
                 DatasetTableFieldDTO x = fields.get(i);
                 String originField;
                 if (ObjectUtils.isNotEmpty(x.getExtField()) && Objects.equals(x.getExtField(), ExtFieldConstant.EXT_CALC)) {
                     // 解析origin name中有关联的字段生成sql表达式
-                    String calcFieldExp = Utils.calcFieldRegex(x.getOriginName(), tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
+                    String calcFieldExp = Utils.calcFieldRegex(x, tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
                     // 给计算字段处加一个占位符，后续SQL方言转换后再替换
                     originField = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, x.getId());
                     fieldsDialect.put(originField, calcFieldExp);
@@ -63,6 +66,14 @@ public class Field2SQLObj {
                     } else {
                         originField = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), x.getDataeaseName());
                     }
+                } else if (ObjectUtils.isNotEmpty(x.getExtField()) && Objects.equals(x.getExtField(), ExtFieldConstant.EXT_GROUP)) {
+                    String groupFieldExp = Utils.transGroupFieldToSql(x, originFields, isCross, dsMap, pluginManage);
+                    // 给计算字段处加一个占位符，后续SQL方言转换后再替换
+                    originField = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, x.getId());
+                    fieldsDialect.put(originField, groupFieldExp);
+                    if (isCross) {
+                        originField = groupFieldExp;
+                    }
                 } else {
                     if (StringUtils.equalsIgnoreCase(dsType, "es")) {
                         originField = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), x.getOriginName());
@@ -71,12 +82,27 @@ public class Field2SQLObj {
                     }
                 }
                 String fieldAlias = String.format(SQLConstants.FIELD_ALIAS_X_PREFIX, i);
+                if (forSqlbot) {
+                    fieldAlias = x.getOriginName();
+                    if (ObjectUtils.isNotEmpty(x.getExtField()) && !x.getExtField().equals(ExtFieldConstant.EXT_NORMAL) && StringUtils.isNotBlank(x.getName())) {
+                        fieldAlias = x.getName();
+                    }
+                    if (aliasSet.contains(fieldAlias)) {
+                        fieldAlias += ('_' + String.valueOf(i));
+                    }
+                    aliasSet.add(fieldAlias);
+                    fieldAlias = String.format(FIELD_DOT_FIX, fieldAlias);
+                }
                 // 处理横轴字段
                 xFields.add(getXFields(x, originField, fieldAlias, isCross));
             }
         }
         meta.setXFields(xFields);
         meta.setXFieldsDialect(fieldsDialect);
+    }
+
+    public static void field2sqlObj(SQLMeta meta, List<DatasetTableFieldDTO> fields, List<DatasetTableFieldDTO> originFields, boolean isCross, Map<Long, DatasourceSchemaDTO> dsMap, List<CalParam> fieldParam, List<CalParam> chartParam, PluginManageApi pluginManage) {
+        field2sqlObj(meta, fields, originFields, isCross, dsMap, fieldParam, chartParam, pluginManage, false);
     }
 
     public static SQLObj getXFields(DatasetTableFieldDTO f, String originField, String fieldAlias, boolean isCross) {
@@ -104,7 +130,7 @@ public class Field2SQLObj {
                     fieldName = String.format(SQLConstants.CAST, originField, SQLConstants.DEFAULT_FLOAT_FORMAT);
                 } else if (Objects.equals(f.getDeType(), DeTypeConstants.DE_TIME)) {
                     fieldName = StringUtils.isEmpty(f.getDateFormat()) ? String.format(SQLConstants.DE_STR_TO_DATE, originField, SQLConstants.DEFAULT_DATE_FORMAT) :
-                            String.format(SQLConstants.DE_STR_TO_DATE, originField, f.getDateFormat());
+                            String.format(SQLConstants.DE_STR_TO_DATE, originField, Utils.isValidDateFormat(f.getDateFormat()) ? Utils.transValue(f.getDateFormat()) : SQLConstants.DEFAULT_DATE_FORMAT);
                 } else {
                     fieldName = originField;
                 }
@@ -126,7 +152,7 @@ public class Field2SQLObj {
         return SQLObj.builder()
                 .fieldName(fieldName)
                 .fieldAlias(fieldAlias)
+                .id(f.getId())
                 .build();
     }
-
 }

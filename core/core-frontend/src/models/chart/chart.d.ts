@@ -33,6 +33,7 @@ declare interface Chart {
       tableRow: []
     }
     customCalc: any
+    customSumResult?: Record<string, any>
   }
   xAxis?: Axis[]
   xAxisExt?: Axis[]
@@ -50,6 +51,7 @@ declare interface Chart {
   customStyleMobile: CustomStyle
   drillFields: ChartViewField[]
   drillFilters: Filter[]
+  sortPriority: ChartViewField[]
   datasetMode: 0 | 1
   datasourceType: string
   totalItems: number
@@ -73,6 +75,8 @@ declare interface Chart {
   showPosition: string
 
   extColor: Axis[]
+
+  fontFamily?: string
 }
 declare type CustomAttr = DeepPartial<ChartAttr> | JSONString<DeepPartial<ChartAttr>>
 declare type CustomStyle = DeepPartial<ChartStyle> | JSONString<DeepPartial<ChartStyle>>
@@ -97,6 +101,7 @@ declare interface BaseFormatter {
   /**
    * 单位换算
    */
+  unitLanguage: 'ch' | 'en'
   unit: number
   /**
    * 单位后缀
@@ -110,6 +115,10 @@ declare interface BaseFormatter {
    * 千分符
    */
   thousandSeparator: boolean
+  /**
+   * 显示总出占比
+   */
+  showTotalPercent: boolean
 }
 
 /**
@@ -143,6 +152,10 @@ declare interface SeriesFormatter extends Axis {
 
   optionLabel?: string
   optionShowName?: string
+  /**
+   * 位置
+   */
+  position?: string
 }
 
 declare interface Axis extends ChartViewField {
@@ -192,9 +205,19 @@ declare interface ChartViewField {
    * 字段类型
    */
   deType: number
+  /**
+   * 分组类型
+   */
+  groupType: 'q' | 'd'
 }
 
 declare interface Filter {
   datasetTableField: ChartViewField
   fieldId: string
+}
+
+declare interface PageInfo {
+  currentPage: number
+  pageSize: number
+  total: number
 }

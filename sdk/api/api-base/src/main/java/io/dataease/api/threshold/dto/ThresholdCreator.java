@@ -2,6 +2,7 @@ package io.dataease.api.threshold.dto;
 
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import io.dataease.constant.CommonConstants;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -44,4 +45,8 @@ public class ThresholdCreator extends BaseReciDTO implements Serializable {
     private String msgContent;
 
     private Boolean repeatSend = true;
+
+    private Boolean showFieldValue = false;
+
+    private String resourceTable = CommonConstants.RESOURCE_TABLE.CORE;
 }

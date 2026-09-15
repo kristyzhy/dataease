@@ -149,14 +149,16 @@ onMounted(() => {
 <template>
   <div @keydown.stop @keyup.stop class="assist-line-container">
     <div class="inner-container">
-      <span class="label" :class="'label-' + props.themes">辅助线设置</span>
+      <span class="label" :class="'label-' + props.themes">{{
+        t('chart.assist_line_settings')
+      }}</span>
       <span class="right-btns">
         <span
           class="set-text-info"
           :class="{ 'set-text-info-dark': themes === 'dark' }"
           v-if="state.assistLineCfg.assistLine.length > 0"
         >
-          已设置
+          {{ t('visualization.already_setting') }}
         </span>
         <button
           :class="'label-' + props.themes"
@@ -177,10 +179,10 @@ onMounted(() => {
     </div>
 
     <el-row v-for="(item, index) in state.assistLineCfg.assistLine" :key="index" class="line-style">
-      <el-col :span="8">
+      <el-col :span="8" class="line-style">
         <span :title="item.name">{{ item.name }}</span>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="6" class="line-style">
         <span v-if="item.field === '0'" :title="t('chart.field_fixed')">{{
           t('chart.field_fixed')
         }}</span>
@@ -188,17 +190,17 @@ onMounted(() => {
           t('chart.field_dynamic')
         }}</span>
       </el-col>
-      <el-col v-if="item.field === '0'" :span="10">
+      <el-col v-if="item.field === '0'" :span="10" class="line-style">
         <span :title="item.value">{{ item.value }}</span>
       </el-col>
-      <el-col v-else-if="item.field === '1'" :span="10">
+      <el-col v-else-if="item.field === '1'" :span="10" class="line-style">
         <template v-if="existField(item.curField)">
           <span :title="item.curField.name + '(' + t('chart.' + item.summary) + ')'">
             {{ item.curField.name + '(' + t('chart.' + item.summary) + ')' }}
           </span>
         </template>
         <template v-else>
-          <span style="color: red">无效字段</span>
+          <span style="color: red">{{ t('chart.invalid_field') }}</span>
         </template>
       </el-col>
     </el-row>
@@ -222,7 +224,7 @@ onMounted(() => {
       <template #header>
         <div class="assist-line-cfg-header">
           <span class="ed-dialog__title">{{ t('chart.assist_line') }}</span>
-          <el-tooltip class="item" effect="ndark" placement="top">
+          <el-tooltip class="item" effect="light" placement="top">
             <template #content>
               <span> {{ t('chart.assist_line_tip') }}</span>
             </template>
@@ -255,7 +257,7 @@ onMounted(() => {
 
     .label {
       cursor: default;
-      color: #646a73;
+      color: @canvas-main-font-color;
       font-size: 12px;
       font-style: normal;
       font-weight: 400;
@@ -337,7 +339,6 @@ span {
 .line-style {
   width: 100%;
   font-weight: 400;
-  padding: 4px 8px;
   display: flex;
   flex-direction: row;
   align-items: center;

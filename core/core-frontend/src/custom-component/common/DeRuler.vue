@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia'
 const dvMainStore = dvMainStoreWithOut()
@@ -20,6 +20,7 @@ const props = defineProps({
 })
 
 const labelInterval = 5
+const emits = defineEmits(['update:tickSize'])
 
 const { canvasStyleData, curComponent, componentData } = storeToRefs(dvMainStore)
 
@@ -105,6 +106,16 @@ const outerStyle = computed(() => {
 
 const curShadowShow = computed(() => curComponent.value && curComponent.value.category !== 'hidden')
 
+const tickSizeScale = computed(() => (tickSize.value * canvasStyleData.value.scale) / 100)
+
+watch(
+  () => tickSizeScale.value,
+  () => {
+    emits('update:tickSize', tickSizeScale.value)
+  },
+  { immediate: true }
+)
+
 defineExpose({
   rulerScroll
 })
@@ -177,6 +188,7 @@ defineExpose({
 }
 
 .ruler-outer-scroll {
+  min-width: 1600px;
   display: flex;
   justify-content: center;
 }

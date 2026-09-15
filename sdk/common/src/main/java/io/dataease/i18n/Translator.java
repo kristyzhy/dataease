@@ -1,5 +1,7 @@
 package io.dataease.i18n;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import io.dataease.exception.DEException;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.JsonUtil;
 import io.dataease.utils.LogUtil;
@@ -39,6 +41,17 @@ public class Translator {
         return messageSource.getMessage(key, null, key, LocaleContextHolder.getLocale());
     }
 
+    /**
+     * 获取国际化消息并替换占位符
+     *
+     * @param key          国际化键 如：确定删除名为{0}的{1}吗？
+     * @param placeholders 占位值
+     * @return 替换后的消息
+     */
+    public static String get(String key, Object... placeholders) {
+        return messageSource.getMessage(key, placeholders, key, LocaleContextHolder.getLocale());
+    }
+
     private static Object translateRawString(String key, String rawString) {
         if (StringUtils.isBlank(rawString)) {
             return rawString;
@@ -71,7 +84,7 @@ public class Translator {
                         return JsonUtil.toJSONString(translateObject(jsonObject));
                     } catch (Exception e) {
                         LogUtil.error("Failed to translate object: " + rawString, e);
-                        e.printStackTrace();
+                        LogUtil.error(e);
                         LogUtil.warn("Failed to translate object " + rawString + ". Error: " + ExceptionUtils.getStackTrace(e));
                         return translateRawString(null, rawString);
                     }
@@ -104,6 +117,10 @@ public class Translator {
                     translateObject(item);
                 }
             }
+            if (javaObject instanceof IPage) {
+                IPage iPage = (IPage) javaObject;
+                translateObject(iPage.getRecords());
+            }
 
             if (javaObject.getClass().isArray()) {
                 for (int i = 0; i < Array.getLength(javaObject); ++i) {
@@ -133,7 +150,8 @@ public class Translator {
                         }
                     }
                 } catch (Exception e) {
-
+                    LogUtil.error(e.getMessage());
+                    DEException.throwException(e);
                 }
 
             }

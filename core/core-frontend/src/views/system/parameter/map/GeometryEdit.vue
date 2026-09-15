@@ -12,7 +12,7 @@ import type {
   UploadProps
 } from 'element-plus-secondary'
 import request from '@/config/axios'
-import { GeometryFrom } from './interface'
+import { GeometryFrom, countryList } from './interface'
 import { useCache } from '@/hooks/web/useCache'
 const { wsCache } = useCache()
 const { t } = useI18n()
@@ -25,7 +25,8 @@ const state = reactive({
     pid: null,
     code: null,
     name: null,
-    fileName: null
+    fileName: null,
+    country: null
   }),
   treeData: []
 })
@@ -34,14 +35,49 @@ const treeProps = {
   label: 'name',
   disabled: 'readOnly'
 }
+const isCountry = computed(() => state.form.pid === '000')
+const isChina = computed(() => state.form.pid?.startsWith('156'))
+/**
+ * 获取父节点数量
+ * @param nodes
+ * @param pid
+ * @param count
+ */
+const getAncestorCount = (nodes, pid, count = 0) => {
+  for (const node of nodes) {
+    if (node.id === pid) {
+      return count
+    }
+    if (node.children) {
+      const res = getAncestorCount(node.children, pid, count + 1)
+      if (res !== null) return res
+    }
+  }
+  return null
+}
 const formatPid = computed(() => {
-  if (!state.form.pid) return ''
   const pid = state.form.pid
-  return pid.replace(/(0+)$/g, '').replace(/\D/g, '')
+  if (!pid) return ''
+  // 156开头的pid没有父节点，直接返回pid，其他pid根据父先节点数量拼接字符串
+  const ancestorCount = pid.startsWith('156') ? 0 : getAncestorCount(state.treeData, pid) || ''
+  const clStr = ancestorCount ? ancestorCount : ''
+  // 先去掉非数字，再用正则保留前3位和后面非0部分
+  const numericPid = pid.replace(/\D/g, '').replace(/(\d{3})(0+)$/, '$1') + clStr
+  return state.form.country ? numericPid.substring(3, numericPid.length) : numericPid
 })
 const codeTips = ref(t('system.at_the_end'))
 const pidChange = () => {
   state.form.code = null
+  state.form.country = null
+}
+
+/**
+ * 当pid变化时，如果不是国家级别且不是中国，则自动生成code
+ */
+const onPidChanged = () => {
+  if (!isCountry.value && !isChina.value) {
+    state.form.code = formatPid.value.padEnd(9, '0').slice(formatPid.value.length)
+  }
 }
 const validateCode = (_: any, value: any, callback: any) => {
   const isCountry = !formatPid.value
@@ -68,14 +104,21 @@ const rule = reactive<FormRules>({
   pid: [
     {
       required: true,
-      message: t('common.require'),
-      trigger: 'blur'
+      message: t('common.please_input') + t('common.empty') + t('system.superior_region'),
+      trigger: 'change'
+    }
+  ],
+  country: [
+    {
+      required: true,
+      message: t('common.please_input') + t('common.empty') + t('system.country'),
+      trigger: 'change'
     }
   ],
   code: [
     {
       required: true,
-      message: t('common.require'),
+      message: t('common.please_input') + t('common.empty') + t('system.region_code'),
       trigger: 'blur'
     },
     { validator: validateCode, trigger: 'blur' }
@@ -83,14 +126,14 @@ const rule = reactive<FormRules>({
   name: [
     {
       required: true,
-      message: t('common.require'),
+      message: t('common.please_input') + t('common.empty') + t('system.region_name'),
       trigger: 'blur'
     }
   ],
   fileName: [
     {
       required: true,
-      message: t('common.require'),
+      message: t('common.please_input') + t('common.empty') + t('system.coordinate_file'),
       trigger: 'blur'
     }
   ]
@@ -102,6 +145,7 @@ const edit = (pid?: string) => {
   state.form.pid = pid
   state.form.code = null
   state.form.name = null
+  state.form.country = null
   geoFile.value = null
   state.form.fileName = null
   dialogVisible.value = true
@@ -146,7 +190,7 @@ const reset = () => {
 }
 
 const showLoading = () => {
-  loadingInstance.value = ElLoading.service({ target: '.basic-info-drawer' })
+  loadingInstance.value = ElLoading.service({ target: '.geometry-info-drawer' })
 }
 const closeLoading = () => {
   loadingInstance.value?.close()
@@ -182,6 +226,32 @@ const buildFormData = (file, param) => {
   formData.append('request', new Blob([JSON.stringify(param)], { type: 'application/json' }))
   return formData
 }
+
+const countryChange = () => {
+  const countryItem = countryList.find(item => item.code === state.form.country) || null
+  state.form.code = countryItem.code
+  state.form.name = countryItem?.cn_name
+}
+
+const searchKeyword = ref('')
+/**
+ * 国家选择框的搜索过滤
+ */
+const handleFilterMethod = (query: string) => {
+  searchKeyword.value = query || ''
+}
+/**
+ * 判断单个选项是否可见
+ */
+const isOptionVisible = item => {
+  if (!searchKeyword.value) {
+    return true
+  }
+  const kw = searchKeyword.value.toLowerCase()
+  const matchCn = item.cn_name && item.cn_name.includes(searchKeyword.value)
+  const matchEn = item.name && item.name.toLowerCase().includes(kw)
+  return matchCn || matchEn
+}
 defineExpose({
   edit
 })
@@ -191,7 +261,7 @@ defineExpose({
   <el-drawer
     :title="t('system.geographic_information')"
     v-model="dialogVisible"
-    custom-class="basic-info-drawer"
+    modal-class="geometry-info-drawer"
     size="600px"
     direction="rtl"
   >
@@ -212,9 +282,30 @@ defineExpose({
           :data="state.treeData"
           check-strictly
           :render-after-expand="false"
-          :placeholder="t('common.please_select')"
+          :placeholder="t('common.please_select') + t('common.empty') + t('system.superior_region')"
           @current-change="pidChange"
+          @change="onPidChanged"
         />
+      </el-form-item>
+
+      <el-form-item :label="t('system.country')" v-if="isCountry" prop="country">
+        <el-select
+          v-model="state.form.country"
+          :filterable="true"
+          :placeholder="t('common.please_select') + t('common.empty') + t('system.country')"
+          @change="countryChange"
+          :filter-method="handleFilterMethod"
+        >
+          <el-option
+            v-for="item in countryList"
+            :key="item.name"
+            :label="item.cn_name"
+            :value="item.code"
+            v-show="isOptionVisible(item)"
+          >
+            <span style="float: left">{{ item.cn_name + ' ' + item.name }}</span>
+          </el-option>
+        </el-select>
       </el-form-item>
 
       <el-form-item :label="t('system.region_code')" prop="code">
@@ -229,7 +320,12 @@ defineExpose({
           </span>
         </template>
 
-        <el-input v-if="state.form.pid" v-model="state.form.code">
+        <el-input
+          :placeholder="t('common.please_input') + t('common.empty') + t('system.region_code')"
+          v-if="state.form.pid"
+          v-model="state.form.code"
+          :disabled="isCountry || !isChina"
+        >
           <template #prefix>
             {{ formatPid }}
           </template>
@@ -246,7 +342,11 @@ defineExpose({
       </el-form-item>
 
       <el-form-item :label="t('system.region_name')" prop="name">
-        <el-input v-model="state.form.name" />
+        <el-input
+          :placeholder="t('common.please_input') + t('common.empty') + t('system.region_name')"
+          v-model="state.form.name"
+          :disabled="isCountry"
+        />
       </el-form-item>
 
       <div class="geo-label-mask" />
@@ -290,7 +390,28 @@ defineExpose({
     </template>
   </el-drawer>
 </template>
-
+<style lang="less">
+.geometry-info-drawer {
+  .ed-drawer__footer {
+    height: 64px !important;
+    padding: 16px 24px !important;
+    .dialog-footer {
+      height: 32px;
+      line-height: 32px;
+    }
+  }
+  .ed-form-item__label {
+    line-height: 22px !important;
+    height: 22px !important;
+  }
+  .ed-form-item {
+    margin-bottom: 16px;
+  }
+  .is-error {
+    margin-bottom: 40px !important;
+  }
+}
+</style>
 <style scoped lang="less">
 .map-tree-selector {
   width: 100%;

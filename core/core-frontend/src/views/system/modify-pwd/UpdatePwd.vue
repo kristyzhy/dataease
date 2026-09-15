@@ -7,6 +7,7 @@ import { rsaEncryp } from '@/utils/encryption'
 import { ElMessage } from 'element-plus-secondary'
 import { logoutHandler } from '@/utils/logout'
 import { CustomPassword } from '@/components/custom-password'
+import { isMobile } from '@/utils/utils'
 
 const { t } = useI18n()
 
@@ -22,7 +23,7 @@ const validatePwd = (_: any, value: any, callback: any) => {
     callback(new Error(t('system.be_the_same')))
   }
   const pattern =
-    /^.*(?=.{6,20})(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[~!@#$%^&*()_+\-\={}|":<>?`[\];',.\/])[a-zA-Z0-9~!@#$%^&*()_+\-\={}|":<>?`[\];',.\/]*$/
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[~!@#$%^&*()_+\-\={}|":<>?`[\];',.\/])[a-zA-Z0-9~!@#$%^&*()_+\-\={}|":<>?`[\];',.\/]{8,20}$/
   const regep = new RegExp(pattern)
   if (!regep.test(value)) {
     const msg = t('user.pwd_pattern_error')
@@ -69,9 +70,9 @@ const rule = {
       trigger: 'blur'
     },
     {
-      min: 6,
+      min: 8,
       max: 20,
-      message: t('commons.input_limit', [6, 20]),
+      message: t('commons.input_limit', [8, 20]),
       trigger: 'blur'
     },
     { validator: validateConfirmPwd, trigger: 'blur' }
@@ -79,12 +80,19 @@ const rule = {
 }
 const updatePwdForm = ref()
 
+const emits = defineEmits(['success'])
+
 const save = () => {
   updatePwdForm.value.validate(val => {
     if (val) {
       const pwd = rsaEncryp(pwdForm.pwd)
       const newPwd = rsaEncryp(pwdForm.newPwd)
       request.post({ url: '/user/modifyPwd', data: { pwd, newPwd } }).then(() => {
+        if (isMobile()) {
+          emits('success')
+          return
+        }
+
         ElMessage.success(t('system.log_in_again'))
         logoutHandler()
       })

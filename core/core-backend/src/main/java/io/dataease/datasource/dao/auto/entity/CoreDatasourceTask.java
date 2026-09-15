@@ -3,11 +3,12 @@ package io.dataease.datasource.dao.auto.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+
 import java.io.Serializable;
 
 /**
  * <p>
- * 
+ *
  * </p>
  *
  * @author fit2cloud
@@ -63,11 +64,6 @@ public class CoreDatasourceTask implements Serializable {
      * 简单重复类型：分、时、天
      */
     private String simpleCronType;
-
-    /**
-     * 结束限制 0 无限制 1 设定结束时间
-     */
-    private String endLimit;
 
     /**
      * 结束时间
@@ -168,14 +164,6 @@ public class CoreDatasourceTask implements Serializable {
         this.simpleCronType = simpleCronType;
     }
 
-    public String getEndLimit() {
-        return endLimit;
-    }
-
-    public void setEndLimit(String endLimit) {
-        this.endLimit = endLimit;
-    }
-
     public Long getEndTime() {
         return endTime;
     }
@@ -227,22 +215,21 @@ public class CoreDatasourceTask implements Serializable {
     @Override
     public String toString() {
         return "CoreDatasourceTask{" +
-        "id = " + id +
-        ", dsId = " + dsId +
-        ", name = " + name +
-        ", updateType = " + updateType +
-        ", startTime = " + startTime +
-        ", syncRate = " + syncRate +
-        ", cron = " + cron +
-        ", simpleCronValue = " + simpleCronValue +
-        ", simpleCronType = " + simpleCronType +
-        ", endLimit = " + endLimit +
-        ", endTime = " + endTime +
-        ", createTime = " + createTime +
-        ", lastExecTime = " + lastExecTime +
-        ", lastExecStatus = " + lastExecStatus +
-        ", extraData = " + extraData +
-        ", taskStatus = " + taskStatus +
-        "}";
+                "id = " + id +
+                ", dsId = " + dsId +
+                ", name = " + name +
+                ", updateType = " + updateType +
+                ", startTime = " + startTime +
+                ", syncRate = " + syncRate +
+                ", cron = " + cron +
+                ", simpleCronValue = " + simpleCronValue +
+                ", simpleCronType = " + simpleCronType +
+                ", endTime = " + endTime +
+                ", createTime = " + createTime +
+                ", lastExecTime = " + lastExecTime +
+                ", lastExecStatus = " + lastExecStatus +
+                ", extraData = " + extraData +
+                ", taskStatus = " + taskStatus +
+                "}";
     }
 }

@@ -4,6 +4,7 @@ import eventBus from '@/utils/eventBus'
 import Icon from '@/components/icon-custom/src/Icon.vue'
 import { CANVAS_MATERIAL } from '@/custom-component/common/ComponentConfig'
 import { ElScrollbar } from 'element-plus-secondary'
+import DeDecoration from '@/custom-component/de-decoration/Component.vue'
 
 defineProps({
   propValue: {
@@ -48,6 +49,10 @@ const groupActiveChange = category => {
   state.curCategory = category
   anchorPosition('#' + category)
 }
+
+const findUrl = name => {
+  return new URL(`/src/assets/dynamic-background/${name}`, import.meta.url).href
+}
 </script>
 
 <template>
@@ -84,12 +89,19 @@ const groupActiveChange = category => {
             class="item-top"
             draggable="true"
             :data-id="groupInfo.category + '&' + chartInfo.value"
+            :title="chartInfo.title"
           >
             <Icon
               v-if="['outer_svg', 'graphical'].includes(chartInfo.type)"
               class-name="item-top-icon"
               ><component class="svg-icon item-top-icon" :is="chartInfo.icon"></component
             ></Icon>
+            <DeDecoration
+              :curStyle="{ width: 530, height: 373 }"
+              :element="{ innerType: chartInfo.value }"
+              :scale="0.15"
+              v-else-if="['de_decoration'].includes(chartInfo.type)"
+            ></DeDecoration>
             <component v-else style="color: #a6a6a6" :is="chartInfo.icon"></component>
           </div>
           <div v-if="chartInfo.title" class="item-bottom">
@@ -123,7 +135,7 @@ const groupActiveChange = category => {
         white-space: nowrap;
         list-style-type: none;
         list-style-position: inside;
-        border-radius: 4px;
+        border-radius: 6px;
         padding-left: 8px;
         &:hover {
           background: rgba(255, 255, 255, 0.1);
@@ -162,7 +174,7 @@ const groupActiveChange = category => {
     height: 64px;
     background: #1a1a1a;
     padding: 4px;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     &:hover {
       outline: 1px solid var(--ed-color-primary);
@@ -179,6 +191,10 @@ const groupActiveChange = category => {
     color: #a6a6a6;
     font-size: 12px;
     text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 88px;
   }
 }
 
@@ -187,7 +203,7 @@ const groupActiveChange = category => {
   .item-top {
     width: 28px;
     height: 28px;
-    border-radius: 4px;
+    border-radius: 6px;
     padding: 4px;
     cursor: pointer;
     &:hover {

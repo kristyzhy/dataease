@@ -66,8 +66,9 @@ const add = (type, child, logic) => {
       ? {
           fieldId: '',
           value: '',
-          enumValue: '',
+          enumValue: [],
           term: '',
+          timeType: 'year',
           filterType: 'logic',
           name: '',
           deType: ''
@@ -157,7 +158,7 @@ const del = (index, child) => {
       word-wrap: break-word;
       box-sizing: border-box;
       color: rgba(0, 0, 0, 0.65);
-      font-size: 12px;
+      font-size: 14px;
       display: inline-block;
       white-space: nowrap;
       margin: 0;
@@ -234,10 +235,10 @@ const del = (index, child) => {
       height: 28px;
       padding: 0 10px;
       margin-right: 10px;
-      font-size: 12px;
-      color: #246dff;
+      font-size: 14px;
+      color: var(--ed-color-primary, #3370ff);
       background: #fff;
-      border: 1px solid #246dff;
+      border: 1px solid var(--ed-color-primary, #3370ff);
       border-radius: 2px;
     }
   }

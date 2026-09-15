@@ -2,6 +2,27 @@
   <el-row>
     <el-form @submit.prevent ref="form" size="small" style="width: 100%">
       <el-form-item>
+        <el-checkbox :effect="themes" v-model="state.linkInfoTemp.isApp" @change="onTypeChange">
+          {{ t('visualization.app_embed') }}
+        </el-checkbox>
+      </el-form-item>
+      <el-form-item v-if="state.linkInfoTemp.isApp">
+        <template #label>
+          <span class="data-area-label">
+            <span style="margin-right: 4px">
+              {{ t('visualization.app_embed_code') }}
+            </span>
+          </span>
+        </template>
+        <el-input
+          :effect="themes"
+          type="textarea"
+          :rows="6"
+          v-model="state.linkInfoTemp.src"
+          @blur="onAppBlur"
+        />
+      </el-form-item>
+      <el-form-item v-else>
         <template #label>
           <span class="data-area-label">
             <span style="margin-right: 4px">
@@ -27,7 +48,7 @@
 
 <script setup lang="ts">
 import icon_info_outlined from '@/assets/svg/icon_info_outlined.svg'
-import { reactive, ref, toRefs, watch, computed } from 'vue'
+import { reactive, toRefs, watch, computed } from 'vue'
 import { dvMainStoreWithOut } from '../../store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia/dist/pinia'
 import { checkAddHttp, deepCopy } from '../../utils/utils'
@@ -35,10 +56,8 @@ import { snapshotStoreWithOut } from '../../store/modules/data-visualization/sna
 import { useI18n } from '../../hooks/web/useI18n'
 import { useEmitt } from '@/hooks/web/useEmitt'
 const dvMainStore = dvMainStoreWithOut()
-const { curComponent, curActiveTabInner } = storeToRefs(dvMainStore)
+const { curComponent } = storeToRefs(dvMainStore)
 const snapshotStore = snapshotStoreWithOut()
-const emits = defineEmits(['close'])
-const popover = ref(null)
 const { t } = useI18n()
 
 const props = defineProps({
@@ -60,7 +79,7 @@ const props = defineProps({
 const { frameLinks } = toRefs(props)
 
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 
 const state = reactive({
@@ -76,7 +95,21 @@ const init = () => {
 const onBlur = () => {
   state.linkInfoTemp.src = checkAddHttp(state.linkInfoTemp.src)
   curComponent.value.frameLinks.src = state.linkInfoTemp.src
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('frame-onBlur')
+  useEmitt().emitter.emit('frameLinksChange-' + curComponent.value.id)
+}
+// 嵌入模式：直接保存嵌入代码，不做 http 补全
+const onAppBlur = () => {
+  curComponent.value.frameLinks.src = state.linkInfoTemp.src
+  snapshotStore.recordSnapshotCache('frame-onAppBlur')
+  useEmitt().emitter.emit('frameLinksChange-' + curComponent.value.id)
+}
+// 切换网页/嵌入模式时清空已有内容，避免格式串用
+const onTypeChange = () => {
+  state.linkInfoTemp.src = ''
+  curComponent.value.frameLinks.isApp = state.linkInfoTemp.isApp
+  curComponent.value.frameLinks.src = ''
+  snapshotStore.recordSnapshotCache('frame-onTypeChange')
   useEmitt().emitter.emit('frameLinksChange-' + curComponent.value.id)
 }
 init()

@@ -1,6 +1,8 @@
 package io.dataease.listener;
+import io.dataease.utils.LogUtil;
 
 import io.dataease.datasource.dao.auto.entity.CoreDatasourceTask;
+import io.dataease.datasource.manage.DataSourceManage;
 import io.dataease.datasource.manage.DatasourceSyncManage;
 import io.dataease.datasource.manage.EngineManage;
 import io.dataease.datasource.provider.CalciteProvider;
@@ -17,7 +19,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-
 @Component
 @Order(value = 2)
 public class DataSourceInitStartListener implements ApplicationListener<ApplicationReadyEvent> {
@@ -25,6 +26,8 @@ public class DataSourceInitStartListener implements ApplicationListener<Applicat
     private DatasourceSyncManage datasourceSyncManage;
     @Resource
     private DatasourceServer datasourceServer;
+    @Resource
+    private DataSourceManage dataSourceManage;
     @Resource
     private DatasourceTaskServer datasourceTaskServer;
     @Resource
@@ -38,44 +41,39 @@ public class DataSourceInitStartListener implements ApplicationListener<Applicat
     public void onApplicationEvent(ApplicationReadyEvent applicationReadyEvent) {
         try {
             engineManage.initSimpleEngine();
-        }catch (Exception e){
-            e.printStackTrace();
+        } catch (Exception e) {
+            LogUtil.error(e);
         }
         try {
             calciteProvider.initConnectionPool();
-        }catch (Exception e){
-            e.printStackTrace();
+        } catch (Exception e) {
+            LogUtil.error(e);
         }
         List<CoreDatasourceTask> list = datasourceTaskServer.listAll();
         for (CoreDatasourceTask task : list) {
             try {
                 if (!StringUtils.equalsIgnoreCase(task.getSyncRate(), DatasourceTaskServer.ScheduleType.RIGHTNOW.toString())) {
-                    if (StringUtils.equalsIgnoreCase(task.getEndLimit(), "1")) {
-                        if (task.getEndTime() != null && task.getEndTime() > 0) {
-                            if (task.getEndTime() > System.currentTimeMillis()) {
-                                datasourceSyncManage.addSchedule(task);
-                            }
-                        } else {
+                    if (task.getEndTime() != null && task.getEndTime() > 0) {
+                        if (task.getEndTime() > System.currentTimeMillis()) {
                             datasourceSyncManage.addSchedule(task);
+                        } else {
+                            datasourceSyncManage.deleteSchedule(task);
                         }
                     } else {
                         datasourceSyncManage.addSchedule(task);
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                LogUtil.error(e);
             }
         }
 
         try {
             List<CoreSysSetting> coreSysSettings = sysParameterManage.groupList("basic.");
             datasourceServer.addJob(coreSysSettings);
-        }catch (Exception e){
-            e.printStackTrace();
+        } catch (Exception e) {
+            LogUtil.error(e);
         }
-
+        dataSourceManage.encryptDsConfig();
     }
-
-
-
 }

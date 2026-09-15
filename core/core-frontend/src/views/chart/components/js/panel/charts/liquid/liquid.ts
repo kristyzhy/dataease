@@ -7,6 +7,7 @@ import { flow, hexColorToRGBA, parseJson } from '@/views/chart/components/js/uti
 import { DEFAULT_MISC } from '@/views/chart/components/editor/util/chart'
 import { valueFormatter } from '@/views/chart/components/js/formatter'
 import { useI18n } from '@/hooks/web/useI18n'
+import { defaultsDeep } from 'lodash-es'
 
 const { t } = useI18n()
 const DEFAULT_LIQUID_DATA = []
@@ -27,8 +28,16 @@ export class Liquid extends G2PlotChartView<LiquidOptions, G2Liquid> {
     'background-overall-component': ['all'],
     'border-style': ['all'],
     'basic-style-selector': ['colors', 'alpha'],
-    'label-selector': ['fontSize', 'color', 'labelFormatter'],
-    'misc-selector': ['liquidShape', 'liquidSize', 'liquidMaxType', 'liquidMaxField'],
+    'label-selector': ['fontSize', 'color', 'showQuota', 'showProportion'],
+    'misc-selector': [
+      'liquidShape',
+      'liquidSize',
+      'liquidMaxType',
+      'liquidMaxField',
+      'liquidShowBorder',
+      'liquidBorderWidth',
+      'liquidBorderDistance'
+    ],
     'title-selector': [
       'title',
       'fontSize',
@@ -68,10 +77,18 @@ export class Liquid extends G2PlotChartView<LiquidOptions, G2Liquid> {
         from: 'liquid',
         data: {
           type: 'liquid',
-          max: chart.data?.series[chart.data?.series.length - 1]?.data[0]
+          max: chart.data?.series[0]?.data[0]
         }
       })
     })
+    // 处理空数据, 只要有一个指标是空数据，就不显示图表
+    const hasNoneData = chart.data?.series.some(
+      s => s.data?.[0] === undefined || s.data?.[0] === null
+    )
+    this.configEmptyDataStyle(hasNoneData ? [] : [1], container, newChart)
+    if (hasNoneData) {
+      return
+    }
     return newChart
   }
 
@@ -123,6 +140,15 @@ export class Liquid extends G2PlotChartView<LiquidOptions, G2Liquid> {
       radius: radius,
       shape: shape
     }
+    const { misc } = customAttr
+    if (misc?.liquidShowBorder) {
+      defaultsDeep(size, {
+        outline: {
+          border: misc.liquidBorderWidth ?? DEFAULT_MISC.liquidBorderWidth,
+          distance: misc.liquidBorderDistance ?? DEFAULT_MISC.liquidBorderDistance
+        }
+      })
+    }
     return { ...options, ...size }
   }
 
@@ -145,19 +171,35 @@ export class Liquid extends G2PlotChartView<LiquidOptions, G2Liquid> {
       }
     }
     const label = customAttr.label
-    const labelFormatter = label.labelFormatter
+    const style = {
+      fontSize: label.fontSize.toString() + 'px',
+      color: label.color,
+      lineHeight: '"unset"',
+      overflow: 'visible',
+      opacity: 1
+    }
+    const title = label.showQuota
+      ? {
+          style,
+          formatter: () => {
+            return valueFormatter(chart.data.series[0].data[0], label.quotaLabelFormatter)
+          }
+        }
+      : false
+    const content = label.showProportion
+      ? {
+          style,
+          formatter: () => {
+            return (originVal * 100).toFixed(label.reserveDecimalCount) + '%'
+          }
+        }
+      : false
+
     return {
       ...options,
       statistic: {
-        content: {
-          style: {
-            fontSize: label.fontSize.toString() + 'px',
-            color: label.color
-          },
-          formatter: () => {
-            return valueFormatter(originVal, labelFormatter)
-          }
-        }
+        title,
+        content
       }
     }
   }

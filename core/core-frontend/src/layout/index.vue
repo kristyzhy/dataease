@@ -7,33 +7,50 @@ import Menu from './components/Menu.vue'
 import Main from './components/Main.vue'
 import CollapseBar from './components/CollapseBar.vue'
 import { ElContainer } from 'element-plus-secondary'
-import { useRoute } from 'vue-router'
+import { useRoute } from 'vue-router_2'
 import { XpackComponent } from '@/components/plugin'
+import { useI18n } from '@/hooks/web/useI18n'
 const route = useRoute()
 const systemMenu = computed(() => route.path.includes('system'))
 const settingMenu = computed(() => route.path.includes('sys-setting'))
 const marketMenu = computed(() => route.path.includes('template-market'))
 const toolboxMenu = computed(() => route.path.includes('toolbox'))
+const msgFillMenu = computed(() => route.path.includes('msg-fill'))
 const isCollapse = ref(false)
 const setCollapse = () => {
   isCollapse.value = !isCollapse.value
 }
+const { t } = useI18n()
 </script>
 
 <template>
   <div class="common-layout">
     <HeaderSystem
-      v-if="settingMenu || marketMenu || toolboxMenu"
-      :title="toolboxMenu ? '工具箱' : marketMenu ? '模板中心' : ''"
+      v-if="settingMenu || marketMenu || toolboxMenu || msgFillMenu"
+      :title="
+        toolboxMenu
+          ? t('toolbox.name')
+          : marketMenu
+          ? t('toolbox.template_center')
+          : msgFillMenu
+          ? t('v_query.msg_center')
+          : ''
+      "
     />
     <Header v-else></Header>
     <el-container class="layout-container">
-      <template v-if="systemMenu || settingMenu || toolboxMenu">
+      <template v-if="systemMenu || settingMenu || toolboxMenu || msgFillMenu">
         <Sidebar v-if="!isCollapse" class="layout-sidebar">
-          <div @click="setCollapse" v-if="systemMenu && !isCollapse" class="org-config-center">
-            组织管理中心
+          <div
+            @click="setCollapse"
+            v-if="(systemMenu || msgFillMenu) && !isCollapse"
+            class="org-config-center"
+          >
+            {{ msgFillMenu ? t('v_query.msg_center') : t('toolbox.org_center') }}
           </div>
-          <Menu :style="{ height: systemMenu ? 'calc(100% - 48px)' : '100%' }"></Menu>
+          <Menu
+            :style="{ height: systemMenu || msgFillMenu ? 'calc(100% - 48px)' : '100%' }"
+          ></Menu>
         </Sidebar>
         <el-aside class="layout-sidebar layout-sidebar-collapse" v-else>
           <Menu
@@ -62,20 +79,12 @@ const setCollapse = () => {
   flex-direction: column;
   background: #fff;
   color: #1f2329;
+  min-width: 1000px;
+  overflow-x: auto;
 
   .layout-container {
     .layout-sidebar {
-      height: calc(100vh - 56px);
-      position: relative;
-      &::after {
-        content: '';
-        width: 100%;
-        height: 1px;
-        background: #1f232926;
-        position: absolute;
-        bottom: 48px;
-        left: 0;
-      }
+      height: calc(100vh - 106px);
     }
 
     .layout-sidebar-collapse {

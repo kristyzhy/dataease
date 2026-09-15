@@ -1,4 +1,7 @@
 # Compiled class file
+
+.workbuddy/
+docs/
 *.class
 
 # Log file
@@ -51,3 +54,4 @@ core/core-frontend/src/assets/fsSvg.html
 /extensions/
 .vite/
 /core/backend/
+/classpath:substitule.json

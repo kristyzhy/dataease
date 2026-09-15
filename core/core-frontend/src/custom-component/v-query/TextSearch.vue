@@ -1,11 +1,25 @@
 <script lang="ts" setup>
-import { toRefs, onBeforeMount, type PropType, type Ref, inject, computed, nextTick } from 'vue'
+import {
+  toRefs,
+  onBeforeMount,
+  ref,
+  onMounted,
+  onBeforeUnmount,
+  type PropType,
+  type Ref,
+  inject,
+  computed,
+  nextTick
+} from 'vue'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
+import eventBus from '@/utils/eventBus'
 import { storeToRefs } from 'pinia'
+import { useI18n } from '@/hooks/web/useI18n'
 interface SelectConfig {
   id: string
   conditionValueOperatorF: string
   conditionValueF: string
+  queryConditionWidth: string
   hideConditionSwitching: boolean
   conditionValueOperatorS: string
   conditionValueS: string
@@ -17,9 +31,10 @@ interface SelectConfig {
   conditionType: number
 }
 const placeholder: Ref = inject('placeholder')
+const { t } = useI18n()
 
 const placeholderText = computed(() => {
-  if (placeholder.value.placeholderShow) {
+  if (placeholder?.value?.placeholderShow) {
     return props.config.placeholder
   }
   return ' '
@@ -27,11 +42,11 @@ const placeholderText = computed(() => {
 
 const operators = [
   {
-    label: '精确匹配',
+    label: t('v_query.exact_match'),
     value: 'eq'
   },
   {
-    label: '模糊匹配',
+    label: t('v_query.fuzzy_match'),
     value: 'like'
   }
 ]
@@ -44,6 +59,7 @@ const props = defineProps({
       return {
         id: '',
         conditionType: 0,
+        queryConditionWidth: 0,
         conditionValueOperatorF: 'eq',
         conditionValueF: '',
         conditionValueOperatorS: 'like',
@@ -78,10 +94,20 @@ onBeforeMount(() => {
   setParams()
 })
 const queryConditionWidth = inject('com-width', Function, true)
-const customStyle = inject<{ background: string }>('$custom-style-filter')
+const customStyle = inject<{ background: string; border: string }>('$custom-style-filter')
 const isConfirmSearch = inject('is-confirm-search', Function, true)
+
+const getCustomWidth = () => {
+  if (placeholder?.value?.placeholderShow) {
+    if (props.config.queryConditionWidth === undefined) {
+      return queryConditionWidth()
+    }
+    return props.config.queryConditionWidth
+  }
+  return 227
+}
 const selectStyle = computed(() => {
-  return { width: queryConditionWidth() + 'px' }
+  return { width: getCustomWidth() + 'px' }
 })
 const handleValueChange = () => {
   if (!props.isConfig) {
@@ -92,12 +118,41 @@ const handleValueChange = () => {
   }
 }
 const lineWidth = computed(() => {
-  return { width: queryConditionWidth() - 15 + 'px' }
+  return { width: getCustomWidth() - 15 + 'px', background: customStyle.border }
+})
+
+const handleKeyEnter = ($event: any = {}) => {
+  if ($event?.isComposing) {
+    return
+  }
+  handleValueChange()
+}
+
+const handleInnerMouseDown = e => {
+  e.stopPropagation()
+}
+const pre = ref()
+const next = ref()
+
+const componentClick = () => {
+  pre.value?.blur()
+  next.value?.blur()
+}
+
+onMounted(() => {
+  eventBus.on('componentClick', componentClick)
+})
+onBeforeUnmount(() => {
+  eventBus.off('componentClick', componentClick)
 })
 </script>
 
 <template>
-  <div class="text-search-select" :style="{ background: customStyle.background }">
+  <div
+    @mousedown="handleInnerMouseDown"
+    class="text-search-select"
+    :style="{ background: customStyle.background }"
+  >
     <div class="condition-type">
       <el-select
         class="condition-value-select"
@@ -114,13 +169,17 @@ const lineWidth = computed(() => {
         :style="selectStyle"
         :placeholder="placeholderText"
         @blur="handleValueChange"
+        ref="pre"
+        @keydown.enter.exact.prevent="($event: any) => handleKeyEnter($event)"
         class="condition-value-input"
         v-model="config.conditionValueF"
       />
       <div :style="lineWidth" class="bottom-line"></div>
     </div>
     <div class="condition-type" v-if="[1, 2].includes(config.conditionType)">
-      <sapn class="condition-type-tip">{{ config.conditionType === 1 ? '与' : '或' }}</sapn>
+      <span class="condition-type-tip">{{
+        config.conditionType === 1 ? t('chart.and') : t('chart.or')
+      }}</span>
       <el-select
         v-if="!config.hideConditionSwitching"
         class="condition-value-select"
@@ -135,7 +194,9 @@ const lineWidth = computed(() => {
       <el-input
         :style="selectStyle"
         @blur="handleValueChange"
+        ref="next"
         :placeholder="placeholderText"
+        @keydown.enter.exact.prevent="($event: any) => handleKeyEnter($event)"
         class="condition-value-input"
         v-model="config.conditionValueS"
       />
@@ -151,7 +212,8 @@ const lineWidth = computed(() => {
   .condition-type {
     display: flex;
     position: relative;
-    :deep(.ed-input__wrapper) {
+    :deep(.ed-input__wrapper),
+    :deep(.ed-select__wrapper) {
       border: none;
       border-radius: 0;
       box-shadow: none !important;
@@ -194,8 +256,7 @@ const lineWidth = computed(() => {
     .bottom-line {
       box-sizing: border-box;
       height: 1px;
-      background-color: #000;
-      opacity: 0.3;
+      background-color: #bbbfc4;
       position: absolute;
       right: 5px;
       bottom: 3px;

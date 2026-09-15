@@ -53,7 +53,7 @@ export class WordCloud extends G2PlotChartView<WordCloudOptions, G2WordCloud> {
   axis: AxisType[] = ['xAxis', 'yAxis', 'filter']
   axisConfig: AxisConfig = {
     xAxis: {
-      name: `${t('chart.drag_block_word_cloud_label')} / ${t('chart.dimension_or_quota')}`,
+      name: `${t('chart.drag_block_word_cloud_label')} / ${t('chart.dimension')}`,
       type: 'd',
       limit: 1
     },
@@ -99,7 +99,7 @@ export class WordCloud extends G2PlotChartView<WordCloudOptions, G2WordCloud> {
         weightField: 'value',
         colorField: 'field',
         wordStyle: {
-          fontFamily: 'Verdana',
+          fontFamily: chart.fontFamily ? chart.fontFamily : 'Verdana',
           fontSize: (misc.wordSizeRange ?? DEFAULT_MISC.wordSizeRange) as [number, number],
           rotation: [0, 0],
           padding: misc.wordSpacing ?? DEFAULT_MISC.wordSpacing

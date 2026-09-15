@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import type { ManipulateType } from 'dayjs'
 import { toRefs, PropType, ref, onBeforeMount, watch, computed } from 'vue'
 import { Calendar } from '@element-plus/icons-vue'
 import { type DatePickType } from 'element-plus-secondary'
@@ -13,12 +14,12 @@ interface SelectConfig {
   id: string
   relativeToCurrentRange: string
   timeNum: number
-  relativeToCurrentType: string
+  relativeToCurrentType: ManipulateType
   around: string
   arbitraryTime: Date
   timeGranularity: DatePickType
   timeNumRange: number
-  relativeToCurrentTypeRange: string
+  relativeToCurrentTypeRange: ManipulateType
   aroundRange: string
   arbitraryTimeRange: Date
 }
@@ -170,8 +171,14 @@ const formatDate = computed(() => {
     :type="config.timeGranularityMultiple"
     :prefix-icon="Calendar"
     :format="formatDate"
+    :popper-class="'custom-dynamic-time-range-popper_class'"
     :range-separator="$t('cron.to')"
     :start-placeholder="$t('datasource.start_time')"
     :end-placeholder="$t('datasource.end_time')"
   />
 </template>
+<style lang="less">
+.custom-dynamic-time-range-popper_class {
+  font-family: var(--de-canvas_custom_font);
+}
+</style>

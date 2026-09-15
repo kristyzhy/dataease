@@ -6,7 +6,6 @@ package io.dataease.constant;
  */
 public class CommonConstants {
 
-
     //操作类型
     public static final class OPT_TYPE {
 
@@ -87,5 +86,21 @@ public class CommonConstants {
         public static final String MANAGE = "manage";
         //公共
         public static final String PUBLIC = "public";
+    }
+
+    public static final class RESOURCE_TABLE {
+        //主表
+        public static final String CORE = "core";
+        //镜像表
+        public static final String SNAPSHOT = "snapshot";
+    }
+
+    public static final class DV_STATUS {
+        //未发布
+        public static final int UNPUBLISHED = 0;
+        //已发布
+        public static final int PUBLISHED = 1;
+        //已保存未发布
+        public static final int SAVED_UNPUBLISHED = 2;
     }
 }

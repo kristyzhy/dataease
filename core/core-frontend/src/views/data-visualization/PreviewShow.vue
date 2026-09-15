@@ -8,26 +8,40 @@ import PreviewHead from '@/views/data-visualization/PreviewHead.vue'
 import EmptyBackground from '@/components/empty-background/src/EmptyBackground.vue'
 import { storeToRefs } from 'pinia'
 import { useAppStoreWithOut } from '@/store/modules/app'
-import { initCanvasData, initCanvasDataPrepare, onInitReady } from '@/utils/canvasUtils'
-import { useRequestStoreWithOut } from '@/store/modules/request'
-import { usePermissionStoreWithOut } from '@/store/modules/permission'
+import {
+  getMapElementIds,
+  initCanvasData,
+  initCanvasDataPrepare,
+  onInitReady
+} from '@/utils/canvasUtils'
 import { useMoveLine } from '@/hooks/web/useMoveLine'
 import { Icon } from '@/components/icon-custom'
 import { download2AppTemplate, downloadCanvas2 } from '@/utils/imgUtils'
 import MultiplexPreviewShow from '@/views/data-visualization/MultiplexPreviewShow.vue'
 import DvPreview from '@/views/data-visualization/DvPreview.vue'
 import AppExportForm from '@/components/de-app/AppExportForm.vue'
-import { personInfoApi } from '@/api/user'
 import { ElMessage } from 'element-plus-secondary'
 import { useEmitt } from '@/hooks/web/useEmitt'
+
+import { useUserStoreWithOut } from '@/store/modules/user'
+import { useI18n } from '@/hooks/web/useI18n'
+import {
+  exportLogApp,
+  exportLogImg,
+  exportLogPDF,
+  exportLogTemplate
+} from '@/api/visualization/dataVisualization'
+import { deepCopy } from '@/utils/utils'
+const userStore = useUserStoreWithOut()
+
+const userName = computed(() => userStore.getName)
+const { t } = useI18n()
 
 const dvMainStore = dvMainStoreWithOut()
 const { dvInfo, canvasViewDataInfo } = storeToRefs(dvMainStore)
 const previewCanvasContainer = ref(null)
 const dvPreviewRef = ref(null)
 const slideShow = ref(true)
-const requestStore = useRequestStoreWithOut()
-const permissionStore = usePermissionStoreWithOut()
 const dataInitState = ref(true)
 const downloadStatus = ref(false)
 const { width, node } = useMoveLine('DASHBOARD')
@@ -42,6 +56,11 @@ const props = defineProps({
     required: false,
     type: Boolean,
     default: false
+  },
+  resourceTable: {
+    required: false,
+    type: String,
+    default: 'core'
   }
 })
 
@@ -66,12 +85,12 @@ function createNew() {
   resourceTreeRef.value?.createNewObject()
 }
 
-const loadCanvasData = (dvId, weight?) => {
+const loadCanvasData = (dvId, weight?, ext?) => {
   const initMethod = props.showPosition === 'multiplexing' ? initCanvasDataPrepare : initCanvasData
   dataInitState.value = false
   initMethod(
     dvId,
-    'dataV',
+    { busiFlag: 'dataV', resourceTable: 'core' },
     function ({
       canvasDataResult,
       canvasStyleResult,
@@ -80,12 +99,19 @@ const loadCanvasData = (dvId, weight?) => {
       curPreviewGap
     }) {
       dvInfo['weight'] = weight
+      dvInfo['ext'] = ext || 0
       state.canvasDataPreview = canvasDataResult
       state.canvasStylePreview = canvasStyleResult
       state.canvasViewInfoPreview = canvasViewInfoPreview
       state.dvInfo = dvInfo
       state.curPreviewGap = curPreviewGap
       dataInitState.value = true
+      // 修复铺满全屏模版导出错位问题
+      if (props.showPosition !== 'multiplexing') {
+        state.canvasDataPreviewSource = deepCopy(canvasDataResult)
+        state.canvasStylePreviewSource = deepCopy(canvasStyleResult)
+      }
+
       if (props.showPosition === 'preview') {
         dvMainStore.updateCurDvInfo(dvInfo)
         nextTick(() => {
@@ -98,25 +124,39 @@ const loadCanvasData = (dvId, weight?) => {
     }
   )
 }
-
 const download = type => {
   downloadStatus.value = true
+  const mapElementIds = getMapElementIds(state.canvasDataPreview)
+  mapElementIds.forEach(id => useEmitt().emitter.emit('l7-prepare-picture', id))
   setTimeout(() => {
     const vueDom = previewCanvasContainer.value.querySelector('.canvas-container')
     downloadCanvas2(type, vueDom, state.dvInfo.name, () => {
       downloadStatus.value = false
+      const param = {
+        id: state.dvInfo.id,
+        type: state.dvInfo.type === 'dashboard' ? 'panel' : 'screen'
+      }
+      type === 'img' ? exportLogImg(param) : exportLogPDF(param)
+      mapElementIds.forEach(id => useEmitt().emitter.emit('l7-unprepare-picture', id))
     })
   }, 200)
 }
-
 const fileDownload = (downloadType, attachParams) => {
   downloadStatus.value = true
-  nextTick(() => {
+  const mapElementIds = getMapElementIds(state.canvasDataPreview)
+  mapElementIds.forEach(id => useEmitt().emitter.emit('l7-prepare-picture', id))
+  setTimeout(() => {
     const vueDom = previewCanvasContainer.value.querySelector('.canvas-container')
     download2AppTemplate(downloadType, vueDom, state.dvInfo.name, attachParams, () => {
       downloadStatus.value = false
+      const param = {
+        id: state.dvInfo.id,
+        type: state.dvInfo.type === 'dashboard' ? 'panel' : 'screen'
+      }
+      downloadType === 'app' ? exportLogApp(param) : exportLogTemplate(param)
+      mapElementIds.forEach(id => useEmitt().emitter.emit('l7-unprepare-picture', id))
     })
-  })
+  }, 1000)
 }
 
 const downloadAsAppTemplate = downloadType => {
@@ -136,7 +176,7 @@ const downLoadToAppPre = () => {
       appName: state.dvInfo.name,
       icon: null,
       version: '2.0',
-      creator: state.userLoginInfo?.name,
+      creator: userName.value,
       required: '2.9.0',
       description: null
     })
@@ -158,20 +198,25 @@ const slideOpenChange = () => {
 }
 
 const reload = id => {
-  loadCanvasData(id, state.dvInfo.weight)
+  loadCanvasData(id, state.dvInfo.weight, state.dvInfo.ext)
 }
 
 const resourceNodeClick = data => {
-  loadCanvasData(data.id, data.weight)
+  loadCanvasData(data.id, data.weight, data.ext)
 }
 
+const dataVKeepSize = computed(() => {
+  return state.canvasStylePreview?.screenAdaptor === 'keep'
+})
+
 const state = reactive({
+  canvasDataPreviewSource: null,
+  canvasStylePreviewSource: null,
   canvasDataPreview: null,
   canvasStylePreview: null,
   canvasViewInfoPreview: null,
   dvInfo: null,
-  curPreviewGap: 0,
-  userLoginInfo: {}
+  curPreviewGap: 0
 })
 
 const sideTreeStatus = ref(true)
@@ -195,12 +240,6 @@ const downLoadApp = appAttachInfo => {
   fileDownload('app', appAttachInfo)
 }
 
-const findUserData = callback => {
-  personInfoApi().then(rsp => {
-    callback(rsp)
-  })
-}
-
 onMounted(() => {
   useEmitt({
     name: 'canvasDownload',
@@ -218,9 +257,6 @@ onBeforeMount(() => {
   if (props.showPosition === 'preview') {
     dvMainStore.canvasDataInit()
   }
-  findUserData(res => {
-    state.userLoginInfo = res.data
-  })
 })
 </script>
 
@@ -251,13 +287,14 @@ onBeforeMount(() => {
         v-show="slideShow"
         :cur-canvas-type="'dataV'"
         :show-position="showPosition"
+        :resource-table="resourceTable"
         @node-click="resourceNodeClick"
       />
     </el-aside>
     <el-container
       class="preview-area"
-      :class="{ 'no-data': !hasTreeData }"
-      v-loading="requestStore.loadingMap[permissionStore.currentPath]"
+      :class="{ 'no-data': !state.dvInfo?.id }"
+      v-loading="!dataInitState"
     >
       <div @click="slideOpenChange" class="flexible-button-area" v-if="false">
         <el-icon v-if="slideShow"><ArrowLeft /></el-icon>
@@ -281,7 +318,12 @@ onBeforeMount(() => {
             :dv-info="state.dvInfo"
           ></multiplex-preview-show>
         </div>
-        <div v-if="showPosition === 'preview'" ref="previewCanvasContainer" class="content">
+        <div
+          v-if="showPosition === 'preview'"
+          :class="{ 'canvas_keep-size': dataVKeepSize }"
+          ref="previewCanvasContainer"
+          class="content"
+        >
           <dv-preview
             ref="dvPreviewRef"
             v-if="state.canvasStylePreview && dataInitState"
@@ -296,15 +338,23 @@ onBeforeMount(() => {
         </div>
       </template>
       <template v-else-if="hasTreeData && mounted">
-        <empty-background description="请在左侧选择数据大屏" img-type="select" />
+        <empty-background
+          v-if="dataInitState"
+          :description="t('visualization.select_screen_tips')"
+          img-type="select"
+        />
       </template>
       <template v-else-if="mounted">
-        <empty-background description="暂无数据大屏" img-type="none">
+        <empty-background
+          v-if="dataInitState"
+          :description="t('visualization.no_screen')"
+          img-type="none"
+        >
           <el-button v-if="rootManage && !isDataEaseBi" @click="createNew" type="primary">
             <template #icon>
               <Icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></Icon>
             </template>
-            {{ $t('commons.create') }}数据大屏
+            {{ t('commons.create') }}{{ t('work_branch.big_data_screen') }}
           </el-button>
         </empty-background>
       </template>
@@ -346,7 +396,6 @@ onBeforeMount(() => {
     overflow-x: hidden;
     overflow-y: auto;
     position: relative;
-    //transition: 0.5s;
 
     &.no-data {
       background-color: rgba(245, 246, 247, 1);

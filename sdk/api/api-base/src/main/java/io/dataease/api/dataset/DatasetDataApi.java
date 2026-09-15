@@ -1,11 +1,9 @@
 package io.dataease.api.dataset;
 
 import com.github.xiaoymin.knife4j.annotations.ApiSupport;
-import io.dataease.api.dataset.dto.BaseTreeNodeDTO;
-import io.dataease.api.dataset.dto.EnumValueRequest;
-import io.dataease.api.dataset.dto.MultFieldValuesRequest;
-import io.dataease.api.dataset.dto.PreviewSqlDTO;
+import io.dataease.api.dataset.dto.*;
 import io.dataease.api.dataset.union.DatasetGroupInfoDTO;
+import io.dataease.auth.DePermit;
 import io.dataease.extensions.datasource.dto.DatasetTableDTO;
 import io.dataease.extensions.datasource.dto.DatasetTableFieldDTO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,16 +25,18 @@ public interface DatasetDataApi {
     Map<String, Object> previewData(@RequestBody DatasetGroupInfoDTO datasetGroupInfoDTO) throws Exception;
 
     @Operation(summary = "获取数据集节点字段")
+    @DePermit({"#p0.datasourceId+':read'"})
     @PostMapping("tableField")
     List<DatasetTableFieldDTO> tableField(@RequestBody DatasetTableDTO datasetTableDTO) throws Exception;
 
     @Operation(summary = "SQL预览")
+    @DePermit({"#p0.datasourceId+':read'"})
     @PostMapping("previewSql")
     Map<String, Object> previewSql(@RequestBody PreviewSqlDTO dto) throws Exception;
 
-    @Operation(summary = "sql片段校验", hidden = true)
-    @PostMapping("previewSqlCheck")
-    Map<String, Object> previewSqlCheck(@RequestBody PreviewSqlDTO dto) throws Exception;
+    @Operation(summary = "数据集获取字段枚举值")
+    @PostMapping("enumValueDs")
+    List<String> getFieldEnumDs(@RequestBody EnumObj map) throws Exception;
 
     @Operation(summary = "获取字段枚举值")
     @PostMapping("enumValue")

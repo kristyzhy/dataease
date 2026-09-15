@@ -1,8 +1,8 @@
 package io.dataease.engine.trans;
 
 import io.dataease.api.permissions.dataset.dto.DataSetRowPermissionsTreeDTO;
+import io.dataease.constant.SQLConstants;
 import io.dataease.engine.constant.ExtFieldConstant;
-import io.dataease.engine.constant.SQLConstants;
 import io.dataease.engine.utils.Utils;
 import io.dataease.extensions.datasource.api.PluginManageApi;
 import io.dataease.extensions.datasource.constant.SqlPlaceholderConstants;
@@ -11,6 +11,7 @@ import io.dataease.extensions.datasource.dto.DatasetTableFieldDTO;
 import io.dataease.extensions.datasource.dto.DatasourceSchemaDTO;
 import io.dataease.extensions.datasource.model.SQLMeta;
 import io.dataease.extensions.datasource.model.SQLObj;
+import io.dataease.extensions.datasource.vo.DatasourceConfiguration;
 import io.dataease.extensions.view.dto.DatasetRowPermissionsTreeItem;
 import io.dataease.extensions.view.dto.DatasetRowPermissionsTreeObj;
 import org.apache.commons.collections4.CollectionUtils;
@@ -106,7 +107,7 @@ public class WhereTree2Str {
 
         if (ObjectUtils.isNotEmpty(field.getExtField()) && Objects.equals(field.getExtField(), ExtFieldConstant.EXT_CALC)) {
             // 解析origin name中有关联的字段生成sql表达式
-            String calcFieldExp = Utils.calcFieldRegex(field.getOriginName(), tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
+            String calcFieldExp = Utils.calcFieldRegex(field, tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
             // 给计算字段处加一个占位符，后续SQL方言转换后再替换
             originName = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, field.getId());
             fieldsDialect.put(originName, calcFieldExp);
@@ -119,6 +120,14 @@ public class WhereTree2Str {
             } else {
                 originName = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), field.getDataeaseName());
             }
+        } else if (ObjectUtils.isNotEmpty(field.getExtField()) && Objects.equals(field.getExtField(), ExtFieldConstant.EXT_GROUP)) {
+            String groupFieldExp = Utils.transGroupFieldToSql(field, originFields, isCross, dsMap, pluginManage);
+            // 给计算字段处加一个占位符，后续SQL方言转换后再替换
+            originName = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, field.getId());
+            fieldsDialect.put(originName, groupFieldExp);
+            if (isCross) {
+                originName = groupFieldExp;
+            }
         } else {
             if (StringUtils.equalsIgnoreCase(dsType, "es")) {
                 originName = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), field.getOriginName());
@@ -128,7 +137,7 @@ public class WhereTree2Str {
         }
         if (field.getDeType() == 1) {
             if (field.getDeExtractType() == 0 || field.getDeExtractType() == 5) {
-                whereName = String.format(SQLConstants.DE_STR_TO_DATE, originName, StringUtils.isNotEmpty(field.getDateFormat()) ? field.getDateFormat() : SQLConstants.DEFAULT_DATE_FORMAT);
+                whereName = String.format(SQLConstants.DE_STR_TO_DATE_T, originName, StringUtils.isNotEmpty(field.getDateFormat()) ? (Utils.isValidDateFormat(field.getDateFormat()) ? Utils.transValue(field.getDateFormat()) : SQLConstants.DEFAULT_DATE_FORMAT) : SQLConstants.DEFAULT_DATE_FORMAT);
             }
             if (field.getDeExtractType() == 2 || field.getDeExtractType() == 3 || field.getDeExtractType() == 4) {
                 String cast = String.format(SQLConstants.CAST, originName, SQLConstants.DEFAULT_INT_FORMAT);
@@ -171,11 +180,13 @@ public class WhereTree2Str {
 
         if (StringUtils.equalsIgnoreCase(item.getFilterType(), "enum")) {
             if (CollectionUtils.isNotEmpty(item.getEnumValue())) {
-                if (StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
-                        || StringUtils.containsIgnoreCase(field.getType(), "NCHAR")) {
-                    res = "(" + whereName + " IN (" + item.getEnumValue().stream().map(str -> "'" + SQLConstants.MSSQL_N_PREFIX + str + "'").collect(Collectors.joining(",")) + "))";
+                if ((StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
+                        || StringUtils.containsIgnoreCase(field.getType(), "NCHAR"))
+                        && !isCross
+                        && StringUtils.equalsIgnoreCase(dsType, DatasourceConfiguration.DatasourceType.sqlServer.getType())) {
+                    res = "(" + whereName + " IN (" + item.getEnumValue().stream().map(WhereTree2Str::toSqlServerNQuotedValue).collect(Collectors.joining(",")) + "))";
                 } else {
-                    res = "(" + whereName + " IN ('" + String.join("','", item.getEnumValue()) + "'))";
+                    res = "(" + whereName + " IN (" + item.getEnumValue().stream().map(WhereTree2Str::toQuotedValue).collect(Collectors.joining(",")) + "))";
                 }
             }
         } else {
@@ -196,18 +207,40 @@ public class WhereTree2Str {
             } else if (StringUtils.equalsIgnoreCase(item.getTerm(), "not_empty")) {
                 whereValue = "''";
             } else if (StringUtils.containsIgnoreCase(item.getTerm(), "in") || StringUtils.containsIgnoreCase(item.getTerm(), "not in")) {
-                if (StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
-                        || StringUtils.containsIgnoreCase(field.getType(), "NCHAR")) {
-                    whereValue = "(" + Arrays.stream(value.split(",")).map(str -> "'" + SQLConstants.MSSQL_N_PREFIX + str + "'").collect(Collectors.joining(",")) + ")";
+                if ((StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
+                        || StringUtils.containsIgnoreCase(field.getType(), "NCHAR"))
+                        && !isCross
+                        && StringUtils.equalsIgnoreCase(dsType, DatasourceConfiguration.DatasourceType.sqlServer.getType())) {
+                    whereValue = "(" + Arrays.stream(value.split(",")).map(WhereTree2Str::toSqlServerNQuotedValue).collect(Collectors.joining(",")) + ")";
                 } else {
-                    whereValue = "('" + String.join("','", value.split(",")) + "')";
+                    whereValue = "(" + Arrays.stream(value.split(",")).map(WhereTree2Str::toQuotedValue).collect(Collectors.joining(",")) + ")";
                 }
             } else if (StringUtils.containsIgnoreCase(item.getTerm(), "like")) {
-                if (StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
-                        || StringUtils.containsIgnoreCase(field.getType(), "NCHAR")) {
-                    whereValue = "'" + SQLConstants.MSSQL_N_PREFIX + "%" + value + "%'";
+                if ((StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
+                        || StringUtils.containsIgnoreCase(field.getType(), "NCHAR"))
+                        && !isCross
+                        && StringUtils.equalsIgnoreCase(dsType, DatasourceConfiguration.DatasourceType.sqlServer.getType())) {
+                    whereValue = toSqlServerNLikeValue(value);
                 } else {
-                    whereValue = "'%" + value + "%'";
+                    whereValue = toLikeValue(value);
+                }
+            } else if (StringUtils.containsIgnoreCase(item.getTerm(), "start_with")) {
+                if ((StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
+                        || StringUtils.containsIgnoreCase(field.getType(), "NCHAR"))
+                        && !isCross
+                        && StringUtils.equalsIgnoreCase(dsType, DatasourceConfiguration.DatasourceType.sqlServer.getType())) {
+                    whereValue = toSqlServerNStartValue(value);
+                } else {
+                    whereValue = toStartValue(value);
+                }
+            } else if (StringUtils.containsIgnoreCase(item.getTerm(), "end_with")) {
+                if ((StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
+                        || StringUtils.containsIgnoreCase(field.getType(), "NCHAR"))
+                        && !isCross
+                        && StringUtils.equalsIgnoreCase(dsType, DatasourceConfiguration.DatasourceType.sqlServer.getType())) {
+                    whereValue = toSqlServerNEndValue(value);
+                } else {
+                    whereValue = toEndValue(value);
                 }
             } else {
                 // 如果是时间字段过滤，当条件是等于和不等于的时候转换成between和not between
@@ -244,14 +277,16 @@ public class WhereTree2Str {
                                 value = Utils.transLong2Str(startTime);
                             }
                         }
-                        whereValue = String.format(SQLConstants.WHERE_VALUE_VALUE, value);
+                        whereValue = String.format(SQLConstants.WHERE_VALUE_VALUE, sanitizeSqlLiteral(value));
                     }
                 } else {
-                    if (StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
-                            || StringUtils.containsIgnoreCase(field.getType(), "NCHAR")) {
-                        whereValue = String.format(SQLConstants.WHERE_VALUE_VALUE_CH, value);
+                    if ((StringUtils.containsIgnoreCase(field.getType(), "NVARCHAR")
+                            || StringUtils.containsIgnoreCase(field.getType(), "NCHAR"))
+                            && !isCross
+                            && StringUtils.equalsIgnoreCase(dsType, DatasourceConfiguration.DatasourceType.sqlServer.getType())) {
+                        whereValue = String.format(SQLConstants.WHERE_VALUE_VALUE_CH, sanitizeSqlLiteral(value));
                     } else {
-                        whereValue = String.format(SQLConstants.WHERE_VALUE_VALUE, value);
+                        whereValue = String.format(SQLConstants.WHERE_VALUE_VALUE, sanitizeSqlLiteral(value));
                     }
                 }
             }
@@ -259,5 +294,42 @@ public class WhereTree2Str {
             res = build.getWhereField() + " " + build.getWhereTermAndValue();
         }
         return res;
+    }
+
+    private static String sanitizeSqlLiteral(String value) {
+        String normalized = StringUtils.defaultString(value);
+        return Utils.transValue(normalized);
+    }
+
+    private static String toQuotedValue(String value) {
+        return "'" + sanitizeSqlLiteral(value) + "'";
+    }
+
+    private static String toLikeValue(String value) {
+        return "'%" + sanitizeSqlLiteral(value) + "%'";
+    }
+
+    private static String toStartValue(String value) {
+        return "'" + sanitizeSqlLiteral(value) + "%'";
+    }
+
+    private static String toEndValue(String value) {
+        return "'%" + sanitizeSqlLiteral(value) + "'";
+    }
+
+    private static String toSqlServerNQuotedValue(String value) {
+        return "'" + SQLConstants.MSSQL_N_PREFIX + sanitizeSqlLiteral(value) + "'";
+    }
+
+    private static String toSqlServerNLikeValue(String value) {
+        return "'" + SQLConstants.MSSQL_N_PREFIX + "%" + sanitizeSqlLiteral(value) + "%'";
+    }
+
+    private static String toSqlServerNStartValue(String value) {
+        return "'" + SQLConstants.MSSQL_N_PREFIX + sanitizeSqlLiteral(value) + "%'";
+    }
+
+    private static String toSqlServerNEndValue(String value) {
+        return "'" + SQLConstants.MSSQL_N_PREFIX + "%" + sanitizeSqlLiteral(value) + "'";
     }
 }

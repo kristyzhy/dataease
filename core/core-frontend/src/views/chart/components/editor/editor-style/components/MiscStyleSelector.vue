@@ -16,7 +16,7 @@ const props = withDefaults(
 )
 
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 
 const predefineColors = COLOR_PANEL
@@ -39,6 +39,12 @@ watch(
 const fontSizeList = computed(() => {
   const arr = []
   for (let i = 10; i <= 40; i = i + 2) {
+    arr.push({
+      name: i + '',
+      value: i
+    })
+  }
+  for (let i = 50; i <= 200; i = i + 10) {
     arr.push({
       name: i + '',
       value: i
@@ -77,7 +83,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <el-form ref="miscForm" :model="state.miscForm">
+  <el-form size="small" ref="miscForm" :model="state.miscForm">
     <el-form-item
       v-if="showProperty('showName')"
       class="form-item form-item-checkbox"
@@ -180,20 +186,6 @@ onMounted(() => {
             <el-form-item
               class="form-item"
               :class="'form-item-' + themes"
-              :label="t('chart.axis_value_max')"
-            >
-              <el-input-number
-                controls-position="right"
-                :effect="props.themes"
-                v-model.number="state.miscForm.axisValue.max"
-                @change="changeMiscStyle('axisValue.max')"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item
-              class="form-item"
-              :class="'form-item-' + themes"
               :label="t('chart.axis_value_min')"
             >
               <el-input-number
@@ -204,12 +196,26 @@ onMounted(() => {
               />
             </el-form-item>
           </el-col>
+          <el-col :span="12">
+            <el-form-item
+              class="form-item"
+              :class="'form-item-' + themes"
+              :label="t('chart.axis_value_max')"
+            >
+              <el-input-number
+                controls-position="right"
+                :effect="props.themes"
+                v-model.number="state.miscForm.axisValue.max"
+                @change="changeMiscStyle('axisValue.max')"
+              />
+            </el-form-item>
+          </el-col>
         </el-row>
 
         <label class="custom-form-item-label" :class="'custom-form-item-label--' + themes">
           {{ t('chart.axis_value_split_count') }}
           <el-tooltip class="item" :effect="toolTip" placement="top">
-            <template #content>期望的坐标轴刻度数量，非最终结果。</template>
+            <template #content>{{ t('chart.number_of_scales_tip') }}</template>
             <span style="vertical-align: middle">
               <el-icon style="cursor: pointer">
                 <Icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></Icon>
@@ -222,6 +228,9 @@ onMounted(() => {
           <el-input-number
             style="width: 100%"
             :effect="props.themes"
+            :min="1"
+            :step="1"
+            :precision="0"
             controls-position="right"
             v-model.number="state.miscForm.axisValue.splitCount"
             @change="changeMiscStyle('axisValue.splitCount')"

@@ -119,7 +119,7 @@ defineExpose({
     :title="t('common.filter_condition')"
     v-model="userDrawer"
     size="600px"
-    custom-class="drawer-main-container"
+    modal-class="drawer-main-container"
     direction="rtl"
   >
     <div v-for="(component, index) in componentList" :key="index">
@@ -157,14 +157,13 @@ defineExpose({
 
     <template #footer>
       <el-button secondary @click="reset">{{ t('commons.reset') }}</el-button>
-      <el-button @click="trigger" type="primary">{{ t('common.sure') }}</el-button>
+      <el-button @click="trigger" type="primary">{{ t('commons.adv_search.search') }}</el-button>
     </template>
   </el-drawer>
 </template>
 
 <style lang="less">
 .drawer-main-container {
-  width: 600px;
   .ed-drawer__body {
     padding: 16px 24px 80px !important;
   }

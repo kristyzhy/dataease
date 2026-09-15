@@ -6,6 +6,8 @@ import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapsho
 import CollapseSwitchItem from '../../components/collapse-switch-item/src/CollapseSwitchItem.vue'
 import Icon from '../../components/icon-custom/src/Icon.vue'
 import { useEmitt } from '@/hooks/web/useEmitt'
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 
 const snapshotStore = snapshotStoreWithOut()
 
@@ -58,20 +60,24 @@ const handleInput = value => {
     v-model="carouselInfo.enable"
     name="carouselInfo"
     @modelChange="onSettingChange"
-    title="轮播"
+    :title="t('visualization.carousel')"
   >
-    <el-row class="custom-row">
+    <el-row class="custom-row" style="margin-top: -8px">
       <el-form label-position="top" @submit.prevent>
         <el-form-item
           class="form-item"
           :class="'form-item-' + themes"
-          style="width: 50%; margin-bottom: 8px"
+          style="width: 50%; margin-bottom: 0"
         >
-          <span style="font-size: 12px">轮播时间（秒）</span>
+          <span style="font-size: 12px">{{ t('visualization.carousel_time') }}</span>
           <el-tooltip class="item" :effect="themes" placement="top">
             <template #content>
-              <div>轮播退出编辑模式才开生效</div>
-              <div v-if="element.innerType === 'picture-group'">启用条件样式后，轮播失效</div>
+              <div v-if="element.innerType === 'picture-group'">
+                {{ t('visualization.carousel_tips2') }}
+              </div>
+              <div v-else>
+                {{ t('visualization.carousel_tips') }}
+              </div>
             </template>
             <el-icon class="hint-icon" :class="{ 'hint-icon--dark': themes === 'dark' }">
               <Icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></Icon>

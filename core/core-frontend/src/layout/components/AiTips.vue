@@ -26,7 +26,7 @@ onMounted(() => {
         你好，我是 DataEase 智能客服<br />点击一下，开启高效解答模式~<br />&nbsp;
       </p>
       <div class="bottom">
-        <el-button size="middle" @click="confirm"> 我知道了 </el-button>
+        <el-button @click="confirm"> 我知道了 </el-button>
       </div>
     </div>
     <template #reference>
@@ -73,7 +73,7 @@ onMounted(() => {
       border: 0px !important;
       border-color: #ffffff !important;
       font-weight: 500;
-      color: rgba(51, 112, 255, 1) !important;
+      color: var(--ed-color-primary, rgba(51, 112, 255, 1)) !important;
     }
   }
 }

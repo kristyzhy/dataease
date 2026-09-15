@@ -10,6 +10,8 @@ import iconVideo from '@/assets/svg/icon-video.svg'
 import icon_graphical from '@/assets/svg/icon_graphical.svg'
 import icon_search from '@/assets/svg/icon_search.svg'
 import other_material_board from '@/assets/svg/other_material_board.svg'
+import dv_dynamic_background from '@/assets/svg/dv_dynamic_background.svg'
+import dv_decoration from '@/assets/svg/dv_decoration.svg'
 import other_material_icon from '@/assets/svg/other_material_icon.svg'
 import scrollText from '@/assets/svg/scroll-text.svg'
 import areaOrigin from '@/assets/svg/area-origin.svg'
@@ -19,6 +21,7 @@ import barGroupStackOrigin from '@/assets/svg/bar-group-stack-origin.svg'
 import barHorizontalOrigin from '@/assets/svg/bar-horizontal-origin.svg'
 import barOrigin from '@/assets/svg/bar-origin.svg'
 import barRangeOrigin from '@/assets/svg/bar-range-origin.svg'
+import boxPlotOrigin from '@/assets/svg/box-plot-origin.svg'
 import barStackHorizontalOrigin from '@/assets/svg/bar-stack-horizontal-origin.svg'
 import barStackOrigin from '@/assets/svg/bar-stack-origin.svg'
 import bidirectionalBarOrigin from '@/assets/svg/bidirectional-bar-origin.svg'
@@ -47,6 +50,7 @@ import radarOrigin from '@/assets/svg/radar-origin.svg'
 import richTextOrigin from '@/assets/svg/rich-text-origin.svg'
 import sankeyOrigin from '@/assets/svg/sankey-origin.svg'
 import scatterOrigin from '@/assets/svg/scatter-origin.svg'
+import multiScatterOrigin from '@/assets/svg/multi-scatter-origin.svg'
 import stockLineOrigin from '@/assets/svg/stock-line-origin.svg'
 import symbolicMapOrigin from '@/assets/svg/symbolic-map-origin.svg'
 import tableInfoOrigin from '@/assets/svg/table-info-origin.svg'
@@ -68,7 +72,7 @@ import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import { layerStoreWithOut } from '@/store/modules/data-visualization/layer'
 import { storeToRefs } from 'pinia'
-import { ElIcon, ElRow, ElSwitch } from 'element-plus-secondary'
+import { ElIcon, ElMessage, ElRow, ElSwitch } from 'element-plus-secondary'
 import Icon from '../icon-custom/src/Icon.vue'
 import { computed, nextTick, ref } from 'vue'
 import draggable from 'vuedraggable'
@@ -78,6 +82,12 @@ import ComposeShow from '@/components/data-visualization/canvas/ComposeShow.vue'
 import { composeStoreWithOut } from '@/store/modules/data-visualization/compose'
 import RealTimeGroup from '@/components/data-visualization/RealTimeGroup.vue'
 import { contextmenuStoreWithOut } from '@/store/modules/data-visualization/contextmenu'
+import RealTimeTab from '@/components/data-visualization/RealTimeTab.vue'
+import { useI18n } from '@/hooks/web/useI18n'
+import circlePackingOrigin from '@/assets/svg/circle-packing-origin.svg'
+import bulletGraphOrigin from '@/assets/svg/bullet-graph-origin.svg'
+import { checkJoinGroup, syncViewTitle } from '@/utils/canvasUtils'
+import { useEmitt } from '@/hooks/web/useEmitt'
 const dropdownMore = ref(null)
 const lockStore = lockStoreWithOut()
 
@@ -86,6 +96,7 @@ const snapshotStore = snapshotStoreWithOut()
 const layerStore = layerStoreWithOut()
 const composeStore = composeStoreWithOut()
 const contextmenuStore = contextmenuStoreWithOut()
+const { t } = useI18n()
 
 const { areaData, isCtrlOrCmdDown, isShiftDown, laterIndex } = storeToRefs(composeStore)
 
@@ -132,16 +143,15 @@ const shiftDataPush = curClickIndex => {
     indexBegin = curClickIndex
     indexEnd = laterIndexTrans
   }
-  const shiftAreaComponents = componentData.value
-    .slice(indexBegin, indexEnd + 1)
-    .filter(
-      component =>
-        !areaDataIdArray.includes(component.id) &&
-        !component.isLock &&
-        component.isShow &&
-        component.category !== 'hidden' &&
-        !['GroupArea', 'DeTabs'].includes(component.component)
-    )
+  const shiftAreaComponents = componentData.value.slice(indexBegin, indexEnd + 1).filter(
+    component =>
+      !areaDataIdArray.includes(component.id) &&
+      !component.isLock &&
+      component.isShow &&
+      component.category !== 'hidden' &&
+      !['GroupArea'].includes(component.component) &&
+      checkJoinGroup(component) // 当前如果是Tab 则tab中不能包含Group
+  )
   areaData.value.components.push(...shiftAreaComponents)
   dvMainStore.setCurComponent({ component: null, index: null })
 }
@@ -214,7 +224,12 @@ const closeEditComponentName = () => {
   if (inputName.value.trim() === curEditComponent.name) {
     return
   }
+  if (inputName.value.length < 1 || inputName.value.length > 64) {
+    ElMessage.warning(t('components.length_1_64_characters'))
+    return
+  }
   curEditComponent.name = inputName.value
+  syncViewTitle(curEditComponent)
   inputName.value = ''
   curEditComponent = null
 }
@@ -236,6 +251,7 @@ const unlock = () => {
 const hideComponent = () => {
   setTimeout(() => {
     layerStore.hideComponent()
+    layerStore.pausedTooltipCarousel(curComponent.value.id)
     snapshotStore.recordSnapshotCache('realTime-hideComponent')
   })
 }
@@ -243,7 +259,8 @@ const hideComponent = () => {
 const showComponent = () => {
   setTimeout(() => {
     layerStore.showComponent()
-    snapshotStore.recordSnapshotCache()
+    layerStore.resumeTooltipCarousel(curComponent.value.id)
+    snapshotStore.recordSnapshotCache('showComponent')
   })
 }
 
@@ -266,7 +283,7 @@ const dragOnEnd = ({ oldIndex, newIndex }) => {
   componentData.value.splice(comLength - 1 - oldIndex, 1)
   componentData.value.splice(comLength - 1 - newIndex, 0, target)
   dvMainStore.setCurComponent({ component: target, index: transformIndex(comLength - oldIndex) })
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('dragOnEnd')
 }
 const iconMap = {
   bar: bar,
@@ -279,6 +296,8 @@ const iconMap = {
   icon_graphical: icon_graphical,
   icon_search: icon_search,
   other_material_board: other_material_board,
+  dv_dynamic_background: dv_dynamic_background,
+  dv_decoration: dv_decoration,
   other_material_icon: other_material_icon,
   'scroll-text': scrollText,
   'area-origin': areaOrigin,
@@ -288,6 +307,7 @@ const iconMap = {
   'bar-horizontal-origin': barHorizontalOrigin,
   'bar-origin': barOrigin,
   'bar-range-origin': barRangeOrigin,
+  'box-plot-origin': boxPlotOrigin,
   'bar-stack-horizontal-origin': barStackHorizontalOrigin,
   'bar-stack-origin': barStackOrigin,
   'bidirectional-bar-origin': bidirectionalBarOrigin,
@@ -316,6 +336,7 @@ const iconMap = {
   'rich-text-origin': richTextOrigin,
   'sankey-origin': sankeyOrigin,
   'scatter-origin': scatterOrigin,
+  'multi-scatter-origin': multiScatterOrigin,
   'stock-line-origin': stockLineOrigin,
   'symbolic-map-origin': symbolicMapOrigin,
   'table-info-origin': tableInfoOrigin,
@@ -326,7 +347,9 @@ const iconMap = {
   'word-cloud-origin': wordCloudOrigin,
   't-heatmap-origin': tHeatmapOrigin,
   'picture-group-origin': pictureGroupOrigin,
-  group: group
+  group: group,
+  'circle-packing-origin': circlePackingOrigin,
+  'bullet-graph-origin': bulletGraphOrigin
 }
 const getIconName = item => {
   if (item.component === 'UserView') {
@@ -387,8 +410,12 @@ const areaClick = area => {
   dvMainStore.canvasStateChange({ key: 'curPointArea', value: area })
 }
 
+const popupAvailableChange = () => {
+  useEmitt().emitter.emit('calcData-all')
+  canvasChange()
+}
 const canvasChange = () => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('canvasChange')
 }
 </script>
 
@@ -397,8 +424,12 @@ const canvasChange = () => {
   <div class="real-time-component-list">
     <button hidden="true" id="close-button"></button>
     <div class="layer-area" @click="areaClick('hidden')" :class="{ activated: hiddenAreaActive }">
-      <span>弹窗区域({{ popComponentData.length }})</span>
-      <el-switch v-model="canvasStyleData.popupAvailable" @change="canvasChange" size="small" />
+      <span>{{ t('visualization.pop_area') }}({{ popComponentData.length }})</span>
+      <el-switch
+        v-model="canvasStyleData.popupAvailable"
+        @change="popupAvailableChange"
+        size="small"
+      />
     </div>
     <el-row class="list-wrap">
       <div class="list-container" @contextmenu="handleContextMenu">
@@ -474,7 +505,7 @@ const canvasChange = () => {
       @click="areaClick('base')"
       :class="{ activated: baseAreaActive }"
     >
-      <span>大屏区域({{ baseComponentData.length }})</span>
+      <span>{{ t('visualization.screen_area') }}({{ baseComponentData.length }})</span>
     </div>
     <el-row class="list-wrap">
       <div class="list-container" @contextmenu="handleContextMenu">
@@ -502,22 +533,18 @@ const canvasChange = () => {
                 }"
                 @click="onClick($event, transformIndex(index))"
               >
-                <div style="width: 22px; padding-left: 3px">
+                <div
+                  v-show="['Group', 'DeTabs'].includes(getComponent(index)?.component)"
+                  style="width: 22px"
+                >
                   <el-icon
-                    v-show="getComponent(index)?.component === 'Group'"
-                    class="component-expand"
+                    class="component-expand expand-icon"
                     @click="expandClick(getComponent(index))"
                   >
-                    <Icon
-                      v-if="getComponent(index)?.expand"
-                      name="dv-expand-down"
-                      class="expand-icon"
+                    <Icon v-if="getComponent(index)?.expand" name="dv-expand-down"
                       ><dvExpandDown class="svg-icon expand-icon"
                     /></Icon>
-                    <Icon
-                      v-if="!getComponent(index)?.expand"
-                      name="dv-expand-right"
-                      class="expand-icon"
+                    <Icon v-if="!getComponent(index)?.expand" name="dv-expand-right"
                       ><dvExpandRight class="svg-icon expand-icon"
                     /></Icon>
                   </el-icon>
@@ -612,6 +639,14 @@ const canvasChange = () => {
               <div v-if="getComponent(index)?.component === 'Group' && getComponent(index)?.expand">
                 <real-time-group :component-data="getComponent(index).propValue"></real-time-group>
               </div>
+              <div
+                v-if="getComponent(index)?.component === 'DeTabs' && getComponent(index)?.expand"
+              >
+                <real-time-tab
+                  :tab-element="getComponent(index)"
+                  :component-data="getComponent(index).propValue"
+                ></real-time-tab>
+              </div>
             </div>
           </template>
         </draggable>
@@ -650,7 +685,7 @@ const canvasChange = () => {
         align-items: center;
         justify-content: flex-start;
         font-size: 12px;
-        padding: 0 2px 0 0px;
+        padding: 0 2px 0 8px;
         user-select: none;
 
         .component-icon {
@@ -693,7 +728,7 @@ const canvasChange = () => {
             .component-base {
               opacity: 1;
             }
-            width: 66px !important;
+            max-width: 66px !important;
           }
         }
 
@@ -753,7 +788,7 @@ const canvasChange = () => {
   cursor: pointer;
   height: 22px !important;
   width: 22px !important;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0 4px;
 
   .opt-icon {

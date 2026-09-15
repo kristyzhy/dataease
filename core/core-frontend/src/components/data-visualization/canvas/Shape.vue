@@ -1,18 +1,43 @@
 <template>
   <div
     class="shape"
-    :class="{ 'shape-group-area': isGroupArea }"
+    :class="{
+      'shape-group-area': isGroupArea,
+      'freeze-component': freezeFlag,
+      'freeze-component-fullscreen': freezeFlag && fullscreenFlag
+    }"
     ref="shapeInnerRef"
     :id="domId"
     v-loading="downLoading"
-    element-loading-text="导出中..."
+    :element-loading-text="$t('visualization.export_loading')"
     element-loading-background="rgba(255, 255, 255, 1)"
     @dblclick="handleDbClick"
   >
-    <div v-if="showCheck" class="del-from-mobile" @click="delFromMobile">
+    <div
+      :title="t('visualization.sync_pc_design')"
+      v-if="showSyncPcDesign"
+      class="refresh-from-pc"
+      @click="updateFromMobile($event, 'syncPcDesign')"
+    >
+      <el-icon>
+        <Icon name="icon_replace_outlined"><replaceOutlined class="svg-icon" /></Icon>
+      </el-icon>
+    </div>
+    <div
+      v-if="showCheck"
+      class="del-from-mobile"
+      @click="updateFromMobile($event, 'delFromMobile')"
+    >
       <el-icon>
         <Icon name="mobile-checkbox"><mobileCheckbox class="svg-icon" /></Icon>
       </el-icon>
+    </div>
+    <div v-if="showHiddenIcon" class="del-from-mobile" @mousedown.stop="hiddenComponent">
+      <el-tooltip :content="$t('visualization.hidden')" placement="bottom">
+        <el-icon @click.stop>
+          <Icon @click.stop name="dvHidden"><dvHidden class="svg-icon" /></Icon>
+        </el-icon>
+      </el-tooltip>
     </div>
     <div
       class="shape-outer"
@@ -22,7 +47,8 @@
         'shape-lock': shapeLock,
         'shape-edit': isEditMode && !boardMoveActive,
         'linkage-setting': linkageActive,
-        'drag-on-tab-collision': dragCollision
+        'drag-on-tab-collision': dragCollision,
+        'shape-selected': curBatchOptComponents?.includes(element.id)
       }"
     >
       <component-edit-bar
@@ -33,6 +59,7 @@
         :element="element"
         :show-position="showPosition"
         :canvas-id="canvasId"
+        @componentImageDownload="htmlToImage"
         @userViewEnlargeOpen="userViewEnlargeOpen"
         @datasetParamsInit="datasetParamsInit"
         @linkJumpSetOpen="linkJumpSetOpen"
@@ -46,6 +73,8 @@
         @click="selectCurComponent"
         @mousedown="handleInnerMouseDownOnShape"
       >
+        <!-- 背景模糊层 由于父层的backdrop-filter是作用于背后内容，无法模糊自身背景图 -->
+        <div v-if="blurBgEnable" class="blur-bg" :style="blurBgStyle"></div>
         <Icon v-if="shapeLock" name="dv-lock"><dvLock class="svg-icon iconfont icon-suo" /></Icon>
         <div class="component-slot" :style="slotStyle">
           <slot></slot>
@@ -53,7 +82,7 @@
         <!--边框背景-->
         <Board
           v-if="svgInnerEnable"
-          :style="{ color: element.commonBackground.innerImageColor }"
+          :style="{ color: element.commonBackground.innerImageColor, pointerEvents: 'none' }"
           :name="commonBackgroundSvgInner"
         ></Board>
       </div>
@@ -98,6 +127,7 @@
 
 <script setup lang="ts">
 import mobileCheckbox from '@/assets/svg/mobile-checkbox.svg'
+import replaceOutlined from '@/assets/svg/icon_replace_outlined.svg'
 import dvLock from '@/assets/svg/dv-lock.svg'
 import eventBus from '@/utils/eventBus'
 import calculateComponentPositionAndSize, {
@@ -116,10 +146,25 @@ import Icon from '@/components/icon-custom/src/Icon.vue'
 import ComponentEditBar from '@/components/visualization/ComponentEditBar.vue'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import ComposeShow from '@/components/data-visualization/canvas/ComposeShow.vue'
-import { groupSizeStyleAdaptor, groupStyleRevert } from '@/utils/style'
-import { isDashboard, isGroupCanvas, isMainCanvas, isTabCanvas } from '@/utils/canvasUtils'
+import dvHidden from '@/assets/svg/dv-hidden.svg'
+import { groupSizeStyleAdaptor, groupStyleRevert, tabInnerStyleRevert } from '@/utils/style'
+import {
+  checkJoinTab,
+  isDashboard,
+  isGroupCanvas,
+  isMainCanvas,
+  isTabCanvas,
+  itemCanvasPathCheck
+} from '@/utils/canvasUtils'
 import Board from '@/components/de-board/Board.vue'
 import { activeWatermarkCheckUser, removeActiveWatermark } from '@/components/watermark/watermark'
+import { useI18n } from '@/hooks/web/useI18n'
+import {
+  isBlurBgEnabled,
+  getBlurBgStyle,
+  getComponentBackgroundStyle
+} from '@/utils/backgroundStyleUtils'
+const { t } = useI18n()
 const dvMainStore = dvMainStoreWithOut()
 const snapshotStore = snapshotStoreWithOut()
 const contextmenuStore = contextmenuStoreWithOut()
@@ -136,12 +181,16 @@ const {
   dvInfo,
   editMode,
   batchOptStatus,
+  curBatchOptComponents,
   linkageSettingStatus,
   curLinkageView,
   tabCollisionActiveId,
   tabMoveInActiveId,
   tabMoveOutComponentId,
-  mobileInPc
+  mobileInPc,
+  mainScrollTop,
+  hiddenListStatus,
+  fullscreenFlag
 } = storeToRefs(dvMainStore)
 const { editorMap, areaData, isCtrlOrCmdDown } = storeToRefs(composeStore)
 const emit = defineEmits([
@@ -162,7 +211,7 @@ const state = reactive({
     id: ''
   },
   // 禁止移入Tab中的组件
-  ignoreTabMoveComponent: ['de-button', 'de-reset-button', 'DeTabs', 'Group', 'GroupArea'],
+  ignoreTabMoveComponent: ['de-button', 'de-reset-button', 'DeTabs', 'GroupArea'],
   // 当画布在tab中是 宽度左右拓展的余量
   parentWidthTabOffset: 40,
   canvasChangeTips: 'none',
@@ -170,9 +219,18 @@ const state = reactive({
   tabMoveInXOffset: 40,
   collisionGap: 10 // 碰撞深度有效区域,
 })
-
+const hiddenComponent = event => {
+  event.preventDefault()
+  event.stopPropagation()
+  if (element.value) {
+    element.value.dashboardHidden = true
+    eventBus.emit('removeMatrixItemPosition-' + canvasId.value, element.value)
+    snapshotStore.recordSnapshotCache('hide')
+    dvMainStore.setLastHiddenComponent(element.value.id)
+  }
+}
+const showHiddenIcon = computed(() => hiddenListStatus.value && isMainCanvas(canvasId.value))
 const contentDisplay = ref(true)
-
 const shapeLock = computed(() => {
   return element.value['isLock'] && isEditMode.value
 })
@@ -261,6 +319,9 @@ const {
   scale,
   canvasActive
 } = toRefs(props)
+
+const pTabGroupFlag = itemCanvasPathCheck(element.value, 'pTabGroup')
+const pJoinTab = checkJoinTab(element.value)
 const domId = ref('shape-id-' + element.value.id)
 const pointList = ['lt', 't', 'rt', 'r', 'rb', 'b', 'lb', 'l']
 const pointCorner = ['lt', 'rt', 'rb', 'lb']
@@ -278,13 +339,35 @@ const initialAngle = {
 }
 const cursors = ref({})
 
+const freezeFlag = computed(() => {
+  return (
+    isMainCanvas(canvasId.value) &&
+    element.value.freeze &&
+    !mobileInPc.value &&
+    mainScrollTop.value - defaultStyle.value.top > 0
+  )
+})
+
 const showCheck = computed(() => {
   return mobileInPc.value && element.value.canvasId === 'canvas-main'
 })
 
-const delFromMobile = () => {
+/**
+ * 控制“同步 PC 设计”按钮是否显示
+ * 顶层组件沿用 showCheck，Tab 子组件通过 isTabCanvas 单独放开，Group 保持隐藏
+ */
+const showSyncPcDesign = computed(() => {
+  // 原因：移动 Tab 改用 Shape 后子组件不再经过 ComponentWrapper；作用：只恢复子组件同步按钮，不放开顶层专属的移出按钮
+  return mobileInPc.value && (showCheck.value || isTabCanvas(element.value.canvasId))
+})
+
+const updateFromMobile = (e, type) => {
+  if (type === 'syncPcDesign') {
+    e.preventDefault()
+    e.stopPropagation()
+  }
   useEmitt().emitter.emit('onMobileStatusChange', {
-    type: 'delFromMobile',
+    type: type,
     value: element.value.id
   })
 }
@@ -319,7 +402,8 @@ const boardMoveActive = computed(() => {
     'table-pivot',
     'symbolic-map',
     'heat-map',
-    't-heatmap'
+    't-heatmap',
+    'circle-packing'
   ]
   return element.value.isPlugin || CHARTS.includes(element.value.innerType)
 })
@@ -333,7 +417,7 @@ const getPointList = () => {
 }
 
 const isActive = () => {
-  return active.value && !element.value['isLock'] && isEditMode.value
+  return active.value && !element.value['isLock'] && isEditMode.value && !freezeFlag.value
 }
 
 const userViewEnlargeOpen = opt => {
@@ -433,7 +517,7 @@ const areaDataPush = component => {
     !component.isLock &&
     component.isShow &&
     component.canvasId === 'canvas-main' &&
-    !['GroupArea', 'DeTabs'].includes(component.component)
+    !['GroupArea'].includes(component.component)
   ) {
     areaData.value.components.push(component)
   }
@@ -471,7 +555,6 @@ const handleInnerMouseDownOnShape = e => {
 
 const handleMouseDownOnShape = e => {
   if (element.value['editing']) {
-    // e.preventDefault()
     e.stopPropagation()
     return
   }
@@ -480,12 +563,10 @@ const handleMouseDownOnShape = e => {
   nextTick(() => eventBus.emit('componentClick'))
   dvMainStore.setInEditorStatus(true)
   dvMainStore.setClickComponentStatus(true)
-  // if (isPreventDrop(element.value.component)) {
-  //   e.preventDefault()
-  // }
 
   e.stopPropagation()
-  if (element.value['isLock'] || !isEditMode.value) return
+  // 锁定 非编辑状态 冻结状态 不进行移动
+  if (element.value['isLock'] || !isEditMode.value || freezeFlag.value) return
 
   cursors.value = getCursor() // 根据旋转角度获取光标位置
 
@@ -513,88 +594,123 @@ const handleMouseDownOnShape = e => {
     ? document.getElementById('shape-id-' + canvasId.value.split('--')[0])
     : null
   const curDom = document.getElementById(domId.value)
+
+  // 添加节流变量
+  let rafId = null
+  let lastTime = 0
+  const throttleInterval = 25 // 约30FPS，可以根据需要调整
+
   const move = moveEvent => {
-    hasMove = true
-    const curX = moveEvent.clientX
-    const curY = moveEvent.clientY
-    const top = curY - startY + startTop
-    const left = curX - startX + startLeft
-    pos['top'] = top
-    pos['left'] = left
-    // 非主画布非分组画布的情况 需要检测是否从Tab中移除组件(向左移除30px 或者向右移除30px 向左移除30px)
-    // 因为仪表板中组件向下移动可能只是为了挤占空间 不一定是为了移出 这里无法判断明确意图 暂时支不支持向下移出
-    // 大屏和仪表板暂时做位置算法区分 仪表板暂时使用curX 因为缩放的影响 大屏使用 tab位置 + 组件位置（相对内部画布）+初始触发点
-    if (
-      !isMainCanvas(canvasId.value) &&
-      !isGroupCanvas(canvasId.value) &&
-      !isGroupArea.value &&
-      (top < -30 || left < -30 || left + componentWidth - canvasWidth > 30)
-    ) {
-      contentDisplay.value = false
-      dvMainStore.setMousePointShadowMap({
-        mouseX:
-          !isDashboard() && outerTabDom
-            ? outerTabDom.offsetLeft + curDom.offsetLeft + offsetX
-            : curX,
-        mouseY:
-          !isDashboard() && outerTabDom
-            ? outerTabDom.offsetTop + curDom.offsetTop + offsetY + 100
-            : curY,
-        width: componentWidth,
-        height: componentHeight
-      })
-      const tabComponentId = element.value.canvasId.split('--')[0]
-      dvMainStore.setTabMoveOutComponentId(tabComponentId)
-    } else {
-      dvMainStore.setTabMoveOutComponentId(null)
-      contentDisplay.value = true
-    }
-    // 仪表板进行Tab碰撞检查
-    tabMoveInCheck()
-    // 仪表板模式 会造成移动现象 当检测组件正在碰撞有效区内或者移入有效区内 则周边组件不进行移动
-    if (
-      dashboardActive.value &&
-      (isFirst || (!tabMoveInActiveId.value && !tabCollisionActiveId.value))
-    ) {
-      element.value['dragging'] = true
-      emit('onDragging', e)
+    const now = Date.now()
+
+    // 节流处理
+    if (now - lastTime < throttleInterval && rafId !== null) {
+      return
     }
 
-    //如果当前组件是Group分组 则要进行内部组件深度计算
-    if (['DeTabs', 'Group'].includes(element.value.component)) {
-      groupSizeStyleAdaptor(element.value)
+    // 使用 requestAnimationFrame 来优化性能
+    if (rafId) {
+      cancelAnimationFrame(rafId)
     }
-    //如果当前画布是Group内部画布 则对应组件定位在resize时要还原到groupStyle中
-    if (isGroupCanvas(canvasId.value) || isTabCanvas(canvasId.value)) {
-      groupStyleRevert(element.value, {
-        width: parentNode.value.offsetWidth,
-        height: parentNode.value.offsetHeight
-      })
-    }
-    // 防止首次组件在tab旁边无法触发矩阵移动
-    if (isFirst) {
-      isFirst = false
-    }
-    // 修改当前组件样式
-    dvMainStore.setShapeStyle(pos, areaData.value.components, 'move')
-    // 等更新完当前组件的样式并绘制到屏幕后再判断是否需要吸附
-    // GroupArea是分组视括组件 不需要进行吸附
-    // 如果不使用 nextTick，吸附后将无法移动
-    if (!isGroupArea.value) {
-      nextTick(() => {
-        // 触发元素移动事件，用于显示标线、吸附功能
-        // 后面两个参数代表鼠标移动方向
-        // curY - startY > 0 true 表示向下移动 false 表示向上移动
-        // curX - startX > 0 true 表示向右移动 false 表示向左移动
-        eventBus.emit('move', { isDownward: curY - startY > 0, isRightward: curX - startX > 0 })
-      })
-    }
+
+    rafId = requestAnimationFrame(() => {
+      hasMove = true
+      const curX = moveEvent.clientX
+      const curY = moveEvent.clientY
+      const top = curY - startY + startTop
+      const left = curX - startX + startLeft
+      pos['top'] = top
+      pos['left'] = left
+      // 非主画布非分组画布的情况 需要检测是否从Tab中移除组件(向左移除30px 或者向右移除30px 向左移除30px)
+      // 因为仪表板中组件向下移动可能只是为了挤占空间 不一定是为了移出 这里无法判断明确意图 暂时支不支持向下移出
+      // 大屏和仪表板暂时做位置算法区分 仪表板暂时使用curX 因为缩放的影响 大屏使用 tab位置 + 组件位置（相对内部画布）+初始触发点
+      // 如果组件在tab中且tab在Group中 不允许移入移出 pTabGroupFlag = true
+      // 移动端 Tab 使用独立嵌套画布编辑；禁止拖动时进入仅适用于 PC 的移出 Tab 流程
+      if (
+        !pTabGroupFlag &&
+        pJoinTab &&
+        !mobileInPc.value &&
+        !isMainCanvas(canvasId.value) &&
+        !isGroupCanvas(canvasId.value) &&
+        !isGroupArea.value &&
+        (top < -30 || left < -30 || left + componentWidth - canvasWidth > 30)
+      ) {
+        contentDisplay.value = false
+        dvMainStore.setMousePointShadowMap({
+          mouseX:
+            !isDashboard() && outerTabDom
+              ? outerTabDom.offsetLeft + curDom.offsetLeft + offsetX
+              : curX,
+          mouseY:
+            !isDashboard() && outerTabDom
+              ? outerTabDom.offsetTop + curDom.offsetTop + offsetY + 100
+              : curY + mainScrollTop.value,
+          width: componentWidth,
+          height: componentHeight
+        })
+        const tabComponentId = element.value.canvasId.split('--')[0]
+        dvMainStore.setTabMoveOutComponentId(tabComponentId)
+      } else {
+        dvMainStore.setTabMoveOutComponentId(null)
+        contentDisplay.value = true
+      }
+      // 仪表板进行Tab碰撞检查
+      tabMoveInCheck()
+      // 仪表板模式 会造成移动现象 当检测组件正在碰撞有效区内或者移入有效区内 则周边组件不进行移动
+      if (
+        dashboardActive.value &&
+        (isFirst || (!tabMoveInActiveId.value && !tabCollisionActiveId.value))
+      ) {
+        element.value['dragging'] = true
+        emit('onDragging', e)
+      }
+
+      //如果当前组件是Group分组 则要进行内部组件深度计算
+      if (['DeTabs', 'Group'].includes(element.value.component)) {
+        groupSizeStyleAdaptor(element.value)
+      }
+      //如果当前画布是Group内部画布 则对应组件定位在resize时要还原到groupStyle中
+      if (isGroupCanvas(canvasId.value) || isTabCanvas(canvasId.value)) {
+        groupStyleRevert(element.value, {
+          width: parentNode.value.offsetWidth,
+          height: parentNode.value.offsetHeight
+        })
+      }
+      // 防止首次组件在tab旁边无法触发矩阵移动
+      if (isFirst) {
+        isFirst = false
+      }
+      // 修改当前组件样式
+      dvMainStore.setShapeStyle(pos, areaData.value.components, 'move')
+      // 等更新完当前组件的样式并绘制到屏幕后再判断是否需要吸附
+      // GroupArea是分组视括组件 不需要进行吸附
+      // 如果不使用 nextTick，吸附后将无法移动
+      if (!isGroupArea.value) {
+        nextTick(() => {
+          // 触发元素移动事件，用于显示标线、吸附功能
+          // 后面两个参数代表鼠标移动方向
+          // curY - startY > 0 true 表示向下移动 false 表示向上移动
+          // curX - startX > 0 true 表示向右移动 false 表示向左移动
+          eventBus.emit('move', { isDownward: curY - startY > 0, isRightward: curX - startX > 0 })
+        })
+      }
+
+      lastTime = now
+      rafId = null
+    })
   }
 
   const up = () => {
+    // 清理动画帧
+    if (rafId) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
+
     dashboardActive.value && emit('onMouseUp')
     element.value['dragging'] = false
-    hasMove && snapshotStore.recordSnapshotCache('shape-handleMouseDownOnShape-up')
+    hasMove &&
+      snapshotStore.recordSnapshotCacheWithPositionChange('shape-handleMouseDownOnShape-up')
     // 触发元素停止移动事件，用于隐藏标线
     eventBus.emit('unMove')
     document.removeEventListener('mousemove', move)
@@ -662,8 +778,10 @@ const handleMouseDownOnPoint = (point, e) => {
   }
 
   // 获取画布位移信息
-  const editorRectInfo = editorMap.value[canvasId.value].getBoundingClientRect()
-
+  const editorRectInfo = editorMap.value[canvasId.value]?.getBoundingClientRect()
+  if (!editorRectInfo) {
+    return
+  }
   // 获取 point 与实际拖动基准点的差值
   const pointRect = e.target.getBoundingClientRect()
   // 当前点击圆点相对于画布的中心坐标
@@ -752,9 +870,13 @@ const handleMouseDownOnPoint = (point, e) => {
     dashboardActive.value && emit('onResizing', moveEvent)
     element.value['resizing'] = true
     //如果当前组件是Group分组或者Tab 则要进行内部组件深度计算
-    if (['DeTabs', 'Group'].includes(element.value.component)) {
+    if (
+      ['Group'].includes(element.value.component) ||
+      (['DeTabs'].includes(element.value.component) && !element.value.resizeInnerKeep)
+    ) {
       groupSizeStyleAdaptor(element.value)
     }
+
     //如果当前画布是Group内部画布 则对应组件定位在resize时要还原到groupStyle中
     if (isGroupCanvas(canvasId.value) || isTabCanvas(canvasId.value)) {
       groupStyleRevert(element.value, {
@@ -765,11 +887,17 @@ const handleMouseDownOnPoint = (point, e) => {
   }
 
   const up = () => {
+    // 如果内部组件保持尺寸时，这里在鼠标抬起时，重新计算一下内部组件占比
+    if (['DeTabs'].includes(element.value.component) && element.value.resizeInnerKeep) {
+      tabInnerStyleRevert(element.value)
+    }
+
     dashboardActive.value && emit('onMouseUp')
     element.value['resizing'] = false
     document.removeEventListener('mousemove', move)
     document.removeEventListener('mouseup', up)
-    needSave && snapshotStore.recordSnapshotCache('shape-handleMouseDownOnPoint-up')
+    needSave &&
+      snapshotStore.recordSnapshotCacheWithPositionChange('shape-handleMouseDownOnPoint-up')
     handleGroupComponent()
   }
 
@@ -830,72 +958,23 @@ const commonBackgroundSvgInner = computed(() => {
   }
 })
 
-const padding3D = computed(() => {
-  const width = defaultStyle.value.width // 原始元素宽度
-  const height = defaultStyle.value.height // 原始元素高度
-  const rotateX = element.value['multiDimensional'].x // 旋转X角度
-  const rotateY = element.value['multiDimensional'].y // 旋转Y角度
+// 是否启用背景模糊，有背景图且开启了模糊
+const blurBgEnable = computed(() => {
+  return isBlurBgEnabled(element.value.commonBackground)
+})
 
-  // 将角度转换为弧度
-  const radX = (rotateX * Math.PI) / 180
-  const radY = (rotateY * Math.PI) / 180
-
-  // 计算旋转后新宽度和高度
-  const newWidth = Math.abs(width * Math.cos(radY)) + Math.abs(height * Math.sin(radX))
-  const newHeight = Math.abs(height * Math.cos(radX)) + Math.abs(width * Math.sin(radY))
-
-  // 计算需要的 padding
-  const paddingX = (newWidth - width) / 2
-  const paddingY = (newHeight - height) / 2
-
-  return {
-    paddingX: `${paddingX}px`,
-    paddingY: `${paddingY}px`
-  }
+// 背景模糊层样式
+const blurBgStyle = computed(() => {
+  return getBlurBgStyle(element.value.commonBackground, scale.value)
 })
 
 const componentBackgroundStyle = computed(() => {
   if (element.value.commonBackground && element.value.component !== 'GroupArea') {
-    const {
-      backgroundColorSelect,
-      backgroundColor,
-      backgroundImageEnable,
-      backgroundType,
-      outerImage,
-      innerPadding,
-      borderRadius
-    } = element.value.commonBackground
-    const innerPaddingTarget = ['Group', 'DeTabs'].includes(element.value.component)
-      ? 0
-      : innerPadding
-    const style = {
-      padding: innerPaddingTarget * scale.value + 'px',
-      borderRadius: borderRadius + 'px'
-    }
-    let colorRGBA = ''
-    if (backgroundColorSelect && backgroundColor) {
-      colorRGBA = backgroundColor
-    }
-
-    if (element.value.innerType === 'VQuery' && backgroundColorSelect) {
-      if (backgroundType === 'outerImage' && typeof outerImage === 'string') {
-        style['background'] = `url(${imgUrlTrans(outerImage)}) no-repeat`
-      } else {
-        style['background-color'] = colorRGBA
-      }
-    } else if (backgroundImageEnable) {
-      if (backgroundType === 'outerImage' && typeof outerImage === 'string') {
-        style['background'] = `url(${imgUrlTrans(outerImage)}) no-repeat ${colorRGBA}`
-      } else {
-        style['background-color'] = colorRGBA
-      }
-    } else {
-      style['background-color'] = colorRGBA
-    }
-    if (element.value.component !== 'UserView') {
-      style['overflow'] = 'hidden'
-    }
-    return style
+    return getComponentBackgroundStyle(element.value.commonBackground, {
+      scale: scale.value,
+      isUserView: ['DeTabs', 'UserView'].includes(element.value.component),
+      forceNoPadding: ['Group'].includes(element.value.component)
+    })
   }
   return {}
 })
@@ -936,11 +1015,17 @@ const tabMoveInCheck = async () => {
   const left = curNode.offsetLeft
   const top = curNode.offsetTop
   // tab 移入检测开启 tab组件不能相互移入另一个tab组件
-  if (isTabMoveCheck.value && !state.ignoreTabMoveComponent.includes(element.value.component)) {
+  // 如当前是分组且分组中含有Tab 不允许移入 pJoinTab = false
+  if (
+    pJoinTab &&
+    isTabMoveCheck.value &&
+    !state.ignoreTabMoveComponent.includes(element.value.component)
+  ) {
     const nodes = Array.from(parentNode.value.childNodes) // 获取当前父节点下所有子节点
     for (const item of nodes) {
       if (
         item.className !== undefined &&
+        typeof item.className === 'string' &&
         item.className.split(' ').includes('shape') &&
         item.getAttribute('component-id') !== domId.value && // 去掉当前
         item.getAttribute('tab-is-check') !== null &&
@@ -1038,12 +1123,15 @@ const dragCollision = computed(() => {
 
 const htmlToImage = () => {
   downLoading.value = true
+  useEmitt().emitter.emit('l7-prepare-picture', element.value.id)
   setTimeout(() => {
     activeWatermarkCheckUser(viewDemoInnerId.value, 'canvas-main', scale.value)
-    downloadCanvas2('img', componentInnerRef.value, '图表', () => {
+    const dom = document.getElementById(viewDemoInnerId.value)
+    downloadCanvas2('img', dom, '图表', () => {
       // do callback
       removeActiveWatermark(viewDemoInnerId.value)
       downLoading.value = false
+      useEmitt().emitter.emit('l7-unprepare-picture', element.value.id)
     })
   }, 200)
 }
@@ -1068,18 +1156,27 @@ onMounted(() => {
     // do stopAnimation
   })
   settingAttribute()
-  useEmitt({
-    name: 'componentImageDownload-' + element.value.id,
-    callback: () => {
+  const methodName = 'componentImageDownload-' + element.value.id
+  if (!useEmitt().emitter.all.get(methodName)?.length) {
+    useEmitt().emitter.on(methodName, () => {
       htmlToImage()
-    }
-  })
+    })
+  }
 })
 </script>
 
 <style lang="less" scoped>
 .shape {
   position: absolute;
+  .refresh-from-pc {
+    position: absolute;
+    right: 38px;
+    top: 12px;
+    z-index: 2;
+    font-size: 16px;
+    cursor: pointer;
+    color: var(--ed-color-primary);
+  }
   .del-from-mobile {
     position: absolute;
     right: 12px;
@@ -1109,6 +1206,16 @@ onMounted(() => {
   height: 100%;
   position: relative;
   background-size: 100% 100% !important;
+}
+
+.blur-bg {
+  width: 100%;
+  height: 100%;
+  background-size: 100% 100% !important;
+}
+
+.shape-selected {
+  outline: 1px solid var(--ed-color-primary, #3370ff);
 }
 
 .shape-edit {
@@ -1233,5 +1340,15 @@ onMounted(() => {
   height: 100%;
   position: relative;
   transform-style: preserve-3d;
+}
+
+.freeze-component {
+  position: fixed;
+  z-index: 1;
+  top: 66px !important;
+}
+
+.freeze-component-fullscreen {
+  top: 5px !important;
 }
 </style>

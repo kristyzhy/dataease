@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, onBeforeMount, reactive, inject, nextTick } from 'vue'
+import { ref, onBeforeMount, reactive, inject, nextTick, onMounted } from 'vue'
 import { initCanvasData, onInitReady } from '@/utils/canvasUtils'
 import { interactiveStoreWithOut } from '@/store/modules/interactive'
 import { useEmbedded } from '@/store/modules/embedded'
@@ -11,6 +11,7 @@ import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { useI18n } from '@/hooks/web/useI18n'
 import { XpackComponent } from '@/components/plugin'
 import EmptyBackground from '../../components/empty-background/src/EmptyBackground.vue'
+import exeRequest from '@/config/axios'
 const { wsCache } = useCache()
 const interactiveStore = interactiveStoreWithOut()
 const embeddedStore = useEmbedded()
@@ -26,9 +27,10 @@ const state = reactive({
   canvasStylePreview: null,
   canvasViewInfoPreview: null,
   dvInfo: null,
-  chartId: null,
+  dvId: null,
   suffixId: 'common',
-  initState: true
+  initState: true,
+  scale: 100
 })
 
 const embeddedParams = embeddedParamsDiv?.chartId ? embeddedParamsDiv : embeddedStore
@@ -41,7 +43,7 @@ const winMsgHandle = event => {
   if (
     msgInfo &&
     msgInfo.type === 'attachParams' &&
-    msgInfo.targetSourceId === state.chartId + '' &&
+    msgInfo.targetSourceId === state.dvId + '' &&
     (!msgInfo.suffixId || msgInfo.suffixId === state.suffixId)
   ) {
     const attachParams = msgInfo.params
@@ -55,7 +57,7 @@ const checkPer = async resourceId => {
   if (!window.DataEaseBi || !resourceId) {
     return true
   }
-  const request = { busiFlag: embeddedParams.busiFlag }
+  const request = { busiFlag: embeddedParams.busiFlag, resourceTable: 'core' }
   await interactiveStore.setInteractive(request)
   const key = embeddedParams.busiFlag === 'dataV' ? 'screen-weight' : 'panel-weight'
   return check(wsCache.get(key), resourceId, 1)
@@ -65,14 +67,21 @@ onBeforeMount(async () => {
   if (!checkResult) {
     return
   }
-  state.chartId = embeddedParams.dvId
+  state.dvId = embeddedParams.dvId
   state.suffixId = embeddedParams.suffixId || 'common'
   window.addEventListener('message', winMsgHandle)
+
+  let tokenInfo = null
+  if (embeddedStore.getToken && !Object.keys((tokenInfo = embeddedStore.getTokenInfo)).length) {
+    const res = await exeRequest.get({ url: '/embedded/getTokenArgs' })
+    embeddedStore.setTokenInfo(res.data)
+    tokenInfo = embeddedStore.getTokenInfo
+  }
 
   // 添加外部参数
   let attachParams
   await getOuterParamsInfo(embeddedParams.dvId).then(rsp => {
-    dvMainStore.setNowPanelOuterParamsInfo(rsp.data)
+    dvMainStore.setNowPanelOuterParamsInfoV2(rsp.data, embeddedParams.dvId)
   })
 
   // div嵌入
@@ -87,11 +96,14 @@ onBeforeMount(async () => {
       return
     }
   }
+  if (tokenInfo && Object.keys(tokenInfo).length) {
+    attachParams = Object.assign({}, attachParams, tokenInfo)
+  }
   const chartId = embeddedParams?.chartId
 
   initCanvasData(
     embeddedParams.dvId,
-    embeddedParams.busiFlag,
+    { busiFlag: embeddedParams.busiFlag },
     function ({ canvasDataResult, canvasStyleResult, dvInfo, canvasViewInfoPreview }) {
       state.canvasDataPreview = canvasDataResult
       state.canvasStylePreview = canvasStyleResult
@@ -112,9 +124,7 @@ onBeforeMount(async () => {
         if (ele.id === chartId) {
           config.value = ele
           return true
-        }
-
-        if (ele.component === 'Group') {
+        } else if (ele.component === 'Group') {
           return (ele.propValue || []).some(itx => {
             if (itx.id === chartId) {
               config.value = itx
@@ -122,12 +132,23 @@ onBeforeMount(async () => {
             }
             return false
           })
+        } else if (ele.component === 'DeTabs') {
+          ele.propValue.forEach(tabItem => {
+            return (tabItem.componentData || []).some(itx => {
+              if (itx.id === chartId) {
+                config.value = itx
+                return true
+              }
+              return false
+            })
+          })
         }
         return false
       })
       nextTick(() => {
         onInitReady({ resourceId: chartId })
       })
+      resetLayout()
     }
   )
 })
@@ -160,12 +181,31 @@ const onPointClick = param => {
     console.warn('de_inner_params send error')
   }
 }
+const previewViewCanvas = ref(null)
+
+const resetLayout = () => {
+  nextTick(() => {
+    if (previewViewCanvas.value) {
+      //div容器获取tableBox.value.clientWidth
+      const widthSource = state.canvasDataPreview?.find(item => item.id === embeddedParams?.chartId)
+        ?.style.width
+      if (widthSource) {
+        let canvasWidth = previewViewCanvas.value.clientWidth
+        state.scale = (canvasWidth * state.canvasStylePreview.scale) / widthSource
+      }
+    }
+  })
+}
+onMounted(() => {
+  resetLayout()
+})
 </script>
 
 <template>
-  <div class="de-view-wrapper" v-if="!!config && state.initState">
+  <div class="de-view-wrapper" ref="previewViewCanvas" v-if="!!config && state.initState">
     <ComponentWrapper
       style="width: 100%; height: 100%"
+      :scale="state.scale"
       :view-info="viewInfo"
       :config="config"
       :canvas-style-data="state.canvasStylePreview"

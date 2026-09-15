@@ -1,5 +1,6 @@
 package io.dataease.chart.charts.impl.map;
 
+import io.dataease.api.dataset.union.DatasetGroupInfoDTO;
 import io.dataease.chart.charts.impl.GroupChartHandler;
 import io.dataease.chart.utils.ChartDataBuild;
 import io.dataease.dataset.manage.DatasetDataManage;
@@ -42,7 +43,6 @@ public class SymbolicMapHandler extends GroupChartHandler {
         return result;
     }
 
-
     private Map<String, Object> customBuildResult(ChartViewDTO view, AxisFormatResult formatResult, CustomFilterResult filterResult, List<String[]> data, List<ChartViewFieldDTO> detailFields, List<String[]> detailData) {
         var xAxis = formatResult.getAxisMap().get(ChartAxis.xAxis);
         var extBubble = formatResult.getAxisMap().get(ChartAxis.extBubble);
@@ -60,22 +60,22 @@ public class SymbolicMapHandler extends GroupChartHandler {
         boolean needOrder = Utils.isNeedOrder(dsList);
         boolean crossDs = Utils.isCrossDs(dsMap);
         DatasourceRequest datasourceRequest = new DatasourceRequest();
-        datasourceRequest.setDsList(dsMap);
+        fillDatasourceRequest(datasourceRequest, ((DatasetGroupInfoDTO) formatResult.getContext().get("dataset")).getIsCross(), dsMap, sqlMap);
         var xAxis = formatResult.getAxisMap().get(ChartAxis.xAxis);
         var extBubble = formatResult.getAxisMap().get(ChartAxis.extBubble);
         var allFields = (List<ChartViewFieldDTO>) filterResult.getContext().get("allFields");
-        List<ChartViewFieldDTO> countField =chartViewManege.transFieldDTO(Collections.singletonList(chartViewManege.createCountField(view.getTableId())));
+        List<ChartViewFieldDTO> countField = chartViewManege.transFieldDTO(Collections.singletonList(chartViewManege.createCountField(view.getTableId())));
         List<DatasetTableFieldDTO> datasetTableFieldDTOList = FieldUtil.transFields(allFields);
         SQLMeta sqlMeta1 = new SQLMeta();
         BeanUtils.copyBean(sqlMeta1, sqlMeta);
         Dimension2SQLObj.dimension2sqlObj(sqlMeta, xAxis, datasetTableFieldDTOList, crossDs, dsMap, Utils.getParams(datasetTableFieldDTOList), view.getCalParams(), pluginManage);
         List<ChartViewFieldDTO> yAxis = new ArrayList<>();
-        if(!extBubble.isEmpty() && !"*".equals(extBubble.get(0).getDataeaseName())){
+        if (!extBubble.isEmpty() && !"*".equals(extBubble.get(0).getDataeaseName())) {
             yAxis.addAll(extBubble);
         }
         yAxis.addAll(countField);
         datasetTableFieldDTOList.addAll(FieldUtil.transFields(countField));
-        formatResult.getAxisMap().put(ChartAxis.yAxis,countField);
+        formatResult.getAxisMap().put(ChartAxis.yAxis, countField);
         Quota2SQLObj.quota2sqlObj(sqlMeta, yAxis, datasetTableFieldDTOList, crossDs, dsMap, Utils.getParams(datasetTableFieldDTOList), view.getCalParams(), pluginManage);
         String querySql = SQLProvider.createQuerySQL(sqlMeta, true, needOrder, view);
         querySql = provider.rebuildSQL(querySql, sqlMeta, crossDs, dsMap);
@@ -102,12 +102,12 @@ public class SymbolicMapHandler extends GroupChartHandler {
             logger.debug("calcite data preview sql: " + querySQL);
             // 调用数据源的calcite获得data
             DatasourceRequest datasourceRequest1 = new DatasourceRequest();
+            fillDatasourceRequest(datasourceRequest1, ((DatasetGroupInfoDTO) formatResult.getContext().get("dataset")).getIsCross(), dsMap, sqlMap);
             datasourceRequest1.setQuery(querySQL);
-            datasourceRequest1.setDsList(dsMap);
             detailData = (List<String[]>) provider.fetchResultField(datasourceRequest1).get("data");
         }
         //自定义排序
-        data = ChartDataUtil.resultCustomSort(xAxis, data);
+        data = ChartDataUtil.resultCustomSort(xAxis, yAxis, view.getSortPriority(), data);
         //数据重组逻辑可重载
         var result = customBuildResult(view, formatResult, filterResult, data, detailFields, detailData);
         T calcResult = (T) new ChartCalcDataResult();
@@ -115,7 +115,7 @@ public class SymbolicMapHandler extends GroupChartHandler {
         calcResult.setContext(filterResult.getContext());
         calcResult.setQuerySql(querySql);
         calcResult.setOriginData(data);
-        formatResult.getAxisMap().put(ChartAxis.yAxis,new ArrayList<>());
+        formatResult.getAxisMap().put(ChartAxis.yAxis, new ArrayList<>());
         return calcResult;
     }
 
@@ -142,8 +142,8 @@ public class SymbolicMapHandler extends GroupChartHandler {
         dataMap.putAll(calcResult.getData());
         dataMap.putAll(mapTableNormal);
         dataMap.put("sourceFields", allFields);
-        mergeAssistField(calcResult.getDynamicAssistFields(), calcResult.getAssistData());
-        dataMap.put("dynamicAssistLines", calcResult.getDynamicAssistFields());
+        List<ChartSeniorAssistDTO> chartSeniorAssistDTOS = mergeAssistField(calcResult.getDynamicAssistFields(), calcResult.getAssistData(), calcResult.getDynamicAssistFieldsOriginList(), calcResult.getAssistDataOriginList());
+        dataMap.put("dynamicAssistLines", chartSeniorAssistDTOS);
         view.setData(dataMap);
         view.setSql(Base64.getEncoder().encodeToString(calcResult.getQuerySql().getBytes()));
         view.setDrill(isDrill);

@@ -1,6 +1,6 @@
 import { useI18n } from '@/hooks/web/useI18n'
 import { deepCopy } from '@/utils/utils'
-import { formatterItem } from '@/views/chart/components/js/formatter'
+import { formatterItem, isEnLocal } from '@/views/chart/components/js/formatter'
 const { t } = useI18n()
 
 export const DEFAULT_COLOR_CASE: DeepPartial<ChartAttr> = {
@@ -41,13 +41,26 @@ export const DEFAULT_COLOR_CASE: DeepPartial<ChartAttr> = {
     valueFontColor: '#5470c6'
   },
   tableHeader: {
-    tableHeaderBgColor: '#6D9A49',
-    tableHeaderFontColor: '#000000'
+    tableHeaderBgColor: '#1E90FF',
+    tableHeaderCornerBgColor: '#1E90FF',
+    tableHeaderColBgColor: '#1E90FF',
+    tableHeaderFontColor: '#000000',
+    tableHeaderCornerFontColor: '#000000',
+    tableHeaderColFontColor: '#000000'
   },
   tableCell: {
     tableItemBgColor: '#FFFFFF',
     tableFontColor: '#000000',
     tableItemSubBgColor: '#EEEEEE'
+  },
+  label: {
+    color: '#000000',
+    fontSize: 12
+  },
+  tooltip: {
+    color: '#000000',
+    fontSize: 12,
+    backgroundColor: '#FFFFFF'
   }
 }
 
@@ -73,6 +86,7 @@ export const DEFAULT_COLOR_CASE_LIGHT: DeepPartial<ChartAttr> = {
     gaugeStyle: 'default',
     tableBorderColor: '#E6E7E4',
     tableScrollBarColor: 'rgba(0, 0, 0, 0.15)',
+    tableEmptyFontColor: '#000',
     zoomButtonColor: '#aaa',
     zoomBackground: '#fff'
   },
@@ -90,12 +104,25 @@ export const DEFAULT_COLOR_CASE_LIGHT: DeepPartial<ChartAttr> = {
   },
   tableHeader: {
     tableHeaderBgColor: '#1E90FF',
-    tableHeaderFontColor: '#000000'
+    tableHeaderCornerBgColor: '#1E90FF',
+    tableHeaderColBgColor: '#1E90FF',
+    tableHeaderFontColor: '#000000',
+    tableHeaderCornerFontColor: '#000000',
+    tableHeaderColFontColor: '#000000'
   },
   tableCell: {
     tableItemBgColor: '#FFFFFF',
     tableFontColor: '#000000',
-    tableItemSubBgColor: '#EEEEEE'
+    tableItemSubBgColor: '#1E90FF'
+  },
+  label: {
+    color: '#000000',
+    fontSize: 12
+  },
+  tooltip: {
+    color: '#000000',
+    fontSize: 12,
+    backgroundColor: '#FFFFFF'
   }
 }
 
@@ -116,11 +143,12 @@ export const DEFAULT_COLOR_CASE_DARK: DeepPartial<ChartAttr> = {
     alpha: 100,
     gradient: false,
     mapStyle: 'darkblue',
-    areaBaseColor: '5470C6',
+    areaBaseColor: '#5470C6',
     areaBorderColor: '#EBEEF5',
     gaugeStyle: 'default',
     tableBorderColor: '#CCCCCC',
     tableScrollBarColor: 'rgba(255, 255, 255, 0.5)',
+    tableEmptyFontColor: '#fff',
     zoomButtonColor: '#fff',
     zoomBackground: '#000'
   },
@@ -137,12 +165,25 @@ export const DEFAULT_COLOR_CASE_DARK: DeepPartial<ChartAttr> = {
   },
   tableHeader: {
     tableHeaderBgColor: '#1E90FF',
-    tableHeaderFontColor: '#FFFFFF'
+    tableHeaderCornerBgColor: '#1E90FF',
+    tableHeaderColBgColor: '#1E90FF',
+    tableHeaderFontColor: '#FFFFFF',
+    tableHeaderCornerFontColor: '#FFFFFF',
+    tableHeaderColFontColor: '#FFFFFF'
   },
   tableCell: {
     tableItemBgColor: '#131E42',
     tableFontColor: '#ffffff',
-    tableItemSubBgColor: '#EEEEEE'
+    tableItemSubBgColor: '#1E90FF'
+  },
+  label: {
+    color: '#FFFFFF',
+    fontSize: 12
+  },
+  tooltip: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    backgroundColor: '#5A5C62'
   }
 }
 
@@ -167,13 +208,15 @@ export const TAB_COMMON_STYLE_DARK = {
 export const SENIOR_STYLE_SETTING_LIGHT = {
   linkageIconColor: '#a6a6a6',
   drillLayerColor: '#a6a6a6',
-  pagerColor: '#a6a6a6'
+  pagerColor: '#a6a6a6',
+  pagerSize: 14
 }
 
 export const SENIOR_STYLE_SETTING_DARK = {
   linkageIconColor: '#ffffff',
   drillLayerColor: '#ffffff',
-  pagerColor: '#ffffff'
+  pagerColor: '#ffffff',
+  pagerSize: 14
 }
 
 export const FILTER_COMMON_STYLE_BASE = {
@@ -186,7 +229,7 @@ export const FILTER_COMMON_STYLE_LIGHT = {
   labelColor: '#1f2329',
   titleColor: '#1f2329',
   color: '#1f2329',
-  borderColor: '#bbbfc4',
+  borderColor: '#D9DCDF',
   text: '#1f2329',
   bgColor: '#FFFFFF'
 }
@@ -196,7 +239,7 @@ export const FILTER_COMMON_STYLE_DARK = {
   labelColor: '#ffffff',
   titleColor: '#ffffff',
   color: '#FFFFFF',
-  borderColor: '#484747',
+  borderColor: '#505050',
   text: '#AFAFAF',
   bgColor: '#131C42'
 }
@@ -306,7 +349,36 @@ export const DEFAULT_MISC: ChartMiscAttr = {
     min: 0,
     max: 0,
     fieldId: undefined
-  }
+  },
+  bullet: {
+    bar: {
+      ranges: {
+        fill: ['rgba(0,128,255,0.3)'],
+        size: 20,
+        showType: 'dynamic',
+        fixedRangeNumber: 3,
+        symbol: 'circle',
+        symbolSize: 4
+      },
+      measures: {
+        fill: ['rgba(0,128,255,1)'],
+        size: 15,
+        symbol: 'circle',
+        symbolSize: 4
+      },
+      target: {
+        fill: 'rgb(0,0,0)',
+        size: 20,
+        showType: 'dynamic',
+        value: 0,
+        symbol: 'line',
+        symbolSize: 4
+      }
+    }
+  },
+  liquidShowBorder: false,
+  liquidBorderWidth: 4,
+  liquidBorderDistance: 8
 }
 
 export const DEFAULT_MARK = {
@@ -336,14 +408,22 @@ export const DEFAULT_LABEL: ChartLabelAttr = {
   conversionTag: {
     show: false,
     precision: 2,
-    text: '转化率'
+    text: t('chart.conversion_rate')
   },
   showTotal: false,
   totalFontSize: 12,
   totalColor: '#FFF',
   totalFormatter: formatterItem,
   showStackQuota: false,
-  fullDisplay: false
+  fullDisplay: false,
+  proportionSeriesFormatter: {
+    show: false,
+    color: '#000',
+    fontSize: 12,
+    formatterCfg: {
+      decimalCount: 2
+    }
+  }
 }
 export const DEFAULT_TOOLTIP: ChartTooltipAttr = {
   show: true,
@@ -352,6 +432,7 @@ export const DEFAULT_TOOLTIP: ChartTooltipAttr = {
   fontSize: 12,
   color: '#909399',
   tooltipFormatter: formatterItem,
+  showQuota: false,
   backgroundColor: '#ffffff',
   seriesTooltipFormatter: [],
   carousel: {
@@ -366,9 +447,10 @@ export const DEFAULT_TABLE_TOTAL: ChartTableTotalAttr = {
     showSubTotals: true,
     reverseLayout: false,
     reverseSubLayout: false,
-    label: '总计',
-    subLabel: '小计',
+    label: t('chart.total_show'),
+    subLabel: t('chart.sub_total_show'),
     subTotalsDimensions: [],
+    subTotalsDimensionsNew: true,
     calcTotals: {
       aggregation: 'SUM',
       cfg: []
@@ -385,8 +467,8 @@ export const DEFAULT_TABLE_TOTAL: ChartTableTotalAttr = {
     showSubTotals: true,
     reverseLayout: false,
     reverseSubLayout: false,
-    label: '总计',
-    subLabel: '小计',
+    label: t('chart.total_show'),
+    subLabel: t('chart.sub_total_show'),
     subTotalsDimensions: [],
     calcTotals: {
       aggregation: 'SUM',
@@ -401,12 +483,20 @@ export const DEFAULT_TABLE_TOTAL: ChartTableTotalAttr = {
   }
 }
 export const DEFAULT_TABLE_HEADER: ChartTableHeaderAttr = {
-  indexLabel: '序号',
+  indexLabel: t('relation.index'),
   showIndex: false,
   tableHeaderAlign: 'left',
-  tableHeaderBgColor: '#6D9A49',
+  tableHeaderCornerAlign: 'left',
+  tableHeaderColAlign: 'left',
+  tableHeaderBgColor: '#1E90FF',
+  tableHeaderCornerBgColor: '#1E90FF',
+  tableHeaderColBgColor: '#1E90FF',
   tableHeaderFontColor: '#000000',
+  tableHeaderCornerFontColor: '#000000',
+  tableHeaderColFontColor: '#000000',
   tableTitleFontSize: 12,
+  tableTitleCornerFontSize: 12,
+  tableTitleColFontSize: 12,
   tableTitleHeight: 36,
   tableHeaderSort: false,
   showColTooltip: false,
@@ -415,7 +505,18 @@ export const DEFAULT_TABLE_HEADER: ChartTableHeaderAttr = {
   showHorizonBorder: true,
   showVerticalBorder: true,
   isItalic: false,
-  isBolder: true
+  isCornerItalic: false,
+  isColItalic: false,
+  isBolder: true,
+  isCornerBolder: true,
+  isColBolder: true,
+  headerGroup: false,
+  headerGroupConfig: {
+    columns: [],
+    meta: []
+  },
+  rowHeaderFreeze: true,
+  alignConfig: []
 }
 export const DEFAULT_TABLE_CELL: ChartTableCellAttr = {
   tableFontColor: '#000000',
@@ -432,7 +533,9 @@ export const DEFAULT_TABLE_CELL: ChartTableCellAttr = {
   isBolder: false,
   tableFreeze: false,
   tableColumnFreezeHead: 0,
-  tableRowFreezeHead: 0
+  tableRowFreezeHead: 0,
+  mergeCells: true,
+  alignConfig: []
 }
 export const DEFAULT_TITLE_STYLE: ChartTextStyle = {
   show: true,
@@ -482,7 +585,8 @@ export const DEFAULT_INDICATOR_NAME_STYLE: ChartIndicatorNameStyle = {
   fontFamily: 'Microsoft YaHei',
   letterSpace: 0,
   fontShadow: false,
-  nameValueSpacing: 0
+  nameValueSpacing: 0,
+  namePosition: 'bottom'
 }
 
 export const DEFAULT_TITLE_STYLE_BASE: ChartTextStyle = {
@@ -513,16 +617,6 @@ export const DEFAULT_TITLE_STYLE_DARK = {
   remarkBackgroundColor: '#5A5C62'
 }
 
-export const DEFAULT_LEGEND_STYLE: ChartLegendStyle = {
-  show: true,
-  hPosition: 'center',
-  vPosition: 'bottom',
-  orient: 'horizontal',
-  icon: 'circle',
-  color: '#333333',
-  fontSize: 12
-}
-
 export const DEFAULT_LEGEND_STYLE_BASE: ChartLegendStyle = {
   show: true,
   hPosition: 'center',
@@ -530,7 +624,25 @@ export const DEFAULT_LEGEND_STYLE_BASE: ChartLegendStyle = {
   orient: 'horizontal',
   icon: 'circle',
   color: '#333333',
-  fontSize: 12
+  fontSize: 12,
+  size: 4,
+  showRange: true,
+  sort: 'none',
+  customSort: []
+}
+
+export const DEFAULT_LEGEND_STYLE: ChartLegendStyle = {
+  show: true,
+  hPosition: 'center',
+  vPosition: 'bottom',
+  orient: 'horizontal',
+  icon: 'circle',
+  color: '#333333',
+  fontSize: 12,
+  size: 4,
+  showRange: true,
+  sort: 'none',
+  customSort: []
 }
 
 export const DEFAULT_LEGEND_STYLE_LIGHT: ChartLegendStyle = {
@@ -556,6 +668,7 @@ export const DEFAULT_MARGIN_STYLE = {
 export const DEFAULT_XAXIS_STYLE: ChartAxisStyle = {
   show: true,
   position: 'bottom',
+  nameShow: false,
   name: '',
   color: '#333333',
   fontSize: 12,
@@ -564,7 +677,8 @@ export const DEFAULT_XAXIS_STYLE: ChartAxisStyle = {
     color: '#333333',
     fontSize: 12,
     rotate: 0,
-    formatter: '{value}'
+    formatter: '{value}',
+    lengthLimit: 10
   },
   axisLine: {
     show: true,
@@ -591,6 +705,7 @@ export const DEFAULT_XAXIS_STYLE: ChartAxisStyle = {
   },
   axisLabelFormatter: {
     type: 'auto',
+    unitLanguage: isEnLocal ? 'en' : 'ch',
     unit: 1,
     suffix: '',
     decimalCount: 2,
@@ -600,6 +715,7 @@ export const DEFAULT_XAXIS_STYLE: ChartAxisStyle = {
 export const DEFAULT_YAXIS_STYLE: ChartAxisStyle = {
   show: true,
   position: 'left',
+  nameShow: false,
   name: '',
   color: '#333333',
   fontSize: 12,
@@ -608,7 +724,8 @@ export const DEFAULT_YAXIS_STYLE: ChartAxisStyle = {
     color: '#333333',
     fontSize: 12,
     rotate: 0,
-    formatter: '{value}'
+    formatter: '{value}',
+    lengthLimit: 10
   },
   axisLine: {
     show: false,
@@ -635,6 +752,7 @@ export const DEFAULT_YAXIS_STYLE: ChartAxisStyle = {
   },
   axisLabelFormatter: {
     type: 'auto',
+    unitLanguage: isEnLocal ? 'en' : 'ch',
     unit: 1,
     suffix: '',
     decimalCount: 2,
@@ -679,6 +797,7 @@ export const DEFAULT_YAXIS_EXT_STYLE: ChartAxisStyle = {
   },
   axisLabelFormatter: {
     type: 'auto',
+    unitLanguage: isEnLocal ? 'en' : 'ch',
     unit: 1,
     suffix: '',
     decimalCount: 2,
@@ -760,7 +879,8 @@ export const DEFAULT_THRESHOLD: ChartThreshold = {
   liquidThreshold: '',
   labelThreshold: [],
   tableThreshold: [],
-  textLabelThreshold: []
+  textLabelThreshold: [],
+  lineLabelThreshold: []
 }
 export const DEFAULT_SCROLL: ScrollCfg = {
   open: false,
@@ -1098,11 +1218,25 @@ export const BASE_ECHARTS_SELECT = {
   }
 }
 
+export const CHART_FONT_FAMILY_ORIGIN = [
+  { name: t('chart.font_family_ya_hei'), value: 'Microsoft YaHei' },
+  { name: t('chart.font_family_song_ti'), value: 'SimSun, "Songti SC", STSong' },
+  { name: t('chart.font_family_hei_ti'), value: 'SimHei, Helvetica' },
+  { name: t('chart.font_family_kai_ti'), value: 'KaiTi, "Kaiti SC", STKaiti' }
+]
+
+export const CHART_FONT_FAMILY_MAP_TRANS = {
+  'Microsoft YaHei': 'Microsoft YaHei',
+  'SimSun, "Songti SC", STSong': 'SimSun',
+  'SimHei, Helvetica': 'SimHei',
+  'KaiTi, "Kaiti SC", STKaiti': 'KaiTi'
+}
+
 export const CHART_FONT_FAMILY = [
-  { name: '微软雅黑', value: 'Microsoft YaHei' },
-  { name: '宋体', value: 'SimSun' },
-  { name: '黑体', value: 'SimHei' },
-  { name: '楷体', value: 'KaiTi' }
+  { name: t('chart.font_family_ya_hei'), value: 'Microsoft YaHei' },
+  { name: t('chart.font_family_song_ti'), value: 'SimSun' },
+  { name: t('chart.font_family_hei_ti'), value: 'SimHei' },
+  { name: t('chart.font_family_kai_ti'), value: 'KaiTi' }
 ]
 
 export const CHART_FONT_FAMILY_MAP = {
@@ -1333,8 +1467,15 @@ export const CHART_TYPE_CONFIGS = [
         render: 'antv',
         category: 'trend',
         value: 'stock-line',
-        title: 'K 线图',
+        title: t('chart.chart_stock_line'),
         icon: 'stock-line'
+      },
+      {
+        render: 'antv',
+        category: 'compare',
+        value: 'bullet-graph',
+        title: t('chart.bullet_chart'),
+        icon: 'bullet-graph'
       }
     ]
   },
@@ -1343,6 +1484,13 @@ export const CHART_TYPE_CONFIGS = [
     title: t('chart.chart_type_distribute'),
     display: 'show',
     details: [
+      {
+        render: 'antv',
+        category: 'distribute',
+        value: 'box-plot',
+        title: t('chart.chart_box_plot'),
+        icon: 'box-plot'
+      },
       {
         render: 'antv',
         category: 'distribute',
@@ -1431,7 +1579,7 @@ export const CHART_TYPE_CONFIGS = [
         render: 'antv',
         category: 'map',
         value: 'symbolic-map',
-        title: '符号地图',
+        title: t('chart.chart_symbolic_map'),
         icon: 'symbolic-map'
       }
     ]
@@ -1468,6 +1616,20 @@ export const CHART_TYPE_CONFIGS = [
         value: 'sankey',
         title: t('chart.chart_sankey'),
         icon: 'sankey'
+      },
+      {
+        render: 'antv',
+        category: 'distribute',
+        value: 'circle-packing',
+        title: t('chart.chart_circle_packing'),
+        icon: 'circle-packing'
+      },
+      {
+        render: 'antv',
+        category: 'distribute',
+        value: 'multi-scatter',
+        title: '多维散点图',
+        icon: 'multi-scatter'
       }
     ]
   },
@@ -1508,21 +1670,21 @@ export const CHART_TYPE_CONFIGS = [
   },
   {
     category: 'other',
-    title: '其他',
+    title: t('datasource.other'),
     display: 'hidden',
     details: [
       {
         render: 'custom',
         category: 'quota',
         value: 'rich-text',
-        title: '富文本',
+        title: t('visualization.rich_text'),
         icon: 'rich-text'
       },
       {
         render: 'custom',
         category: 'quota',
         value: 'picture-group',
-        title: '图片组',
+        title: t('visualization.picture_group'),
         icon: 'picture-group'
       }
     ]
@@ -1532,7 +1694,7 @@ export const CHART_TYPE_CONFIGS = [
 export const DEFAULT_BASIC_STYLE: ChartBasicStyle = {
   alpha: 100,
   tableBorderColor: '#CCCCCC',
-  tableScrollBarColor: 'rgba(0, 0, 0, 0.15)',
+  tableScrollBarColor: '#1f23294d',
   tableColumnMode: 'adapt',
   tableColumnWidth: 100,
   tableFieldWidth: [],
@@ -1558,14 +1720,24 @@ export const DEFAULT_BASIC_STYLE: ChartBasicStyle = {
   lineSymbol: 'circle',
   lineSymbolSize: 4,
   lineSmooth: true,
+  // 左轴默认值需在画布缩放前补齐，保证双线组合图左右 geometry 尺寸一致
+  leftLineWidth: 2,
+  leftLineSymbol: 'circle',
+  leftLineSymbolSize: 4,
+  leftLineSmooth: true,
   barDefault: true,
   radiusColumnBar: 'rightAngle',
   columnBarRightAngleRadius: 20,
+  columnWidthRatio: 60,
   barWidth: 40,
   barGap: 0.4,
   lineType: 'solid',
   scatterSymbol: 'circle',
   scatterSymbolSize: 8,
+  showOutliers: true,
+  outlierColorMode: 'series',
+  outlierColor: '#5470C6',
+  outlierSize: 4,
   radarShape: 'polygon',
   mapStyle: 'normal',
   heatMapType: 'heatmap',
@@ -1583,13 +1755,14 @@ export const DEFAULT_BASIC_STYLE: ChartBasicStyle = {
   zoomButtonColor: '#aaa',
   zoomBackground: '#fff',
   tableLayoutMode: 'grid',
+  defaultExpandLevel: 1,
   calcTopN: false,
   topN: 5,
-  topNLabel: '其他',
+  topNLabel: t('datasource.other'),
   gaugeAxisLine: true,
   gaugePercentLabel: true,
   showSummary: false,
-  summaryLabel: '总计',
+  summaryLabel: t('chart.total_show'),
   seriesColor: [],
   layout: 'horizontal',
   mapSymbolSizeMin: 4,
@@ -1603,12 +1776,25 @@ export const DEFAULT_BASIC_STYLE: ChartBasicStyle = {
   },
   zoomLevel: 7,
   customIcon: '',
-  showHoverStyle: true
+  showHoverStyle: true,
+  autoWrap: false,
+  maxLines: 3,
+  radarShowPoint: true,
+  radarPointSize: 4,
+  radarAreaColor: true,
+  circleBorderColor: '#fff',
+  circleBorderWidth: 0,
+  circlePadding: 0,
+  quotaPosition: 'col',
+  quotaColLabel: t('dataset.value'),
+  tableRowHeaderMode: 'adapt',
+  tableRowHeaderWidth: 120,
+  tableRowHeaderWidthPercent: 20
 }
 
 export const BASE_VIEW_CONFIG = {
   id: '', // 图表id
-  title: '图表',
+  title: t('data_set.view'),
   sceneId: 0, // 仪表板id
   tableId: '', // 数据集id
   type: 'bar',
@@ -1629,6 +1815,7 @@ export const BASE_VIEW_CONFIG = {
   extLabel: [],
   extTooltip: [],
   customFilter: {},
+  sortPriority: [],
   customAttr: {
     basicStyle: DEFAULT_BASIC_STYLE,
     misc: DEFAULT_MISC,

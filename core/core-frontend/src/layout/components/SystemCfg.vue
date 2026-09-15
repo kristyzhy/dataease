@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import iconSetting from '@/assets/svg/icon-setting.svg'
-import { useRouter } from 'vue-router'
+import iconSetting from '@/assets/svg/icon_organization_outlined.svg'
+import { useRouter } from 'vue-router_2'
 import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
 import { computed } from 'vue'
 
@@ -16,7 +16,13 @@ const redirectUser = () => {
 </script>
 
 <template>
-  <el-tooltip class="box-item" effect="dark" content="组织管理中心" placement="top">
+  <el-tooltip
+    offset="10"
+    class="box-item"
+    effect="dark"
+    :content="$t('toolbox.org_center')"
+    placement="top"
+  >
     <div
       class="sys-setting"
       :class="{
@@ -39,9 +45,12 @@ const redirectUser = () => {
   padding: 5px;
   height: 28px;
   width: 28px;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   &:hover {
     background-color: #1e2738;
   }

@@ -40,16 +40,7 @@ const submit = () => {
     errorMessage: errorMessage.value
   })
 }
-const errorDetected = ({
-  enumValue,
-  deType,
-  filterType,
-  term,
-  value,
-  name,
-  timeValue,
-  filterTypeTime
-}) => {
+const errorDetected = ({ enumValue, deType, filterType, term, value, name, timeValue }) => {
   if (!name) {
     errorMessage.value = t('data_set.cannot_be_empty_')
     return
@@ -73,8 +64,7 @@ const errorDetected = ({
       !term.includes('null') &&
       !term.includes('empty') &&
       ['', null, undefined].includes(timeValue) &&
-      deType === 1 &&
-      filterTypeTime === 'dynamicDate'
+      deType === 1
     ) {
       errorMessage.value = t('chart.filter_value_can_null')
       return
@@ -94,68 +84,6 @@ const errorDetected = ({
   }
 }
 
-const getTimeValue = dynamicTimeSetting => {
-  const relativeToCurrentTypeMap = {
-    year: '年',
-    month: '月',
-    date: '日',
-    datetime: '日'
-  }
-  let timeValue = ''
-  const {
-    timeGranularity,
-    timeNum,
-    relativeToCurrentType,
-    around,
-    arbitraryTime,
-    relativeToCurrent
-  } = dynamicTimeSetting || {}
-  if (relativeToCurrent !== 'custom') {
-    timeValue = [
-      {
-        label: '今年',
-        value: 'thisYear'
-      },
-      {
-        label: '去年',
-        value: 'lastYear'
-      },
-      {
-        label: '本月',
-        value: 'thisMonth'
-      },
-      {
-        label: '上月',
-        value: 'lastMonth'
-      },
-      {
-        label: '今天',
-        value: 'today'
-      },
-      {
-        label: '昨天',
-        value: 'yesterday'
-      },
-      {
-        label: '月初',
-        value: 'monthBeginning'
-      },
-      {
-        label: '年初',
-        value: 'yearBeginning'
-      }
-    ].find(ele => ele.value === relativeToCurrent)?.label
-    return timeValue
-  }
-  timeValue = `${timeNum}${relativeToCurrentTypeMap[relativeToCurrentType]}${
-    around === 'f' ? '前' : '后'
-  }`
-  if (timeGranularity === 'datetime') {
-    timeValue += new Date(arbitraryTime).toLocaleString().split(' ')[1]
-  }
-
-  return timeValue
-}
 const dfsInit = arr => {
   const elementList = []
   arr.forEach(ele => {
@@ -165,25 +93,15 @@ const dfsInit = arr => {
       const child = dfsInit(items)
       elementList.push({ logic, child })
     } else {
-      const {
-        enumValue,
-        filterTypeTime,
-        dynamicTimeSetting,
-        fieldId,
-        filterType,
-        term,
-        value,
-        field
-      } = ele
+      const { enumValue, fieldId, filterType, term, timeType, value, timeValue, field } = ele
       const { name, deType } = field || {}
       elementList.push({
-        enumValue: enumValue.join(','),
+        enumValue,
         fieldId,
         filterType,
         term,
-        timeValue: getTimeValue(dynamicTimeSetting),
-        filterTypeTime,
-        dynamicTimeSetting,
+        timeType,
+        timeValue,
         value,
         name,
         deType
@@ -204,36 +122,23 @@ const dfsSubmit = arr => {
         fieldId: '',
         filterType: '',
         term: '',
+        timeType: 'year',
         type: 'tree',
         value: '',
-        filterTypeTime: 'dateValue',
         timeValue: '',
-        dynamicTimeSetting: {},
         subTree: { logic, items: subTree }
       })
     } else {
-      const {
-        enumValue,
-        filterTypeTime,
-        dynamicTimeSetting,
-        fieldId,
-        filterType,
-        deType,
-        term,
-        value,
-        name,
-        timeValue
-      } = ele
-      errorDetected({ deType, enumValue, filterType, term, value, name, timeValue, filterTypeTime })
+      const { enumValue, fieldId, filterType, deType, term, value, timeType, name, timeValue } = ele
+      errorDetected({ deType, enumValue, filterType, term, value, name, timeValue })
       if (fieldId) {
         items.push({
-          enumValue: enumValue ? enumValue.split(',') : [],
+          enumValue: enumValue || [],
           fieldId,
           timeValue,
           filterType,
-          filterTypeTime,
-          dynamicTimeSetting,
           term,
+          timeType,
           value,
           type: 'item',
           subTree: null
@@ -279,7 +184,7 @@ const calculateDepth = obj => {
   let path = ''
   const { x: depth, y } = obj
   obj.child.forEach((item, index) => {
-    const { y: sibingLg, z } = item
+    const { y: siblingLg, z } = item
     if (item.child?.length) {
       let parent = (dfs(obj.child, 0) * 41.4) / 2 + (getY(obj.child) || 0) * 41.4
       let children = (dfs(item.child, 0) * 41.4) / 2 + getY(item.child) * 41.4
@@ -291,7 +196,7 @@ const calculateDepth = obj => {
       } else {
         ;[path1, path2] = [children, parent]
       }
-      if (y >= sibingLg) {
+      if (y >= siblingLg) {
         path1 = parent
         path2 = children
       }
@@ -301,22 +206,22 @@ const calculateDepth = obj => {
       path += calculateDepth(item)
     }
     if (!item.child?.length) {
-      if (sibingLg >= y) {
+      if (siblingLg >= y) {
         path += `M${24 + depth * 68} ${y * 40} L${24 + depth * 68} ${
-          (sibingLg + 1) * 41.4 - 20.69921875
-        } L${68 + depth * 68} ${(sibingLg + 1) * 41.4 - 20.69921875}`
+          (siblingLg + 1) * 41.4 - 20.69921875
+        } L${68 + depth * 68} ${(siblingLg + 1) * 41.4 - 20.69921875}`
       } else {
         path += `M${24 + depth * 68} ${
-          (sibingLg +
+          (siblingLg +
             (lg === 1 && index === 0 ? 0 : 1) +
-            (obj.child[index + 1]?.child?.length ? y - sibingLg - 1 : 0)) *
+            (obj.child[index + 1]?.child?.length ? y - siblingLg - 1 : 0)) *
             41.4 +
           20 +
           (lg === 1 && index === 0 ? 26 : 0)
         } L${24 + depth * 68} ${
-          (sibingLg + 1) * 41.4 - 20.69921875 - (lg === 1 && index === 0 ? (z || 0) * 1.4 : 0)
+          (siblingLg + 1) * 41.4 - 20.69921875 - (lg === 1 && index === 0 ? (z || 0) * 1.4 : 0)
         } L${68 + depth * 68} ${
-          (sibingLg + 1) * 41.4 - 20.69921875 - (lg === 1 && index === 0 ? (z || 0) * 1.4 : 0)
+          (siblingLg + 1) * 41.4 - 20.69921875 - (lg === 1 && index === 0 ? (z || 0) * 1.4 : 0)
         }`
       }
     }
@@ -373,13 +278,12 @@ const addCondReal = (type, logic) => {
       ? {
           fieldId: '',
           value: '',
-          enumValue: '',
+          enumValue: [],
           term: '',
           filterType: 'logic',
+          timeType: 'year',
           name: '',
           timeValue: '',
-          filterTypeTime: 'dateValue',
-          dynamicTimeSetting: {},
           deType: ''
         }
       : { child: [], logic }

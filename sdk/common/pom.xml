@@ -11,7 +11,9 @@
 
     <artifactId>common</artifactId>
 
-
+    <properties>
+        <opensaml.version>3.4.6</opensaml.version>
+    </properties>
 
     <dependencies>
         <dependency>
@@ -37,6 +39,18 @@
         <dependency>
             <groupId>com.github.xiaoymin</groupId>
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springdoc</groupId>
+                    <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
         </dependency>
 
         <dependency>
@@ -53,6 +67,12 @@
         <dependency>
             <groupId>org.apache.velocity</groupId>
             <artifactId>velocity-engine-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.velocity</groupId>
+                    <artifactId>velocity</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -130,6 +150,34 @@
             <version>${project.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>io.dataease</groupId>
+            <artifactId>extensions-datafilling</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.opensaml</groupId>
+            <artifactId>opensaml-core</artifactId>
+            <version>${opensaml.version}</version>
+        </dependency>
+
+        <!-- OpenSAML SAML Impl -->
+        <dependency>
+            <groupId>org.opensaml</groupId>
+            <artifactId>opensaml-saml-impl</artifactId>
+            <version>${opensaml.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk15on</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.velocity</groupId>
+                    <artifactId>velocity</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
     </dependencies>
 
 </project>

@@ -5,10 +5,12 @@ import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapsho
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia'
 import { COLOR_PANEL } from '@/views/chart/components/editor/util/chart'
+import { useI18n } from '@/hooks/web/useI18n'
 const dvMainStore = dvMainStoreWithOut()
 
 const snapshotStore = snapshotStoreWithOut()
 const { canvasStyleData, curComponent } = storeToRefs(dvMainStore)
+const { t } = useI18n()
 
 const props = withDefaults(
   defineProps<{
@@ -32,9 +34,9 @@ const styleMounted = ref({
 })
 
 const borderStyleList = [
-  { name: '实线', value: 'solid' },
-  { name: '虚线', value: 'dashed' },
-  { name: '点线', value: 'dotted' }
+  { name: t('visualization.border_style_solid'), value: 'solid' },
+  { name: t('visualization.border_style_dashed'), value: 'dashed' },
+  { name: t('visualization.border_style_dotted'), value: 'dotted' }
 ]
 
 const styleInit = () => {
@@ -50,7 +52,7 @@ const styleInit = () => {
 const styleForm = computed<any>(() => styleInfo.value)
 
 const changeStyle = params => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('border-changeStyle')
   emits('onStyleAttrChange', params)
 }
 
@@ -80,22 +82,24 @@ watch(
 </script>
 
 <template>
-  <el-row class="custom-row">
-    <el-form label-position="top">
+  <el-row class="custom-row" style="padding-bottom: 8px">
+    <el-form size="small" label-position="top">
       <template v-if="isSvgComponent">
         <el-row style="display: flex">
           <el-form-item
             style="width: 70px"
-            label="颜色"
+            :label="t('visualization.color')"
             class="form-item"
             :class="'form-item-' + themes"
           >
             <el-color-picker
-              title="颜色"
+              :title="t('visualization.color')"
+              :disabled="!styleForm.borderActive"
               v-model="styleForm.borderColor"
               class="color-picker-style"
               :triggerWidth="65"
               is-custom
+              show-alpha
               :predefine="state.predefineColors"
               @change="changeStylePre('borderColor')"
             >
@@ -103,15 +107,16 @@ watch(
           </el-form-item>
           <el-form-item
             style="width: 150px"
-            label="线宽"
+            :label="t('visualization.board_width')"
             class="form-item"
             :class="'form-item-' + themes"
           >
             <el-input-number
-              title="线宽"
+              :title="t('visualization.board_width')"
               :min="0"
               :max="50"
               :effect="themes"
+              :disabled="!styleForm.borderActive"
               controls-position="right"
               v-model="styleMounted.borderWidth"
               class="color-picker-style"
@@ -125,16 +130,18 @@ watch(
         <el-row style="display: flex">
           <el-form-item
             style="width: 70px"
-            label="颜色"
+            :label="t('visualization.color')"
             class="form-item"
             :class="'form-item-' + themes"
           >
             <el-color-picker
-              title="颜色"
+              :title="t('visualization.color')"
+              :disabled="!styleForm.borderActive"
               v-model="styleForm.borderColor"
               class="color-picker-style"
               :triggerWidth="65"
               is-custom
+              show-alpha
               :effect="themes"
               :predefine="state.predefineColors"
               @change="changeStylePre('borderColor')"
@@ -143,12 +150,13 @@ watch(
           </el-form-item>
           <el-form-item
             style="width: 150px"
-            label="圆角"
+            :label="t('visualization.board_radius')"
             class="form-item"
             :class="'form-item-' + themes"
           >
             <el-input-number
-              title="圆角"
+              :title="t('visualization.board_radius')"
+              :disabled="!styleForm.borderActive"
               :effect="themes"
               :min="0"
               :max="200"
@@ -163,12 +171,13 @@ watch(
         <el-row style="display: flex">
           <el-form-item
             style="width: 70px"
-            label="样式"
+            :label="t('visualization.style')"
             class="form-item"
             :class="'form-item-' + themes"
           >
             <el-select
               :effect="themes"
+              :disabled="!styleForm.borderActive"
               v-model="styleForm.borderStyle"
               size="small"
               style="width: 65px"
@@ -185,12 +194,13 @@ watch(
           </el-form-item>
           <el-form-item
             style="width: 150px"
-            label="线宽"
+            :label="t('visualization.board_width')"
             class="form-item"
             :class="'form-item-' + themes"
           >
             <el-input-number
-              title="线宽"
+              :title="t('visualization.board_width')"
+              :disabled="!styleForm.borderActive"
               :min="0"
               :max="50"
               :effect="themes"

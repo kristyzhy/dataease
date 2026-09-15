@@ -3,7 +3,8 @@ import topEnterpriseTrial from '@/assets/svg/top-enterprise-trial.svg'
 import topHelpDoc from '@/assets/svg/top-help-doc.svg'
 import topProductBbs from '@/assets/svg/top-product-bbs.svg'
 import topTechnology from '@/assets/svg/top-technology.svg'
-import docs from '@/assets/svg/docs.svg'
+import { useI18n } from '@/hooks/web/useI18n'
+import docs from '@/assets/svg/icon-maybe_outlined.svg'
 import { computed } from 'vue'
 import { Icon } from '@/components/icon-custom'
 import TopDocCard from '@/layout/components/TopDocCard.vue'
@@ -11,16 +12,29 @@ import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
 const appearanceStore = useAppearanceStoreWithOut()
 const navigateBg = computed(() => appearanceStore.getNavigateBg)
 const help = computed(() => appearanceStore.getHelp)
+const { t } = useI18n()
 
 const cardInfoList = [
-  { name: '帮助文档', url: help.value || 'https://dataease.io/docs/v2/', icon: topHelpDoc },
-  { name: '产品论坛', url: 'https://bbs.fit2cloud.com/c/de/6', icon: topProductBbs },
   {
-    name: '技术博客',
+    name: t('api_pagination.help_documentation'),
+    url: help.value || 'https://dataease.io/docs/v2/',
+    icon: topHelpDoc
+  },
+  {
+    name: t('api_pagination.product_forum'),
+    url: 'https://bbs.fit2cloud.com/c/de/6',
+    icon: topProductBbs
+  },
+  {
+    name: t('api_pagination.technical_blog'),
     url: 'https://blog.fit2cloud.com/categories/dataease',
     icon: topTechnology
   },
-  { name: '企业版试用', url: 'https://jinshuju.net/f/TK5TTd', icon: topEnterpriseTrial }
+  {
+    name: t('api_pagination.enterprise_edition_trial'),
+    url: 'https://jinshuju.net/f/TK5TTd',
+    icon: topEnterpriseTrial
+  }
 ]
 </script>
 
@@ -29,17 +43,15 @@ const cardInfoList = [
     :show-arrow="false"
     popper-class="top-popover"
     placement="bottom-end"
-    width="208"
+    width="210"
     trigger="hover"
   >
-    <el-row>
-      <top-doc-card
-        :span="12"
-        v-for="(item, index) in cardInfoList"
-        :key="index"
-        :card-info="item"
-      ></top-doc-card>
-    </el-row>
+    <top-doc-card
+      :span="12"
+      v-for="(item, index) in cardInfoList"
+      :key="index"
+      :card-info="item"
+    ></top-doc-card>
     <template #reference>
       <div
         class="sys-setting"
@@ -59,9 +71,12 @@ const cardInfoList = [
   padding: 5px;
   height: 28px;
   width: 28px;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   &:hover {
     background-color: #1e2738;
   }
@@ -75,6 +90,11 @@ const cardInfoList = [
 
 <style lang="less">
 .top-popover {
-  padding: 0 0 16px 0 !important;
+  display: flex;
+  padding: 8px !important;
+  flex-wrap: wrap;
+  .doc-card {
+    margin: auto;
+  }
 }
 </style>

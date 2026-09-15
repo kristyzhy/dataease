@@ -13,6 +13,7 @@
     <modules>
         <module>extensions-view</module>
         <module>extensions-datasource</module>
+        <module>extensions-datafilling</module>
     </modules>
 
     <artifactId>extensions</artifactId>

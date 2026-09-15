@@ -1,7 +1,7 @@
 <template>
   <div
     class="bar-main"
-    v-if="!mobileInPc"
+    v-if="!mobileInPc && !isMobile()"
     :class="[
       showEditPosition,
       {
@@ -13,7 +13,7 @@
     <el-tooltip
       effect="dark"
       placement="top"
-      :content="'排序'"
+      :content="t('visualization.sort')"
       v-if="element.component === 'DeTabs' && showPosition === 'canvas'"
     >
       <el-icon class="bar-base-icon" @click="tabSort">
@@ -21,12 +21,12 @@
       </el-icon>
     </el-tooltip>
     <template v-if="element.component === 'VQuery' && showPosition === 'canvas'">
-      <span title="添加查询条件">
+      <span :title="t('visualization.add_query_filter')">
         <el-icon class="bar-base-icon" @click="addQueryCriteria">
           <Icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></Icon
         ></el-icon>
       </span>
-      <span title="编辑查询条件">
+      <span :title="t('visualization.edit_query_filter')">
         <el-icon class="bar-base-icon" @click="editQueryCriteria">
           <Icon name="icon_edit_outlined"><icon_edit_outlined class="svg-icon" /></Icon
         ></el-icon>
@@ -47,7 +47,7 @@
     <el-tooltip
       effect="dark"
       :placement="showBarTooltipPosition"
-      content="查看数据"
+      :content="t('visualization.show_data_info')"
       v-if="!['picture-group', 'rich-text'].includes(element.innerType) && barShowCheck('details')"
     >
       <span>
@@ -59,7 +59,7 @@
     <el-tooltip
       effect="dark"
       placement="top"
-      content="输入计算数据"
+      :content="t('visualization.input_calc_data')"
       v-if="barShowCheck('datasetParams') && datasetParamsSetShow"
     >
       <span>
@@ -94,6 +94,7 @@
       placement="right-start"
       v-if="barShowCheck('setting')"
       ref="curDropdown"
+      popper-class="hide-focus_bg"
     >
       <el-icon class="bar-base-icon">
         <el-tooltip :content="t('visualization.more')" effect="dark" placement="bottom">
@@ -101,15 +102,15 @@
         </el-tooltip>
       </el-icon>
       <template #dropdown>
-        <el-dropdown-menu style="width: 158px">
-          <el-dropdown-item @click="copyComponent" v-if="barShowCheck('copy')"
-            >复制</el-dropdown-item
-          >
+        <el-dropdown-menu>
+          <el-dropdown-item @click="copyComponent" v-if="barShowCheck('copy')">{{
+            t('visualization.copy')
+          }}</el-dropdown-item>
           <template v-if="element.innerType !== 'rich-text' && barShowCheck('enlarge')">
             <el-dropdown-item
               :divided="showPosition === 'canvas'"
               @click="userViewEnlargeOpen($event, 'enlarge')"
-              >放大</el-dropdown-item
+              >{{ t('visualization.enlarge') }}</el-dropdown-item
             >
             <el-dropdown-item
               @click="userViewEnlargeOpen($event, 'details')"
@@ -117,48 +118,62 @@
                 !['picture-group', 'rich-text'].includes(element.innerType) &&
                 barShowCheck('details')
               "
-              >查看数据</el-dropdown-item
+              >{{ t('visualization.show_data_info') }}</el-dropdown-item
             >
             <el-dropdown-item
-              style="padding: 0"
+              style="padding: 0; padding-left: 8px"
               v-if="
                 !['picture-group', 'rich-text'].includes(element.innerType) &&
                 barShowCheck('download') &&
-                showDownload
+                showDownload &&
+                (exportPermissions[0] || exportPermissions[1])
               "
               @click.prevent
             >
               <el-dropdown style="width: 100%" trigger="hover" placement="right-start">
                 <div
-                  class="flex-align-center"
-                  style="width: 100%; padding: 5px 6px 5px 16px; line-height: 24px"
+                  class="flex-align-center dropdown-in_dropdown-item"
+                  style="position: relative; width: 100%; line-height: 32px"
                 >
-                  导出为
-                  <el-icon size="16px" style="margin-left: auto"><ArrowRight /></el-icon>
+                  {{ t('visualization.export_as') }}
+                  <el-icon size="16px" style="position: absolute; right: 8px; margin-right: 0"
+                    ><ArrowRight
+                  /></el-icon>
                 </div>
                 <template #dropdown>
-                  <el-dropdown-menu style="width: 120px">
-                    <el-dropdown-item @click="exportAsExcel">Excel</el-dropdown-item>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="exportPermissions[1]" @click="exportAsExcel"
+                      >Excel</el-dropdown-item
+                    >
                     <el-dropdown-item
-                      v-if="element.innerType === 'table-pivot'"
+                      v-if="exportPermissions[1] && element.innerType === 'table-pivot'"
                       @click="exportAsFormattedExcel"
                     >
-                      <span>Excel(带格式)</span>
+                      <span>{{ t('visualization.excel_with_format') }}</span>
                     </el-dropdown-item>
-                    <el-dropdown-item @click="exportAsImage">图片</el-dropdown-item>
+                    <el-dropdown-item v-if="exportPermissions[0]" @click="exportAsImage">{{
+                      t('visualization.image')
+                    }}</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
             </el-dropdown-item>
           </template>
+          <el-dropdown-item
+            @click="hiddenComponent"
+            v-if="barShowCheck('hidden') && isMainCanvas(canvasId)"
+            >{{ t('visualization.hidden') }}</el-dropdown-item
+          >
+
           <xpack-component
             :chart="element"
+            resource-table="snapshot"
             jsname="L2NvbXBvbmVudC90aHJlc2hvbGQtd2FybmluZy9FZGl0QmFySGFuZGxlcg=="
             @close-item="closeItem"
           />
-          <el-dropdown-item divided @click="deleteComponent" v-if="barShowCheck('delete')"
-            >删除</el-dropdown-item
-          >
+          <el-dropdown-item divided @click="deleteComponent" v-if="barShowCheck('delete')">{{
+            t('visualization.delete')
+          }}</el-dropdown-item>
         </el-dropdown-menu>
       </template>
     </el-dropdown>
@@ -168,8 +183,8 @@
       v-if="
         !['picture-group', 'rich-text'].includes(element.innerType) &&
         barShowCheck('previewDownload') &&
-        authShow &&
-        showDownload
+        showDownload &&
+        (exportPermissions[0] || exportPermissions[1])
       "
     >
       <el-icon @click="downloadClick" class="bar-base-icon">
@@ -179,14 +194,18 @@
       </el-icon>
       <template #dropdown>
         <el-dropdown-menu style="width: 118px">
-          <el-dropdown-item @click="exportAsExcel">Excel</el-dropdown-item>
+          <el-dropdown-item @click="exportAsExcel" v-if="exportPermissions[1]"
+            >Excel</el-dropdown-item
+          >
           <el-dropdown-item
-            v-if="element.innerType === 'table-pivot'"
+            v-if="exportPermissions[1] && element.innerType === 'table-pivot'"
             @click="exportAsFormattedExcel"
           >
-            <span>Excel(带格式)</span>
+            <span>{{ t('visualization.excel_with_format') }}</span>
           </el-dropdown-item>
-          <el-dropdown-item @click="exportAsImage">图片</el-dropdown-item>
+          <el-dropdown-item v-if="exportPermissions[0]" @click="exportAsImage">{{
+            t('visualization.image')
+          }}</el-dropdown-item>
         </el-dropdown-menu>
       </template>
     </el-dropdown>
@@ -198,7 +217,7 @@
       </template>
       <fields-list :fields="state.curFields" :element="element" />
     </el-popover>
-    <custom-tabs-sort ref="customTabsSortRef" :element="element"></custom-tabs-sort>
+    <custom-tabs-sort ref="customTabsSortRef"></custom-tabs-sort>
   </div>
 </template>
 
@@ -211,7 +230,7 @@ import icon_params_setting from '@/assets/svg/icon_params_setting.svg'
 import dvBarUnLinkage from '@/assets/svg/dv-bar-unLinkage.svg'
 import database from '@/assets/svg/database.svg'
 import icon_more_outlined from '@/assets/svg/icon_more_outlined.svg'
-import dvPreviewDownload from '@/assets/svg/dv-preview-download.svg'
+import dvPreviewDownload from '@/assets/svg/icon_download_outlined.svg'
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref, toRefs, watch } from 'vue'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia'
@@ -227,12 +246,15 @@ import { ElMessage, ElTooltip, ElButton } from 'element-plus-secondary'
 import CustomTabsSort from '@/custom-component/de-tabs/CustomTabsSort.vue'
 import { exportPivotExcel } from '@/views/chart/components/js/panel/common/common_table'
 import { XpackComponent } from '@/components/plugin'
-import DatasetParamsComponent from '@/components/visualization/DatasetParamsComponent.vue'
+import { exportPermission, isMobile } from '@/utils/utils'
+import { isMainCanvas } from '@/utils/canvasUtils'
 const dvMainStore = dvMainStoreWithOut()
 const snapshotStore = snapshotStoreWithOut()
 const copyStore = copyStoreWithOut()
 const customTabsSortRef = ref(null)
-const authShow = computed(() => !dvInfo.value.weight || dvInfo.value.weight > 3)
+const exportPermissions = computed(() =>
+  exportPermission(dvInfo.value['weight'], dvInfo.value['ext'])
+)
 const emits = defineEmits([
   'userViewEnlargeOpen',
   'datasetParamsInit',
@@ -240,7 +262,8 @@ const emits = defineEmits([
   'showViewDetails',
   'amRemoveItem',
   'linkJumpSetOpen',
-  'linkageSetOpen'
+  'linkageSetOpen',
+  'componentImageDownload'
 ])
 const { t } = useI18n()
 const { emitter } = useEmitt()
@@ -249,6 +272,7 @@ const positionBarShow = {
   canvas: [
     'datasetParams',
     'enlarge',
+    'hidden',
     'details',
     'setting',
     'copy',
@@ -269,6 +293,7 @@ const componentTypeBarShow = {
   UserView: [
     'datasetParams',
     'enlarge',
+    'hidden',
     'details',
     'setting',
     'copy',
@@ -282,7 +307,7 @@ const componentTypeBarShow = {
     'linkageSetting',
     'linkJumpSetting'
   ],
-  default: ['setting', 'delete', 'copy', 'multiplexing', 'batchOpt']
+  default: ['setting', 'delete', 'copy', 'multiplexing', 'batchOpt', 'hidden']
 }
 
 const barShowCheck = barName => {
@@ -333,7 +358,9 @@ const {
   componentData,
   canvasViewInfo,
   mobileInPc,
-  dvInfo
+  dvInfo,
+  isPopWindow,
+  hiddenListStatus
 } = storeToRefs(dvMainStore)
 
 const state = reactive({
@@ -354,9 +381,10 @@ const state = reactive({
   viewXArray: [],
   batchOptCheckModel: false
 })
+const showHiddenIcon = computed(() => hiddenListStatus.value && isMainCanvas(canvasId.value))
 
 const tabSort = () => {
-  customTabsSortRef.value.sortInit()
+  customTabsSortRef.value.sortInit(element.value)
 }
 
 const downloadClick = () => {
@@ -376,7 +404,11 @@ const showEditPosition = computed(() => {
     const baseLeft = element.value.x - 1
     const baseRight = pcMatrixCount.value.x - (element.value.x + element.value.sizeX - 1)
     if ((baseLeft === 0 && baseRight === 0) || baseRight < 0) {
-      return 'bar-main-right-inner'
+      if (showHiddenIcon.value) {
+        return 'bar-main-left-inner'
+      } else {
+        return 'bar-main-right-inner'
+      }
     } else if (baseRight === 0) {
       return 'bar-main-left-outer'
     } else {
@@ -442,19 +474,18 @@ const exportAsExcel = () => {
   const viewDataInfo = dvMainStore.getViewDataDetails(element.value.id)
   const chartExtRequest = dvMainStore.getLastViewRequestInfo(element.value.id)
   const viewInfo = dvMainStore.getViewDetails(element.value.id)
-  const chart = { ...viewInfo, chartExtRequest, data: viewDataInfo }
-  exportExcelDownload(chart, () => {
+  const chart = { ...viewInfo, chartExtRequest, data: viewDataInfo, busiFlag: dvInfo.value.type }
+  exportExcelDownload(chart, dvInfo.value.name, () => {
     openMessageLoading(callbackExport)
   })
 }
 const exportAsImage = () => {
-  // do export
-  useEmitt().emitter.emit('componentImageDownload-' + element.value.id)
+  emits('componentImageDownload')
 }
 const deleteComponent = () => {
   eventBus.emit('removeMatrixItem-' + canvasId.value, index.value)
   dvMainStore.setCurComponent({ component: null, index: null })
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('deleteComponent')
 }
 
 const datasetParamsInit = () => {
@@ -471,6 +502,16 @@ const userViewEnlargeOpen = (e, opt) => {
   e.preventDefault()
   e.stopPropagation()
   emits('userViewEnlargeOpen', opt)
+}
+
+const hiddenComponent = () => {
+  if (curComponent.value) {
+    curComponent.value.dashboardHidden = true
+    eventBus.emit('removeMatrixItemPosition-' + canvasId.value, curComponent.value)
+    dvMainStore.setHiddenListStatus(true)
+    snapshotStore.recordSnapshotCache('hide')
+    dvMainStore.setLastHiddenComponent(curComponent.value.id)
+  }
 }
 
 // 复用-Begin
@@ -518,7 +559,7 @@ const linkageChange = item => {
   let checkResult = false
   if (item.linkageFilters && item.linkageFilters.length > 0) {
     item.linkageFilters.forEach(linkage => {
-      if (element.value.id === linkage.sourceViewId) {
+      if (element.value.id === linkage?.sourceViewId) {
         checkResult = true
       }
     })
@@ -541,7 +582,7 @@ const existLinkage = computed(() => {
       })
     } else if (item.component === 'DeTabs') {
       item.propValue.forEach(tabItem => {
-        tabItem.componentData.forEach(tabComponent => {
+        tabItem.componentData?.forEach(tabComponent => {
           if (linkageChange(tabComponent)) {
             linkageFiltersCount++
           }
@@ -587,7 +628,9 @@ const initCurFields = () => {
   }
 }
 
-const showDownload = computed(() => canvasViewInfo.value[element.value.id]?.dataFrom !== 'template')
+const showDownload = computed(
+  () => canvasViewInfo.value[element.value.id]?.dataFrom !== 'template' && !isPopWindow.value
+)
 // 富文本-End
 
 const datasetParamsSetShow = computed(() => {
@@ -652,6 +695,11 @@ watch(
   right: 0px;
 }
 
+.bar-main-left-inner {
+  width: 24px;
+  left: 0px;
+}
+
 .bar-main-left-outer {
   width: 24px;
   left: -26px;
@@ -673,5 +721,21 @@ watch(
 .bar-checkbox-area {
   padding: 0 5px;
   height: 24px;
+}
+</style>
+
+<style lang="less">
+.ed-dropdown:has(.dropdown-in_dropdown-item) {
+  :focus-visible {
+    outline: none;
+  }
+}
+.ed-dropdown__popper.hide-focus_bg .ed-dropdown-menu__item:not(.is-disabled) {
+  &:focus {
+    background-color: transparent;
+  }
+  &:hover {
+    background-color: #1f23291a;
+  }
 }
 </style>

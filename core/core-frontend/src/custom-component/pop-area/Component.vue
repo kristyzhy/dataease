@@ -33,7 +33,7 @@
         @dragover="handleDragOver"
         @dragleave="handleDragLeave"
       >
-        <span>可点击或拖拽查询组件到此位置，点击预览可查看弹窗区</span>
+        <span>{{ t('visualization.pop_area_tips') }}</span>
       </div>
     </div>
   </div>
@@ -51,9 +51,12 @@ import eventBus from '@/utils/eventBus'
 import ComponentWrapper from '@/components/data-visualization/canvas/ComponentWrapper.vue'
 import { ElMessage } from 'element-plus-secondary'
 import { storeToRefs } from 'pinia'
+import { useI18n } from '@/hooks/web/useI18n'
 const dvMainStore = dvMainStoreWithOut()
 const snapshotStore = snapshotStoreWithOut()
 const areaActive = ref(false)
+const { t } = useI18n()
+
 const props = defineProps({
   dvInfo: {
     type: Object,
@@ -115,7 +118,7 @@ const handleDragOver = e => {
   e.dataTransfer.dropEffect = 'copy'
 }
 
-const handleDragLeave = e => {
+const handleDragLeave = () => {
   areaActive.value = false
 }
 
@@ -139,7 +142,7 @@ const handleDrop = e => {
         adaptCurThemeCommonStyle(component)
         snapshotStore.recordSnapshotCache('renderChart', component.id)
       } else {
-        ElMessage.error('及支持添加查询组件')
+        ElMessage.error(t('visualization.support_query'))
       }
     }
   }

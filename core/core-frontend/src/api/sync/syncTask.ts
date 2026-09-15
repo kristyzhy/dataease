@@ -26,6 +26,7 @@ export interface ISource {
   targetFieldTypeList?: string[]
   incrementCheckbox?: string
   incrementField?: string
+  esQuery?: string
 }
 
 export interface ITableField {
@@ -110,6 +111,10 @@ export interface ITarget {
   incrementSync: string
   incrementField: string
   incrementFieldType: string
+  remarks: string
+  faultToleranceRate: number
+  incrementOffset: number
+  incrementOffsetUnit: string
 }
 
 export class ITaskInfoRes {
@@ -208,7 +213,7 @@ export const addApi = (data: ITaskInfoInsertReq) => {
 }
 
 export const removeApi = (taskId: string) => {
-  return request.delete({ url: `/sync/task/remove/${taskId}` })
+  return request.post({ url: `/sync/task/remove/${taskId}` })
 }
 
 export const batchRemoveApi = (taskIds: string[]) => {

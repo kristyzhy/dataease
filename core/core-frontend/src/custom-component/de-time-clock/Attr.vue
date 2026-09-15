@@ -6,7 +6,8 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { imgUrlTrans } from '@/utils/imgUtils'
 import eventBus from '@/utils/eventBus'
 import TimeClockFormat from '@/custom-component/de-time-clock/TimeClockFormat.vue'
-
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 withDefaults(
   defineProps<{
     themes?: EditorTheme
@@ -62,7 +63,7 @@ onBeforeUnmount(() => {
     >
       <el-collapse-item
         :effect="themes"
-        title="日期格式"
+        :title="t('visualization.data_format')"
         name="timeClockFormat"
         v-if="curComponent && curComponent.formatInfo"
       >
@@ -119,7 +120,7 @@ onBeforeUnmount(() => {
 :deep(.ed-upload--picture-card) {
   background: #eff0f1;
   border: 1px dashed #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
 
   .ed-icon {
     color: #1f2329;

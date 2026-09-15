@@ -1,4 +1,4 @@
-import { isEmpty, isNumber } from 'lodash-es'
+import { cloneDeep, isNumber } from 'lodash-es'
 import { DEFAULT_TITLE_STYLE } from '../editor/util/chart'
 import { equalsAny, includesAny } from '../editor/util/StringUtils'
 import { FeatureCollection } from '@antv/l7plot/dist/esm/plots/choropleth/types'
@@ -7,15 +7,16 @@ import { getGeoJson } from '@/api/map'
 import { computed, toRaw } from 'vue'
 import { Options } from '@antv/g2plot/esm'
 import { PickOptions } from '@antv/g2plot/esm/core/plot'
-import { innerExportDetails } from '@/api/chart'
+import { innerExportDataSetDetails, innerExportDetails } from '@/api/chart'
 import { ElMessage } from 'element-plus-secondary'
 import { useI18n } from '@/hooks/web/useI18n'
 import { useLinkStoreWithOut } from '@/store/modules/link'
 import { useAppStoreWithOut } from '@/store/modules/app'
-import { valueFormatter } from '@/views/chart/components/js/formatter'
-import { deepCopy } from '@/utils/utils'
+import { useCache } from '@/hooks/web/useCache'
+import { Decimal } from 'decimal.js'
 
 const appStore = useAppStoreWithOut()
+const { wsCache } = useCache()
 const isDataEaseBi = computed(() => appStore.getIsDataEaseBi)
 
 const { t } = useI18n()
@@ -241,6 +242,40 @@ export function getRemark(chart) {
 }
 
 export const quotaViews = ['label', 'richTextView', 'indicator', 'gauge', 'liquid']
+// 地图
+const mapChartTypes = ['bubble-map', 'flow-map', 'heat-map', 'map', 'symbolic-map']
+// 分布图
+const distributionChartTypes = [
+  'pie',
+  'pie-donut',
+  'pie-rose',
+  'pie-donut-rose',
+  'radar',
+  'treemap',
+  'word-cloud'
+]
+// 关系图
+const relationChartTypes = [
+  'scatter',
+  'multi-scatter',
+  'quadrant',
+  'funnel',
+  'sankey',
+  'circle-packing'
+]
+// 不支持指标累加的图表
+export const notSupportAccumulateViews = [
+  ...quotaViews,
+  ...mapChartTypes,
+  ...distributionChartTypes,
+  ...relationChartTypes,
+  'table-info',
+  't-heatmap',
+  'percentage-bar-stack',
+  'percentage-bar-stack-horizontal',
+  'progress-bar',
+  'stock-line'
+]
 
 export function handleEmptyDataStrategy<O extends PickOptions>(chart: Chart, options: O): O {
   const { data } = options as unknown as Options
@@ -259,17 +294,23 @@ export function handleEmptyDataStrategy<O extends PickOptions>(chart: Chart, opt
     }
     return options
   }
-  const { yAxis, xAxisExt, extStack } = chart
+  const { yAxis, xAxisExt, extStack, extBubble } = chart
   const multiDimension = yAxis?.length >= 2 || xAxisExt?.length > 0 || extStack?.length > 0
   switch (strategy) {
     case 'breakLine': {
-      if (multiDimension) {
-        // 多维度保持空
-        if (isChartMix) {
-          for (let i = 0; i < data.length; i++) {
-            handleBreakLineMultiDimension(data[i] as Record<string, any>[])
+      if (isChartMix) {
+        if (data[0]) {
+          if (xAxisExt?.length > 0 || extStack?.length > 0) {
+            handleBreakLineMultiDimension(data[0] as Record<string, any>[])
           }
-        } else {
+        }
+        if (data[1]) {
+          if (extBubble?.length > 0) {
+            handleBreakLineMultiDimension(data[1] as Record<string, any>[])
+          }
+        }
+      } else {
+        if (multiDimension) {
           handleBreakLineMultiDimension(data)
         }
       }
@@ -279,22 +320,27 @@ export function handleEmptyDataStrategy<O extends PickOptions>(chart: Chart, opt
       }
     }
     case 'setZero': {
-      if (multiDimension) {
-        // 多维度置0
-        if (isChartMix) {
-          for (let i = 0; i < data.length; i++) {
-            handleSetZeroMultiDimension(data[i] as Record<string, any>[])
+      if (isChartMix) {
+        if (data[0]) {
+          if (xAxisExt?.length > 0 || extStack?.length > 0) {
+            handleSetZeroMultiDimension(data[0] as Record<string, any>[])
+          } else {
+            handleSetZeroSingleDimension(data[0] as Record<string, any>[])
           }
-        } else {
-          handleSetZeroMultiDimension(data)
+        }
+        if (data[1]) {
+          if (extBubble?.length > 0) {
+            handleSetZeroMultiDimension(data[1] as Record<string, any>[], true)
+          } else {
+            handleSetZeroSingleDimension(data[1] as Record<string, any>[], true)
+          }
         }
       } else {
-        // 单维度置0
-        if (isChartMix) {
-          for (let i = 0; i < data.length; i++) {
-            handleSetZeroSingleDimension(data[i] as Record<string, any>[])
-          }
+        if (multiDimension) {
+          // 多维度置0
+          handleSetZeroMultiDimension(data)
         } else {
+          // 单维度置0
           handleSetZeroSingleDimension(data)
         }
       }
@@ -340,7 +386,7 @@ function handleBreakLineMultiDimension(data) {
   })
 }
 
-function handleSetZeroMultiDimension(data: Record<string, any>[]) {
+function handleSetZeroMultiDimension(data: Record<string, any>[], isExt = false) {
   const dimensionInfoMap = new Map()
   const subDimensionSet = new Set()
   const quotaMap = new Map<string, { id: string }[]>()
@@ -348,6 +394,9 @@ function handleSetZeroMultiDimension(data: Record<string, any>[]) {
     const item = data[i]
     if (item.value === null) {
       item.value = 0
+      if (isExt) {
+        item.valueExt = 0
+      }
     }
     const dimensionInfo = dimensionInfoMap.get(item.field)
     if (dimensionInfo) {
@@ -364,12 +413,17 @@ function handleSetZeroMultiDimension(data: Record<string, any>[]) {
       let subInsertIndex = 0
       subDimensionSet.forEach(dimension => {
         if (!dimensionInfo.set.has(dimension)) {
-          data.splice(dimensionInfo.index + insertCount + subInsertIndex, 0, {
+          const _temp = {
             field,
             value: 0,
             category: dimension,
             quotaList: quotaMap.get(dimension as string)
-          })
+          } as any
+          if (isExt) {
+            _temp.valueExt = 0
+          }
+
+          data.splice(dimensionInfo.index + insertCount + subInsertIndex, 0, _temp)
         }
         subInsertIndex++
       })
@@ -378,10 +432,14 @@ function handleSetZeroMultiDimension(data: Record<string, any>[]) {
   })
 }
 
-function handleSetZeroSingleDimension(data: Record<string, any>[]) {
+function handleSetZeroSingleDimension(data: Record<string, any>[], isExt = false) {
   data.forEach(item => {
     if (item.value === null) {
-      item.value = 0
+      if (!isExt) {
+        item.value = 0
+      } else {
+        item.valueExt = 0
+      }
     }
   })
 }
@@ -445,19 +503,26 @@ export const isParent = (type: any, parentType: any) => {
   return false
 }
 
-export const getGeoJsonFile = async (areaId: string): Promise<FeatureCollection> => {
+export const getGeoJsonFile = async (
+  areaId: string,
+  useGlobalAreaMapping = false
+): Promise<FeatureCollection> => {
   const mapStore = useMapStoreWithOut()
   let geoJson = mapStore.mapCache[areaId]
-  if (!geoJson) {
+  if (!geoJson || useGlobalAreaMapping) {
     const res = await getGeoJson(areaId)
-    geoJson = res.data
+    geoJson = res?.data
     mapStore.setMap({ id: areaId, geoJson })
   }
   return toRaw(geoJson)
 }
 
-const getExcelDownloadRequest = data => {
-  const fields = JSON.parse(JSON.stringify(data.fields))
+const getExcelDownloadRequest = (data, type?) => {
+  let fields = JSON.parse(JSON.stringify(data.fields))
+  // liquid gauge 只需要导出一个字段
+  if (['gauge', 'liquid'].includes(type) && fields.length > 1) {
+    fields = fields.slice(1)
+  }
   const tableRow = JSON.parse(JSON.stringify(data.tableRow))
   const excelHeader = fields.map(item => item.chartShowName ?? item.name)
   const excelTypes = fields.map(item => item.deType)
@@ -494,13 +559,31 @@ const getExcelDownloadRequest = data => {
   }
 }
 
-export const exportExcelDownload = (chart, callBack?) => {
-  const excelName = chart.title
+function getChartExcelTitle(preFix, viewTitle) {
+  const now = new Date()
+  const pad = n => n.toString().padStart(2, '0')
+  const year = now.getFullYear()
+  const month = pad(now.getMonth() + 1) // 月份从 0 开始
+  const day = pad(now.getDate())
+  const hour = pad(now.getHours())
+  const minute = pad(now.getMinutes())
+  const second = pad(now.getSeconds())
+  return `${preFix}_${viewTitle}_${year}${month}${day}_${hour}${minute}${second}`
+}
+
+export const exportExcelDownload = (chart, preFix, callBack?) => {
+  const excelName = getChartExcelTitle(preFix, chart.title)
+  const viewInfo = toRaw(chart)
   let request: any = {
     proxy: null,
+    dvId: chart.sceneId,
     viewId: chart.id,
-    viewInfo: chart,
+    viewInfo: {
+      ...viewInfo,
+      customAttr: cloneDeep(viewInfo.customAttr)
+    },
     viewName: excelName,
+    busiFlag: chart.busiFlag,
     downloadType: chart.downloadType
   }
   if (chart.type.includes('chart-mix')) {
@@ -514,7 +597,7 @@ export const exportExcelDownload = (chart, callBack?) => {
       delete request.multiInfo
     }
   } else {
-    const req = getExcelDownloadRequest(chart.data)
+    const req = getExcelDownloadRequest(chart.data, chart.type)
     request = {
       ...request,
       ...req
@@ -526,13 +609,23 @@ export const exportExcelDownload = (chart, callBack?) => {
   }
 
   const linkStore = useLinkStoreWithOut()
+  const embeddedAsyncExport =
+    (isDataEaseBi.value || appStore.getIsIframe) &&
+    wsCache.get('embeddedExportMode-backend') === 'async'
 
   if (isDataEaseBi.value || appStore.getIsIframe) {
     request.dataEaseBi = true
   }
-  innerExportDetails(request)
+  const method = request.downloadType === 'dataset' ? innerExportDataSetDetails : innerExportDetails
+  if (request.viewInfo?.customAttr?.basicStyle?.tablePageMode) {
+    request.viewInfo.customAttr.basicStyle.tablePageMode = 'page'
+  }
+  method(request)
     .then(res => {
-      if (linkStore.getLinkToken || isDataEaseBi.value || appStore.getIsIframe) {
+      if (
+        linkStore.getLinkToken ||
+        ((isDataEaseBi.value || appStore.getIsIframe) && !embeddedAsyncExport)
+      ) {
         const blob = new Blob([res.data], { type: 'application/vnd.ms-excel' })
         const link = document.createElement('a')
         link.style.display = 'none'
@@ -552,19 +645,21 @@ export const exportExcelDownload = (chart, callBack?) => {
 }
 
 export const copyString = (content: string, notify = false) => {
-  const clipboard = navigator.clipboard || {
-    writeText: data => {
-      return new Promise(resolve => {
-        const inputDom = document.createElement('input')
-        inputDom.setAttribute('style', 'z-index: -1;position: fixed;opacity: 0;')
-        inputDom.setAttribute('type', 'text')
-        inputDom.setAttribute('value', data)
-        document.body.appendChild(inputDom)
-        inputDom.select()
-        document.execCommand('copy')
-        inputDom.remove()
-        resolve()
-      })
+  let clipboard = navigator.clipboard as Pick<Clipboard, 'writeText'>
+  if (!clipboard || window.top !== window.self) {
+    clipboard = {
+      writeText: data => {
+        return new Promise<void>(resolve => {
+          const textareaDom = document.createElement('textarea')
+          textareaDom.setAttribute('style', 'z-index: -1;position: fixed;opacity: 0;')
+          textareaDom.value = data
+          document.body.appendChild(textareaDom)
+          textareaDom.select()
+          document.execCommand('copy')
+          textareaDom.remove()
+          resolve()
+        })
+      }
     }
   }
   clipboard.writeText(content).then(() => {
@@ -746,7 +841,7 @@ export function getColor(chart: Chart) {
   }
 }
 
-export function setupSeriesColor(chart: ChartObj, data?: any[]): ChartBasicStyle['seriesColor'] {
+export function setupSeriesColor(chart: ChartObj): ChartBasicStyle['seriesColor'] {
   const result: ChartBasicStyle['seriesColor'] = []
   const seriesSet = new Set<string>()
   const colors = chart.customAttr.basicStyle.colors
@@ -859,6 +954,10 @@ export function getStackColor<O extends PickOptions = Options>(chart: Chart, opt
     const seriesSet = new Set()
     data?.forEach(d => d.category !== null && seriesSet.add(d.category))
     const tmp = [...seriesSet]
+    const values = options.meta?.category?.values
+    if (values?.length) {
+      tmp.sort((a, b) => values.indexOf(a) - values.indexOf(b))
+    }
     tmp.forEach((c, i) => {
       const curAxisColor = seriesMap[c as string]
       if (curAxisColor) {
@@ -899,10 +998,21 @@ export function setUpStackSeriesColor(
         return
       }
       seriesSet.add(d.category)
+    })
+    const cats = [...seriesSet]
+    const stackAxis = extStack[0]
+    if (stackAxis.sort === 'custom_sort' && stackAxis.customSort?.length) {
+      cats.sort((a, b) => {
+        const aIndex = stackAxis.customSort.indexOf(a)
+        const bIndex = stackAxis.customSort.indexOf(b)
+        return aIndex - bIndex
+      })
+    }
+    cats.forEach((c, i) => {
       result.push({
-        id: d.category,
-        name: d.category,
-        color: colors[(seriesSet.size - 1) % colors.length]
+        id: c,
+        name: c,
+        color: colors[i % colors.length]
       })
     })
   } else {
@@ -990,6 +1100,19 @@ export function isAlphaColor(color: string): boolean {
   return false
 }
 
+export function getColorFormAlphaColor(color: string): string {
+  if (isAlphaColor(color)) {
+    if (color.startsWith('#')) {
+      return color.slice(0, 7)
+    }
+    if (color.startsWith('rgb') || color.startsWith('RGB')) {
+      const list = color.split(',')
+      return list[0] + ',' + list[1] + ',' + list[2] + ')'
+    }
+  }
+  return color
+}
+
 export function isTransparent(color: string): boolean {
   if (!color?.trim()) {
     return true
@@ -1048,4 +1171,142 @@ export function svgStrToUrl(svgStr: string): string {
     }
   } catch (e) {}
   return file
+}
+
+/**
+ * 获取非空数据的最小值
+ * @param sourceData
+ * @param field
+ * @private
+ */
+export function filterEmptyMinValue(sourceData, field) {
+  let notEmptyMinValue = 0
+  getMaxAndMinValueByData(
+    sourceData.filter(item => item[field]),
+    'value',
+    0,
+    0,
+    (max, min) => {
+      notEmptyMinValue = min
+    }
+  )
+  return notEmptyMinValue
+}
+
+/**
+ * 获取折线条件样式
+ * @param chart
+ */
+export function getLineConditions(chart) {
+  const { threshold } = parseJson(chart.senior)
+  const conditions = []
+  if (threshold.enable) {
+    threshold.lineThreshold?.forEach(item =>
+      item.conditions?.forEach(c =>
+        conditions.push({
+          fieldId: item.fieldId,
+          term: c.term,
+          value: c.value,
+          color: c.color,
+          min: c.min,
+          max: c.max
+        })
+      )
+    )
+  }
+  return conditions
+}
+
+/**
+ * 根据折线阈值条件获取新的标签颜色
+ * @param conditions
+ * @param value
+ * @param fieldId
+ */
+export function getLineLabelColorByCondition(conditions, value, fieldId) {
+  const fieldConditions = conditions.filter(item => item.fieldId === fieldId)
+  let color = undefined
+  if (fieldConditions.length) {
+    fieldConditions.some(item => {
+      if (
+        (item.term === 'lt' && value < item.value) ||
+        (item.term === 'le' && value <= item.value) ||
+        (item.term === 'gt' && value > item.value) ||
+        (item.term === 'ge' && value >= item.value) ||
+        (item.term === 'between' && value >= item.min && value <= item.max)
+      ) {
+        color = item.color
+        return true
+      }
+    })
+  }
+  return color
+}
+
+/**
+ * 获取文本在画布中的测量信息
+ * @param chart 图表内容
+ * @param text 测量文本
+ * @param font 文本样式
+ * @param type 测量类型，高度宽度
+ **/
+export const measureText = (chart, text, font, type) => {
+  const container = document.getElementById(chart.container)
+  const canvas = container.querySelector('canvas')
+  const ctx = canvas.getContext('2d')
+  const { fontWeight, fontSize, fontFamily } = font
+  ctx.font = [fontWeight, `${fontSize}px`, fontFamily].join(' ').trim()
+  const textMetrics = ctx.measureText(text)
+  if (type === 'height') {
+    return textMetrics.actualBoundingBoxAscent + textMetrics.actualBoundingBoxDescent
+  }
+  if (type === 'width') {
+    return textMetrics.actualBoundingBoxRight + textMetrics.actualBoundingBoxLeft
+  }
+  return 0
+}
+
+/**
+ * 获取十六进制颜色值
+ * @param hex
+ * @param alpha
+ */
+export const hexToRgba = (hex, alpha = 1) => {
+  if (!hex.startsWith('#')) {
+    return hex
+  }
+  // 去掉 # 号
+  hex = hex.replace('#', '')
+  // 转换为 RGB 分量
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  const hexAlpha = hex.slice(6, 8)
+  const a = hexAlpha ? parseInt(hex.slice(6, 8), 16) / 255 : alpha
+  // 返回 RGBA 格式
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
+// 安全计算数值字段的总和，使用 Decimal 避免浮点数精度问题
+export function safeDecimalSum(data, field) {
+  // 使用 reduce 累加所有行的指定字段值
+  return data
+    .reduce((acc, row) => {
+      // 将字段值转换为 Decimal 类型并累加到累加器
+      return acc.plus(new Decimal(row[field] ?? 0))
+    }, new Decimal(0))
+    .toNumber() // 最终结果转换为普通数字返回
+}
+
+// 安全计算数值字段的平均值，使用 Decimal 避免浮点数精度问题
+export function safeDecimalMean(data, field) {
+  // 如果数据为空，直接返回 0
+  if (!data.length) return 0
+  // 计算所有行的指定字段值的总和
+  const sum = data.reduce((acc, row) => {
+    // 将字段值转换为 Decimal 类型并累加到累加器
+    return acc.plus(new Decimal(row[field] ?? 0))
+  }, new Decimal(0))
+  // 将总和除以数据行数，得到平均值，并转换为普通数字返回
+  return sum.dividedBy(data.length).toNumber()
 }

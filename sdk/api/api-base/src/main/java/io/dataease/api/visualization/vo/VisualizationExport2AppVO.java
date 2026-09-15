@@ -1,11 +1,10 @@
 package io.dataease.api.visualization.vo;
 
-import com.google.gson.Gson;
-import io.dataease.api.visualization.request.DataVisualizationBaseRequest;
 import lombok.Data;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class VisualizationExport2AppVO {
@@ -39,6 +38,8 @@ public class VisualizationExport2AppVO {
     List<VisualizationLinkageVO> linkages;
 
     List<VisualizationLinkageFieldVO> linkageFields;
+
+    Map<String,String> viewIdMap;
 
     public VisualizationExport2AppVO() {
 

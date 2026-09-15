@@ -10,8 +10,11 @@ import {
   PIE_EDITOR_PROPERTY_INNER
 } from './common'
 import {
+  configPlotTooltipEvent,
   getPadding,
-  getTooltipSeriesTotalMap
+  getTooltipContainer,
+  getTooltipSeriesTotalMap,
+  TOOLTIP_TPL
 } from '@/views/chart/components/js/panel/common/common_antv'
 import { parseJson, flow, setUpSingleDimensionSeriesColor } from '@/views/chart/components/js/util'
 import { Label } from '@antv/g2plot/lib/types/label'
@@ -37,6 +40,7 @@ export class Rose extends G2PlotChartView<RoseOptions, G2Rose> {
 
   async drawChart(drawOptions: G2PlotDrawOptions<G2Rose>): Promise<G2Rose> {
     const { chart, container, action } = drawOptions
+    this.configEmptyDataStyle(chart.data?.data, container, null, t('chart.no_data_or_not_positive'))
     if (!chart?.data?.data?.length) {
       return
     }
@@ -94,7 +98,7 @@ export class Rose extends G2PlotChartView<RoseOptions, G2Rose> {
     const plot = new G2Rose(container, options)
 
     plot.on('interval:click', action)
-
+    configPlotTooltipEvent(chart, plot)
     return plot
   }
 
@@ -213,7 +217,10 @@ export class Rose extends G2PlotChartView<RoseOptions, G2Rose> {
           }
         })
         return result
-      }
+      },
+      container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+      itemTpl: TOOLTIP_TPL,
+      enterable: true
     }
     return {
       ...options,

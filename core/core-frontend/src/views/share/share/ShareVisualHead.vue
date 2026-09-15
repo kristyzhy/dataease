@@ -5,13 +5,14 @@
     width="480"
     placement="bottom-end"
     :show-arrow="false"
-    :popper-class="`share-popover ${showTicket ? 'share-ticket-popover' : ''}`"
+    popper-class="share-popover"
     @show="share"
   >
     <template #reference>
       <el-button
         secondary
         v-if="props.weight >= 7"
+        :disabled="disabled"
         @click="openPopover"
         v-click-outside="clickOutPopover"
       >
@@ -23,12 +24,8 @@
         {{ t('visualization.share') }}
       </el-button>
     </template>
-    <div
-      v-if="!shareDisable"
-      class="share-container"
-      :class="{ 'hidden-link-container': showTicket }"
-    >
-      <div class="share-title share-padding">公共链接分享</div>
+    <div v-if="!shareDisable" class="share-container">
+      <div class="share-title share-padding">{{ t('work_branch.public_link_share') }}</div>
       <div class="open-share flex-align-center share-padding">
         <el-switch size="small" v-model="shareEnable" @change="enableSwitcher" />
         {{ shareTips }}
@@ -37,21 +34,62 @@
         <el-input
           ref="linkUuidRef"
           placeholder=""
-          :class="!linkCustom && 'maxW380'"
+          :class="!linkCustom ? 'link-input-readlonly' : ''"
           v-model="state.detailInfo.uuid"
-          :disabled="!linkCustom"
-          @blur="finishEditUuid"
+          :readonly="!linkCustom"
+          @blur="validateUuid"
         >
           <template v-if="!linkCustom" #prefix>
             {{ formatLinkBase() }}
           </template>
-        </el-input>
-        <el-button v-if="linkCustom" text @click.stop="finishEditUuid">完成</el-button>
-        <el-button v-else @click.stop="editUuid" size="default" plain>
-          <template #icon>
-            <icon name="icon_admin_outlined"><icon_admin_outlined class="svg-icon" /></icon>
+
+          <template #suffix>
+            <div class="share-input-suffix">
+              <span class="suffix-split" />
+              <div
+                class="input-suffix-btn edit-uuid-icon"
+                v-if="!linkCustom"
+                @click.stop="editUuid"
+              >
+                <el-tooltip
+                  class="item"
+                  effect="dark"
+                  :content="t('commons.edit') + t('chart.indicator_suffix')"
+                  placement="top"
+                >
+                  <el-icon class="edit-uuid-icon" style="cursor: pointer">
+                    <Icon class="edit-uuid-icon">
+                      <icon_edit_outlined class="svg-icon edit-uuid-icon" />
+                    </Icon>
+                  </el-icon>
+                </el-tooltip>
+              </div>
+              <div class="input-suffix-btn" v-if="linkCustom" @click.stop="resetUuid">
+                <el-tooltip
+                  class="item"
+                  effect="dark"
+                  :content="t('commons.cancel')"
+                  placement="top"
+                >
+                  <el-icon style="cursor: pointer">
+                    <Icon><icon_close_outlined class="svg-icon" /></Icon>
+                  </el-icon>
+                </el-tooltip>
+              </div>
+              <div
+                class="input-suffix-btn done-finish"
+                v-if="linkCustom"
+                @click.stop="finishEditUuid"
+              >
+                <el-tooltip class="item" effect="dark" :content="t('commons.save')" placement="top">
+                  <el-icon style="cursor: pointer">
+                    <Icon><icon_done_outlined class="svg-icon" /></Icon>
+                  </el-icon>
+                </el-tooltip>
+              </div>
+            </div>
           </template>
-        </el-button>
+        </el-input>
       </div>
       <div v-if="shareEnable" class="exp-container share-padding">
         <el-checkbox
@@ -70,7 +108,6 @@
         <div class="inline-share-item-picker">
           <el-date-picker
             :clearable="false"
-            size="small"
             class="share-exp-picker"
             v-if="state.detailInfo.exp"
             v-model="state.detailInfo.exp"
@@ -82,7 +119,7 @@
             :disabled-date="disabledDate"
             value-format="x"
           />
-          <span v-if="expError" class="exp-error">必须大于当前时间</span>
+          <span v-if="expError" class="exp-error">{{ t('work_branch.share_time_limit') }}</span>
         </div>
       </div>
       <div v-if="shareEnable" class="pwd-container share-padding">
@@ -101,6 +138,7 @@
         </el-checkbox>
         <div class="auto-pwd-container" v-if="passwdEnable">
           <el-checkbox
+            v-show="false"
             :disabled="!shareEnable"
             v-model="state.detailInfo.autoPwd"
             @change="autoEnableSwitcher"
@@ -110,44 +148,64 @@
         <div class="inline-share-item" v-if="passwdEnable">
           <el-input
             ref="pwdRef"
+            style="flex: 1"
+            class="link-input-readlonly"
             v-model="state.detailInfo.pwd"
             :readonly="state.detailInfo.autoPwd"
-            size="small"
-            @blur="validatePwdFormat"
           >
-            <template #append>
-              <div class="share-pwd-opt">
-                <div
-                  v-if="state.detailInfo.autoPwd"
-                  @click.stop="resetPwd"
-                  class="share-reset-container"
-                >
-                  <span>{{ t('commons.reset') }}</span>
+            <template #suffix>
+              <div class="share-input-suffix">
+                <span class="suffix-split" />
+                <div class="input-suffix-btn" @click="copyPwd">
+                  <el-tooltip
+                    class="item"
+                    effect="dark"
+                    :content="t('commons.copy')"
+                    placement="top"
+                  >
+                    <el-icon style="cursor: pointer">
+                      <Icon><deCopy class="svg-icon" /></Icon>
+                    </el-icon>
+                  </el-tooltip>
                 </div>
-                <div @click.stop="copyPwd" class="share-reset-container">
-                  <span>{{ t('commons.copy') }}</span>
+                <div class="input-suffix-btn" @click="resetPwd">
+                  <el-tooltip
+                    class="item"
+                    effect="dark"
+                    :content="t('commons.reset')"
+                    placement="top"
+                  >
+                    <el-icon style="cursor: pointer">
+                      <Icon><icon_refresh_outlined class="svg-icon" /></Icon>
+                    </el-icon>
+                  </el-tooltip>
                 </div>
               </div>
             </template>
           </el-input>
+
+          <el-button secondary @click="openPwdDialog">{{ t('user.change_password') }}</el-button>
         </div>
       </div>
 
       <el-divider v-if="shareEnable" class="share-divider" />
       <div v-if="shareEnable" class="share-foot share-padding">
-        <el-button secondary @click="openTicket">Ticket 设置</el-button>
+        <el-button secondary @click="openTicket">{{ t('work_branch.ticket_setting') }}</el-button>
         <el-button :disabled="!shareEnable || expError" type="primary" @click="copyInfo">
-          {{ t('visualization.copy_link') }}
+          {{ passwdEnable ? t('visualization.copy_link_passwd') : t('visualization.copy_link') }}
         </el-button>
       </div>
     </div>
     <div v-else class="share-container">
-      <div class="share-title share-padding">公共链接分享</div>
+      <div class="share-title share-padding">{{ t('work_branch.public_link_share') }}</div>
       <div class="open-share flex-align-center share-padding">
-        <span>已经开启全局禁用分享，分享功能暂不可用，请联系管理员！</span>
+        <span>{{ t('work_branch.cannot_share_link') }}</span>
       </div>
     </div>
-    <div v-if="!shareDisable && shareEnable && showTicket" class="share-ticket-container">
+  </el-popover>
+  <custom-link-pwd ref="customPwdRef" @pwd-change="customPwdChange" />
+  <ticket-dialog v-if="showTicket" ref="ticketDialogRef">
+    <div v-if="!shareDisable && shareEnable && showTicket">
       <share-ticket
         :uuid="state.detailInfo.uuid"
         :resource-id="props.resourceId"
@@ -156,12 +214,16 @@
         @close="closeTicket"
       />
     </div>
-  </el-popover>
+  </ticket-dialog>
 </template>
 
 <script lang="ts" setup>
 import icon_shareLabel_outlined from '@/assets/svg/icon_share-label_outlined.svg'
-import icon_admin_outlined from '@/assets/svg/icon_admin_outlined.svg'
+import icon_edit_outlined from '@/assets/svg/icon_edit_outlined.svg'
+import icon_close_outlined from '@/assets/svg/icon_close_outlined.svg'
+import icon_done_outlined from '@/assets/svg/icon_done_outlined.svg'
+import deCopy from '@/assets/svg/de-copy.svg'
+import icon_refresh_outlined from '@/assets/svg/icon_refresh_outlined.svg'
 import { useI18n } from '@/hooks/web/useI18n'
 import { ref, reactive, computed, nextTick, watch } from 'vue'
 import request from '@/config/axios'
@@ -172,6 +234,8 @@ import useClipboard from 'vue-clipboard3'
 import ShareTicket from './ShareTicket.vue'
 import { useEmbedded } from '@/store/modules/embedded'
 import { useShareStoreWithOut } from '@/store/modules/share'
+import CustomLinkPwd from './CustomLinkPwd.vue'
+import TicketDialog from './TicketDialog.vue'
 const shareStore = useShareStoreWithOut()
 const embeddedStore = useEmbedded()
 const { toClipboard } = useClipboard()
@@ -179,7 +243,8 @@ const { t } = useI18n()
 const props = defineProps({
   resourceId: propTypes.string.def(''),
   resourceType: propTypes.string.def(''),
-  weight: propTypes.number.def(0)
+  weight: propTypes.number.def(0),
+  disabled: propTypes.bool.def(false)
 })
 const popoverVisible = ref(false)
 const pwdRef = ref(null)
@@ -194,6 +259,9 @@ const expError = ref(false)
 const linkCustom = ref(false)
 const linkUuidRef = ref(null)
 const showTicket = ref(false)
+const originUuid = ref('')
+const customPwdRef = ref()
+const ticketDialogRef = ref()
 const state = reactive({
   detailInfo: {
     id: '',
@@ -207,6 +275,14 @@ const state = reactive({
 watch(
   () => props.resourceId,
   () => {
+    shareEnable.value = false
+    state.detailInfo = {
+      id: '',
+      uuid: '',
+      pwd: '',
+      exp: 0,
+      autoPwd: true
+    }
     popoverVisible.value = false
   }
 )
@@ -221,15 +297,21 @@ const hideShare = async () => {
       return
     }
   }
-  const pwdValid = validatePwdFormat()
   const uuidValid = await validateUuid()
-  if (pwdValid && uuidValid) {
+  if (uuidValid) {
+    linkCustom.value = false
     popoverVisible.value = false
     return
   }
 }
+
 const clickOutPopover = e => {
-  if (!popoverVisible.value || e.target.closest('[class*="share-popover"]')) {
+  if (
+    !popoverVisible.value ||
+    e.target.closest('[class*="share-popover"]') ||
+    e.target.closest('[class*="ed-overlay-dialog"]') ||
+    e.target.classList?.toString()?.includes('edit-uuid-icon')
+  ) {
     return
   }
   hideShare()
@@ -242,7 +324,11 @@ const openPopover = () => {
 }
 const shareTips = computed(
   () =>
-    `开启后，用户可以通过该链接访问${props.resourceType === 'dashboard' ? '仪表板' : '数据大屏'}`
+    `${t('work_branch.open_link_hint')}${
+      props.resourceType === 'dashboard'
+        ? t('work_branch.dashboard')
+        : t('work_branch.big_data_screen')
+    }`
 )
 const shareDisable = computed(() => shareStore.getShareDisable)
 const sharePeRequire = computed(() => shareStore.getSharePeRequire)
@@ -251,11 +337,25 @@ const copyInfo = async () => {
   if (shareEnable.value) {
     try {
       if (existErrorMsg('link-uuid-error-msg')) {
-        ElMessage.warning('链接格式错误，请重新填写！')
+        ElMessage.warning(t('work_branch.error_link_hint'))
         return
       }
+      if (passwdEnable.value && !state.detailInfo.autoPwd && existErrorMsg('link-pwd-error-msg')) {
+        ElMessage.warning(t('work_branch.error_password_hint'))
+        return
+      }
+      if (sharePeRequire.value) {
+        const peRequireValid = validatePeRequire()
+        if (!peRequireValid) {
+          return
+        }
+      }
       formatLinkAddr()
-      await toClipboard(linkAddr.value)
+      let info = linkAddr.value
+      if (passwdEnable.value) {
+        info += `,${state.detailInfo.pwd}`
+      }
+      await toClipboard(info)
       ElMessage.success(t('common.copy_success'))
     } catch (e) {
       ElMessage.warning(t('common.copy_unsupported'))
@@ -289,6 +389,9 @@ const loadShareInfo = cb => {
     .get({ url })
     .then(res => {
       state.detailInfo = { ...res.data }
+      if (res.data?.uuid) {
+        originUuid.value = res.data.uuid
+      }
       setPageInfo()
     })
     .finally(() => {
@@ -326,8 +429,7 @@ const formatLinkBase = () => {
   if (embeddedStore.baseUrl) {
     prefix = embeddedStore.baseUrl + '#'
   } else {
-    const href = window.location.href
-    prefix = href.substring(0, href.indexOf('#') + 1)
+    prefix = window.location.origin + window.location.pathname + '#'
   }
   if (prefix.includes('oidcbi/') || prefix.includes('casbi/')) {
     prefix = prefix.replace('oidcbi/', '')
@@ -422,7 +524,7 @@ const validateExpRequire = () => {
     showCheckboxError(null, expCheckbox)
     return true
   }
-  showCheckboxError('必填', expCheckbox)
+  showCheckboxError(t('common.required'), expCheckbox)
   return false
 }
 
@@ -431,27 +533,8 @@ const validatePwdRequire = () => {
     showCheckboxError(null, pwdCheckbox)
     return true
   }
-  showCheckboxError('必填', pwdCheckbox)
+  showCheckboxError(t('common.required'), pwdCheckbox)
   return false
-}
-const validatePwdFormat = () => {
-  if (!shareEnable.value || !passwdEnable.value || state.detailInfo.autoPwd) {
-    showPageError(null, pwdRef)
-    return true
-  }
-  const val = state.detailInfo.pwd
-  if (!val) {
-    showPageError('密码不能为空，请重新输入！', pwdRef)
-    return false
-  }
-  const regex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*()_+])[A-Za-z\d!@#$%^&*()_+]{4,10}$/
-  if (!regex.test(val)) {
-    showPageError('密码必须是包含数字、字母、特殊字符[!@#$%^&*()_+]的4-10位字符串', pwdRef)
-    return false
-  }
-  showPageError(null, pwdRef)
-  resetPwdHandler(val, false)
-  return true
 }
 const showCheckboxError = (msg, target, className?: string) => {
   if (!target.value) {
@@ -530,7 +613,7 @@ const autoEnableSwitcher = val => {
 const copyPwd = async () => {
   if (shareEnable.value && passwdEnable.value) {
     if (!state.detailInfo.autoPwd && existErrorMsg('link-pwd-error-msg')) {
-      ElMessage.warning('密码格式错误，请重新填写！')
+      ElMessage.warning(t('work_branch.error_password_hint'))
       return
     }
     try {
@@ -555,13 +638,13 @@ const validateUuid = async () => {
   const val = state.detailInfo.uuid
   const className = 'link-uuid-error-msg'
   if (!val) {
-    showPageError('不能为空！', linkUuidRef, className)
+    showPageError(t('commons.cannot_be_null'), linkUuidRef, className)
     return false
   }
   const regex = /^[a-zA-Z0-9]{8,16}$/
   const result = regex.test(val)
   if (!result) {
-    showPageError('仅支持8-16位(字母数字)，请重新输入！', linkUuidRef, className)
+    showPageError(t('work_branch.uuid_checker'), linkUuidRef, className)
   } else {
     const msg = await uuidValidateApi(val)
     showPageError(msg, linkUuidRef, className)
@@ -580,12 +663,22 @@ const finishEditUuid = async () => {
   const uuidValid = await validateUuid()
   linkCustom.value = !uuidValid
 }
-
+const resetUuid = event => {
+  event.stopPropagation()
+  state.detailInfo.uuid = originUuid.value
+  finishEditUuid()
+}
 const openTicket = () => {
   showTicket.value = true
+  nextTick(() => {
+    ticketDialogRef.value.open()
+  })
 }
 const closeTicket = () => {
-  showTicket.value = false
+  ticketDialogRef.value.close()
+  nextTick(() => {
+    showTicket.value = false
+  })
 }
 const updateRequireTicket = val => {
   state.detailInfo.ticketRequire = val
@@ -594,27 +687,26 @@ const updateRequireTicket = val => {
 const execute = () => {
   share()
 }
+
+const openPwdDialog = () => {
+  customPwdRef.value.open(state.detailInfo.pwd)
+}
+const customPwdChange = val => {
+  state.detailInfo.pwd = val
+  resetPwdHandler(val, false)
+}
 defineExpose({
   execute
 })
 </script>
 
 <style lang="less">
-.share-popover:not(.share-ticket-popover) {
+.share-popover {
   padding: 16px 0px !important;
-}
-.share-ticket-popover {
-  padding: 0 !important;
 }
 </style>
 
 <style lang="less" scoped>
-.hidden-link-container {
-  display: none;
-}
-.share-ticket-container {
-  padding: 16px;
-}
 .share-container {
   .share-title {
     font-weight: 500;
@@ -702,35 +794,17 @@ defineExpose({
   }
 }
 .inline-share-item {
-  margin-left: 25px;
   width: 220px;
+  display: inline-flex;
+  column-gap: 12px;
+  margin-left: 25px;
+  width: 332px;
 
   :deep(.ed-input-group__append) {
     width: initial !important;
     background: none;
     color: #1f2329;
     padding: 0px 0px !important;
-
-    .share-pwd-opt {
-      display: flex;
-      padding: 1px;
-      .share-reset-container {
-        &:not(:first-child) {
-          border-left: 1px solid var(--ed-input-border-color) !important;
-        }
-        width: 45px;
-        display: flex;
-        justify-content: center;
-        &:hover {
-          cursor: pointer;
-          background-color: #f5f6f7;
-        }
-        &:active {
-          cursor: pointer;
-          background-color: #eff0f1;
-        }
-      }
-    }
   }
   :deep(.link-pwd-error-msg) {
     color: red;
@@ -741,6 +815,54 @@ defineExpose({
     top: 21px;
     width: 350px;
     left: 0px;
+  }
+}
+
+.share-input-suffix {
+  display: flex;
+  height: 30px;
+  line-height: 30px;
+  column-gap: 4px;
+  align-items: center;
+  .suffix-split {
+    height: 30px;
+    width: 1px;
+    display: inline-block;
+    background-color: #bbbfc4;
+    margin-right: 4px;
+  }
+  .done-finish {
+    color: var(--ed-color-primary, #3370ff);
+    &:hover {
+      background-color: var(--ed-color-primary-1a, #3370ff1a) !important;
+    }
+  }
+  .input-suffix-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    &:hover {
+      background-color: #1f23291a;
+    }
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+}
+.link-input-readlonly {
+  :deep(.ed-input__wrapper) {
+    background-color: rgba(0, 0, 0, 0.1);
+    color: #8f959e;
+    &:hover {
+      box-shadow: 0 0 0 1px var(--ed-input-border-color, var(--ed-border-color)) inset;
+    }
+    input {
+      color: #646a73;
+    }
   }
 }
 </style>

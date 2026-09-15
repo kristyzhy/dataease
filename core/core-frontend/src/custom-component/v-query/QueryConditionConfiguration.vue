@@ -20,13 +20,23 @@ import {
   watch,
   defineAsyncComponent,
   provide,
+  onUnmounted,
   unref
 } from 'vue'
 import { storeToRefs } from 'pinia'
+import { enumValueObj } from '@/api/dataset'
+import CustomSortFilter from './CustomSortFilter.vue'
 import { addQueryCriteriaConfig } from './options'
 import { getCustomTime } from './time-format'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
-import { getThisStart, getLastStart, getAround, getCustomRange } from './time-format-dayjs'
+import {
+  getThisStart,
+  getThisEnd,
+  getLastStart,
+  getAround,
+  getAroundStart,
+  getCustomRange
+} from './time-format-dayjs'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import { useI18n } from '@/hooks/web/useI18n'
 import { fieldType } from '@/utils/attr'
@@ -46,6 +56,7 @@ import { iconChartMap } from '@/components/icon-group/chart-list'
 import { iconFieldMap } from '@/components/icon-group/field-list'
 import treeSort from '@/utils/treeSortUtils'
 import { useCache } from '@/hooks/web/useCache'
+import { cancelAllRequest } from '@/config/axios/service'
 
 const { t } = useI18n()
 const { wsCache } = useCache()
@@ -83,7 +94,6 @@ const activeConditionForRename = reactive({
 })
 const datasetMap = {}
 const snapshotStore = snapshotStoreWithOut()
-
 const dfsComponentData = () => {
   let arr = componentData.value.filter(
     com => !['VQuery', 'DeTabs'].includes(com.innerType) && com.component !== 'Group'
@@ -97,6 +107,17 @@ const dfsComponentData = () => {
             com => !['VQuery', 'DeTabs'].includes(com.innerType) && com.component !== 'Group'
           )
         ]
+
+        itx.componentData.forEach(j => {
+          if (j.component === 'Group') {
+            arr = [
+              ...arr,
+              j.propValue.filter(
+                com => !['VQuery', 'DeTabs'].includes(com.innerType) && com.component !== 'Group'
+              )
+            ]
+          }
+        })
       })
     } else if (ele.component === 'Group') {
       arr = [
@@ -195,7 +216,6 @@ const showTypeError = computed(() => {
     }
   }
   let displayTypeField = null
-  let hasParameterTimeArrType = 0
   let hasParameterNumArrType = 0
   let allNum =
     curComponent.value.checkedFields.every(id => {
@@ -234,32 +254,6 @@ const showTypeError = computed(() => {
       }
     }
 
-    if (
-      curComponent.value.checkedFieldsMapArr?.[id]?.length &&
-      ['7', '1'].includes(curComponent.value.displayType)
-    ) {
-      if (hasParameterTimeArrType === 0) {
-        hasParameterTimeArrType = 1
-      }
-
-      if (hasParameterTimeArrType === 2) {
-        return true
-      }
-    }
-
-    if (
-      !curComponent.value.checkedFieldsMapArr?.[id]?.length &&
-      ['7', '1'].includes(curComponent.value.displayType) &&
-      !!curComponent.value.parameters.length
-    ) {
-      if (hasParameterTimeArrType === 0) {
-        hasParameterTimeArrType = 2
-      }
-
-      if (hasParameterTimeArrType === 1) {
-        return true
-      }
-    }
     const arr = fields.value.find(ele => ele.componentId === id)
     const checkId = curComponent.value.checkedFieldsMap?.[id]
     const field = duplicateRemoval(Object.values(arr?.fields || {}).flat()).find(
@@ -271,16 +265,14 @@ const showTypeError = computed(() => {
       return false
     }
     if (displayTypeField?.deType === field?.deType && displayTypeField?.deType === 1) {
+      if (!Array.isArray(field.type) || !Array.isArray(displayTypeField.type)) {
+        return false
+      }
       if (!displayTypeField.type?.length && !field.type?.length) {
         return false
       }
       if (displayTypeField.type?.length !== field.type?.length) {
         return true
-      }
-      for (let index = 0; index < displayTypeField.type.length; index++) {
-        if (displayTypeField.type[index] !== field.type[index]) {
-          return true
-        }
       }
     }
     return [2, 3].includes(field?.deType) && [2, 3].includes(displayTypeField.deType)
@@ -289,29 +281,13 @@ const showTypeError = computed(() => {
   })
 })
 
-const showDatasetError = computed(() => {
-  if (!curComponent.value || curComponent.value.displayType !== '9') return false
-  if (!curComponent.value.checkedFields?.length) return false
-  if (!fields.value?.length) return false
-  let displayField = null
-  return curComponent.value.checkedFields.some(id => {
-    const arr = fields.value.find(itx => itx.componentId === id)
-    const field = arr.id
-    if (!field) return false
-    if (displayField === null) {
-      displayField = field
-      return false
-    }
-    return displayField !== field
-  })
-})
 const typeList = [
   {
-    label: '重命名',
+    label: t('data_fill.rename'),
     command: 'rename'
   },
   {
-    label: '删除',
+    label: t('data_fill.delete'),
     command: 'del'
   }
 ]
@@ -319,49 +295,9 @@ const typeList = [
 const handleCheckAllChange = (val: boolean) => {
   curComponent.value.checkedFields = val ? fields.value.map(ele => ele.componentId) : []
   isIndeterminate.value = false
+  val && setSameId()
 }
 
-const setTreeDefault = () => {
-  if (!!curComponent.value.checkedFields.length) {
-    let checkId = ''
-    let tableId = ''
-    let comId = ''
-    fields.value.forEach(ele => {
-      if (
-        curComponent.value.checkedFields.includes(ele.componentId) &&
-        curComponent.value.checkedFieldsMap[ele.componentId] &&
-        !checkId
-      ) {
-        checkId = curComponent.value.checkedFieldsMap[ele.componentId]
-        comId = ele.componentId
-        tableId = datasetFieldList.value.find(itx => itx.id === ele.componentId)?.tableId
-      }
-    })
-    if (checkId && tableId) {
-      const componentObj = fields.value.find(ele => ele.componentId === comId)
-      const fieldArr =
-        curComponent.value.optionValueSource === 0
-          ? componentObj?.fields?.dimensionList
-          : (fields.value.find(itx => itx.id === tableId) || {}).fields?.dimensionList
-      fields.value.forEach(ele => {
-        if (curComponent.value.checkedFields.includes(ele.componentId)) {
-          if (datasetFieldList.value.find(itx => itx.id === ele.componentId)?.tableId === tableId) {
-            curComponent.value.checkedFieldsMap[ele.componentId] = checkId
-          }
-        }
-      })
-      const fieldObj = fieldArr.find(element => element.id === checkId)
-      if (!!curComponent.value.treeFieldList.length) {
-        const [fir] = curComponent.value.treeFieldList
-        if (fir && fir.field !== checkId) {
-          curComponent.value.treeFieldList = [fieldObj]
-        }
-      } else if (fieldObj) {
-        curComponent.value.treeFieldList = [fieldObj]
-      }
-    }
-  }
-}
 const handleCheckedFieldsChange = (value: string[]) => {
   handleDialogClick()
   const checkedCount = value.length
@@ -370,28 +306,52 @@ const handleCheckedFieldsChange = (value: string[]) => {
   if (curComponent.value.displayType === '8') return
   setType()
 }
+const setSameId = () => {
+  const comIdMap = {}
+  Object.keys(curComponent.value.checkedFieldsMap).forEach(ele => {
+    if (curComponent.value.checkedFieldsMap[ele]) {
+      fields.value.forEach(itx => {
+        if (
+          itx.componentId === ele &&
+          curComponent.value.checkedFields?.includes(itx.componentId)
+        ) {
+          comIdMap[itx.id] = curComponent.value.checkedFieldsMap[itx.componentId]
+          comIdMap[`active-${itx.id}`] = itx.activelist
+        }
+      })
+    }
+  })
 
+  Object.keys(curComponent.value.checkedFieldsMap).forEach(ele => {
+    if (!curComponent.value.checkedFieldsMap[ele]) {
+      fields.value.forEach(itx => {
+        if (
+          itx.componentId === ele &&
+          curComponent.value.checkedFields?.includes(itx.componentId) &&
+          comIdMap[itx.id]
+        ) {
+          curComponent.value.checkedFieldsMap[itx.componentId] = comIdMap[itx.id]
+          itx.activelist = comIdMap[`active-${itx.id}`]
+        }
+      })
+    }
+  })
+}
 const handleCheckedFieldsChangeTree = (value: string[]) => {
   handleDialogClick()
   const checkedCount = value.length
   checkAll.value = checkedCount === fields.value.length
   isIndeterminate.value = checkedCount > 0 && checkedCount < fields.value.length
+  setSameId()
   if (curComponent.value.displayType === '8') return
-  if (curComponent.value.displayType === '9') {
-    setTreeDefault()
-    return
-  }
+  setTreeDefault()
+  setRelationBack()
   setType()
 }
 
 const isParametersDisable = item => {
   let isDisabled = false
-  if (!isNumParameter.value) {
-    for (let index = 0; index < notTimeRangeType.value.length; index++) {
-      if (notTimeRangeType.value[index] !== item.type?.[index]) {
-        isDisabled = true
-      }
-    }
+  if (!isNumParameter.value && isTimeParameter.value) {
     if (notTimeRangeType.value.length && item.deType !== 1) {
       isDisabled = true
     }
@@ -531,6 +491,44 @@ const timeTypeChange = () => {
   setParametersTimeType(currentComponentId)
   setTypeChange()
   timeDialogShow.value = false
+}
+
+const setTreeDefault = () => {
+  if (curComponent.value.displayType !== '9' || relationshipChartIndex.value !== 0) return
+  if (!!curComponent.value.checkedFields.length) {
+    let tableId = ''
+    fields.value.forEach(ele => {
+      if (
+        curComponent.value.checkedFields.includes(ele.componentId) &&
+        curComponent.value.checkedFieldsMap[ele.componentId] &&
+        !tableId
+      ) {
+        tableId = datasetFieldList.value.find(itx => itx.id === ele.componentId)?.tableId
+      }
+    })
+    if (tableId && !curComponent.value.treeDatasetId) {
+      curComponent.value.treeDatasetId = tableId
+      getOptions(curComponent.value.treeDatasetId, curComponent.value)
+    }
+  }
+}
+
+const setTreeDefaultBatch = ele => {
+  if (!!ele.checkedFields.length) {
+    let tableId = ''
+    fields.value.forEach(ele => {
+      if (
+        ele.checkedFields.includes(ele.componentId) &&
+        ele.checkedFieldsMap[ele.componentId] &&
+        !tableId
+      ) {
+        tableId = datasetFieldList.value.find(itx => itx.id === ele.componentId)?.tableId
+      }
+    })
+    if (tableId && !ele.treeDatasetId) {
+      ele.treeDatasetId = tableId
+    }
+  }
 }
 
 const numTypeChange = () => {
@@ -684,13 +682,31 @@ const setParameters = field => {
     Object.values(field?.fields || {})
       .flat()
       .filter(ele => fieldArr.includes(ele.id) && !!ele.variableName)
+      .concat(curComponent.value.parameters.filter(ele => fieldArr.includes(ele.id)))
   )
+  fields.value.forEach(ele => {
+    if (
+      ele.id === field.id &&
+      curComponent.value.checkedFields?.includes(ele.componentId) &&
+      !curComponent.value.checkedFieldsMap[ele.componentId]
+    ) {
+      ele.activelist = field.activelist
+      curComponent.value.checkedFieldsMap[ele.componentId] =
+        curComponent.value.checkedFieldsMap[field.componentId]
+    }
+  })
+
+  const notChangeType =
+    curComponent.value.checkedFields.some(ele => {
+      return (
+        curComponent.value.checkedFieldsMapStart[ele] || curComponent.value.checkedFieldsMapEnd[ele]
+      )
+    }) && +curComponent.value.displayType === 7
   nextTick(() => {
-    if (isTimeParameter.value) {
+    if (isTimeParameter.value && !notChangeType) {
+      const timeParameter = curComponent.value.parameters.find(ele => ele.deType === 1)
       curComponent.value.timeGranularity =
-        typeTimeMap[
-          curComponent.value.parameters[0].type[1] || curComponent.value.parameters[0].type[0]
-        ]
+        typeTimeMap[timeParameter.type[1] || timeParameter.type[0]]
       curComponent.value.displayType = '1'
     }
 
@@ -717,11 +733,11 @@ const setParameters = field => {
     }
     setTypeChange()
   })
-  setType()
 
-  if (curComponent.value.displayType === '9') {
-    setTreeDefault()
-  }
+  if (notChangeType) return
+  setType()
+  setTreeDefault()
+  setRelationBack()
 }
 
 const setType = () => {
@@ -735,7 +751,10 @@ const setType = () => {
 
     if (field?.deType !== undefined) {
       let displayType = curComponent.value.displayType
-      if (['9', '22'].includes(curComponent.value.displayType)) {
+      if (['22'].includes(curComponent.value.displayType) && [2, 3].includes(field?.deType)) {
+        return
+      }
+      if (['9'].includes(curComponent.value.displayType)) {
         return
       }
       if (!(field?.deType === 1 && curComponent.value.displayType === '7')) {
@@ -753,6 +772,38 @@ const setType = () => {
       }
     }
   }
+
+  if (
+    curComponent.value.checkedFields.some(ele => {
+      return (
+        curComponent.value.checkedFieldsMapStart[ele] || curComponent.value.checkedFieldsMapEnd[ele]
+      )
+    }) &&
+    +curComponent.value.displayType === 1
+  ) {
+    curComponent.value.displayType = '7'
+  }
+}
+
+let oldDisplayType
+
+const handleSetTypeChange = () => {
+  let displayType = curComponent.value.displayType
+  if (oldDisplayType === '9' && ['0', '8'].includes(displayType)) {
+    curComponent.value.displayType = '9'
+    ElMessageBox.confirm(t('common.changing_the_display'), {
+      confirmButtonType: 'primary',
+      type: 'warning',
+      cancelButtonText: t('common.cancel'),
+      autofocus: false,
+      showClose: false
+    }).then(() => {
+      curComponent.value.displayType = displayType
+      setTypeChange()
+    })
+  } else {
+    setTypeChange()
+  }
 }
 
 const setTypeChange = () => {
@@ -768,10 +819,13 @@ const setTypeChange = () => {
     ) {
       curComponent.value.timeGranularityMultiple = curComponent.value.timeGranularity
     }
-
-    if (curComponent.value.displayType === '9') {
-      setTreeDefault()
+    setTreeDefault()
+    setRelationBack()
+    if (curComponent.value.displayType === '0' && curComponent.value.treeFieldList?.length) {
+      curComponent.value.treeFieldList = []
+      curComponent.value.treeCheckedList = []
     }
+    oldDisplayType = curComponent.value.displayType
   })
 }
 
@@ -831,19 +885,19 @@ const notTimeRangeType = computed(() => {
 
 const timeList = [
   {
-    label: '年',
+    label: t('dynamic_time.year'),
     value: 'year'
   },
   {
-    label: '年月',
+    label: t('chart.y_M'),
     value: 'month'
   },
   {
-    label: '年月日',
+    label: t('chart.y_M_d'),
     value: 'date'
   },
   {
-    label: '年月日时分秒',
+    label: t('chart.y_M_d_H_m_s'),
     value: 'datetime'
   }
 ]
@@ -924,17 +978,14 @@ const confirmIdChange = () => {
 const handleDatasetChange = () => {
   if (!!newDatasetId && !!oldDatasetId) {
     curComponent.value.dataset.id = oldDatasetId
-    ElMessageBox.confirm(
-      '数据集的修改，会导致级联配置失效，因此对应的级联关系将被清除，确定修改吗？',
-      {
-        confirmButtonType: 'primary',
-        type: 'warning',
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        autofocus: false,
-        showClose: false
-      }
-    ).then(() => {
+    ElMessageBox.confirm(t('v_query.to_modify_it'), {
+      confirmButtonType: 'primary',
+      type: 'warning',
+      confirmButtonText: t('commons.confirm'),
+      cancelButtonText: t('commons.cancel'),
+      autofocus: false,
+      showClose: false
+    }).then(() => {
       confirmIdChange()
     })
     return
@@ -943,6 +994,14 @@ const handleDatasetChange = () => {
   curComponent.value.displayId = ''
   curComponent.value.sortId = ''
   getOptions(curComponent.value.dataset.id, curComponent.value)
+}
+
+const handleDatasetTreeChange = () => {
+  curComponent.value.treeFieldList = []
+  curComponent.value.treeCheckedList = []
+  relationshipChartIndex.value = 0
+  curComponent.value.oldTreeLoad = true
+  getOptions(curComponent.value.treeDatasetId, curComponent.value)
 }
 
 const handleFieldChange = () => {
@@ -956,6 +1015,25 @@ const handleFieldChange = () => {
 const handleValueSourceChange = () => {
   curComponent.value.defaultValue = curComponent.value.multiple ? [] : undefined
   multipleChange(curComponent.value.multiple)
+  if (curComponent.value.optionValueSource === 1 && !curComponent.value.dataset.id) {
+    let id = ''
+    let comId = ''
+    Object.keys(curComponent.value.checkedFieldsMap).forEach(ele => {
+      if (curComponent.value.checkedFieldsMap[ele]) {
+        comId = ele
+        id = curComponent.value.checkedFieldsMap[ele]
+      }
+    })
+    fields.value.forEach(ele => {
+      if (ele.componentId === comId) {
+        curComponent.value.dataset.id = ele.id
+      }
+    })
+    curComponent.value.displayId = id
+    curComponent.value.sortId = id
+    curComponent.value.field.id = id
+    getOptions(curComponent.value.dataset.id, curComponent.value)
+  }
 }
 
 const multipleChange = (val: boolean, isMultipleChange = false) => {
@@ -988,10 +1066,12 @@ const isInRange = (ele, startWindowTime, timeStamp) => {
     dynamicWindow,
     maximumSingleQuery,
     timeNumRange,
+    relativeToCurrentRange,
     relativeToCurrentTypeRange,
     aroundRange
   } = ele.timeRange || {}
   let isDynamicWindowTime = false
+
   const noTime = ele.timeGranularityMultiple.split('time').join('').split('range')[0]
   const queryTimeType = noTime === 'date' ? 'day' : (noTime as ManipulateType)
   if (startWindowTime && dynamicWindow) {
@@ -1010,7 +1090,7 @@ const isInRange = (ele, startWindowTime, timeStamp) => {
   }
   let startTime
   if (relativeToCurrent === 'custom') {
-    startTime = getAround(relativeToCurrentType, around === 'f' ? 'subtract' : 'add', timeNum)
+    startTime = getAroundStart(relativeToCurrentType, around === 'f' ? 'subtract' : 'add', timeNum)
   } else {
     switch (relativeToCurrent) {
       case 'thisYear':
@@ -1025,6 +1105,12 @@ const isInRange = (ele, startWindowTime, timeStamp) => {
       case 'lastMonth':
         startTime = getLastStart('month')
         break
+      case 'thisQuarter':
+        startTime = getThisStart('quarter')
+        break
+      case 'thisWeek':
+        startTime = getThisStart('week')
+        break
       case 'today':
         startTime = getThisStart('day')
         break
@@ -1034,6 +1120,9 @@ const isInRange = (ele, startWindowTime, timeStamp) => {
       case 'monthBeginning':
         startTime = getThisStart('month')
         break
+      case 'monthEnd':
+        startTime = getThisEnd('month')
+        break
       case 'yearBeginning':
         startTime = getThisStart('year')
         break
@@ -1042,6 +1131,7 @@ const isInRange = (ele, startWindowTime, timeStamp) => {
         break
     }
   }
+
   const startValue = regularOrTrends === 'fixed' ? regularOrTrendsValue : startTime
   if (intervalType === 'start') {
     return startWindowTime < +new Date(startValue) || isDynamicWindowTime
@@ -1052,22 +1142,27 @@ const isInRange = (ele, startWindowTime, timeStamp) => {
   }
 
   if (intervalType === 'timeInterval') {
-    const startTime =
-      regularOrTrends === 'fixed'
-        ? new Date(
-            dayjs(new Date(regularOrTrendsValue[0])).startOf(noTime).format('YYYY/MM/DD HH:mm:ss')
-          )
-        : getAround(relativeToCurrentType, around === 'f' ? 'subtract' : 'add', timeNum)
-    const endTime =
-      regularOrTrends === 'fixed'
-        ? new Date(
-            dayjs(new Date(regularOrTrendsValue[1])).endOf(noTime).format('YYYY/MM/DD HH:mm:ss')
-          )
-        : getAround(
-            relativeToCurrentTypeRange,
-            aroundRange === 'f' ? 'subtract' : 'add',
-            timeNumRange
-          )
+    let endTime
+    if (relativeToCurrentRange === 'custom') {
+      startTime =
+        regularOrTrends === 'fixed'
+          ? new Date(
+              dayjs(new Date(regularOrTrendsValue[0])).startOf(noTime).format('YYYY/MM/DD HH:mm:ss')
+            )
+          : getAroundStart(relativeToCurrentType, around === 'f' ? 'subtract' : 'add', timeNum)
+      endTime =
+        regularOrTrends === 'fixed'
+          ? new Date(
+              dayjs(new Date(regularOrTrendsValue[1])).endOf(noTime).format('YYYY/MM/DD HH:mm:ss')
+            )
+          : getAround(
+              relativeToCurrentTypeRange,
+              aroundRange === 'f' ? 'subtract' : 'add',
+              timeNumRange
+            )
+    } else {
+      ;[startTime, endTime] = getCustomRange(relativeToCurrentRange)
+    }
 
     return (
       startWindowTime < +new Date(startTime) - 1000 ||
@@ -1081,21 +1176,27 @@ const CascadeDialog = defineAsyncComponent(() => import('./QueryCascade.vue'))
 const cascadeDialog = ref()
 const openCascadeDialog = () => {
   const cascadeMap = conditions.value
-    .filter(
-      ele =>
-        [0, 2, 5].includes(+ele.displayType) &&
-        ele.optionValueSource === 1 &&
-        !!ele.checkedFields?.length &&
-        !!Object.values(ele.checkedFieldsMap).filter(item => !!item).length
-    )
+    .filter(ele => {
+      return (
+        ([0, 2, 5].includes(+ele.displayType) &&
+          ele.optionValueSource === 1 &&
+          !!ele.checkedFields?.length &&
+          !!Object.values(ele.checkedFieldsMap).filter(item => !!item).length) ||
+        ([9].includes(+ele.displayType) && ele.treeFieldList?.length)
+      )
+    })
     .reduce((pre, next) => {
+      const isTree = [9].includes(+next.displayType)
+      const fieldId = isTree ? next.treeFieldList[0].id : next.field.id
+      const datasetId = isTree ? next.treeFieldList[0].datasetGroupId : next.dataset.id
       pre[next.id] = {
-        datasetId: next.dataset.id,
+        datasetId,
+        isTree,
         name: next.name,
         queryId: next.id,
-        fieldId: next.field.id,
+        fieldId: fieldId,
         deType: (datasetMap[next.dataset.id]?.fields?.dimensionList || next.dataset.fields).find(
-          ele => ele.id === next.field.id
+          ele => ele.id === fieldId
         )?.deType
       }
       return pre
@@ -1115,7 +1216,13 @@ const clearCascadeArrDataset = id => {
   cascadeArr = cascadeArr.filter(ele => !!ele.length)
 }
 
-const indexCascade = ' 一二三四五'
+const indexNumCascade = [
+  t('visualization.number1'),
+  t('visualization.number2'),
+  t('visualization.number3'),
+  t('visualization.number4'),
+  t('visualization.number5')
+]
 
 const validateConditionType = ({
   defaultConditionValueF,
@@ -1146,12 +1253,81 @@ const validate = () => {
   return conditions.value.some(ele => {
     if (ele.auto) return false
     if (!ele.checkedFields?.length || ele.checkedFields.some(itx => !ele.checkedFieldsMap[itx])) {
-      ElMessage.error('请先勾选需要联动的图表及字段')
+      ElMessage.error(t('v_query.be_linked_first'))
       return true
     }
+
+    if (
+      ele.displayType === '0' &&
+      ele.defaultValueCheck &&
+      ((Array.isArray(ele.defaultValue) && !ele.defaultValue.length) || !ele.defaultValue)
+    ) {
+      if (ele.optionValueSource !== 1) {
+        ElMessage.error(t('report.filter.title'))
+        return true
+      }
+
+      if (!ele.defaultValueFirstItem) {
+        ElMessage.error(t('report.filter.title'))
+        return true
+      }
+    }
+
+    if (ele.displayType === '9') {
+      if (
+        ele.defaultValueCheck &&
+        ((Array.isArray(ele.defaultValue) && !ele.defaultValue.length) || !ele.defaultValue)
+      ) {
+        ElMessage.error(t('report.filter.title'))
+        return true
+      }
+      if (!ele.treeDatasetId) {
+        setTreeDefaultBatch(ele)
+        if (!ele.treeDatasetId) {
+          ElMessage.error(t('data_set.dataset_cannot_be'))
+        }
+        return true
+      }
+
+      if (!ele.treeFieldList?.length) {
+        ElMessage.error(t('common.tree_structure'))
+        return true
+      }
+      if (
+        ele.treeCheckedList
+          ?.slice(0, ele.treeFieldList.length)
+          .some(
+            item =>
+              !item.checkedFields?.length ||
+              item.checkedFields.some(itx => !item.checkedFieldsMap[itx])
+          )
+      ) {
+        ElMessage.error(t('v_query.be_linked_first'))
+        return true
+      }
+    }
+
+    if (ele.displayType === '22' && ele.defaultValueCheck) {
+      ele.numValueEnd = ele.defaultNumValueEnd
+      ele.numValueStart = ele.defaultNumValueStart
+      if (
+        (ele.defaultNumValueEnd !== 0 && !ele.defaultNumValueEnd) ||
+        (ele.defaultNumValueStart !== 0 && !ele.defaultNumValueStart)
+      ) {
+        ElMessage.error(t('v_query.cannot_be_empty_de'))
+        return true
+      }
+      if (
+        !isNaN(ele.defaultNumValueEnd) &&
+        !isNaN(ele.defaultNumValueStart) &&
+        ele.defaultNumValueEnd < ele.defaultNumValueStart
+      ) {
+        ElMessage.error(t('v_query.the_minimum_value'))
+        return true
+      }
+    }
     let displayTypeField = null
-    let errorTips = '所选字段类型不一致，无法进行查询配置'
-    let hasParameterTimeArrType = 0
+    let errorTips = t('v_query.cannot_be_performed')
     let hasParameterNumArrType = 0
     if (
       ele.checkedFields.some(id => {
@@ -1180,36 +1356,12 @@ const validate = () => {
         }
 
         if (ele.checkedFieldsMapArrNum?.[id]?.length === 1 && ele.displayType === '22') {
-          errorTips = '数值参数配置必须配置最大值和最小值'
+          errorTips = t('v_query.numerical_parameter_configuration')
           return true
         }
 
-        if (ele.checkedFieldsMapArr?.[id]?.length && ['7', '1'].includes(ele.displayType)) {
-          if (hasParameterTimeArrType === 0) {
-            hasParameterTimeArrType = 1
-          }
-
-          if (hasParameterTimeArrType === 2) {
-            return true
-          }
-        }
-
-        if (
-          !ele.checkedFieldsMapArr?.[id]?.length &&
-          ['7', '1'].includes(ele.displayType) &&
-          !!ele.parameters.length
-        ) {
-          if (hasParameterTimeArrType === 0) {
-            hasParameterTimeArrType = 2
-          }
-
-          if (hasParameterTimeArrType === 1) {
-            return true
-          }
-        }
-
         if (ele.checkedFieldsMapArr?.[id]?.length === 1 && ele.displayType === '7') {
-          errorTips = '时间参数配置必须配置开始时间和结束时间'
+          errorTips = t('v_query.and_end_time')
           return true
         }
 
@@ -1224,16 +1376,19 @@ const validate = () => {
           return false
         }
         if (displayTypeField?.deType === field?.deType && displayTypeField?.deType === 1) {
+          if (!Array.isArray(field.type) || !Array.isArray(displayTypeField.type)) {
+            return false
+          }
           if (!displayTypeField.type?.length && !field.type?.length) {
             return false
           }
           if (displayTypeField.type?.length !== field.type?.length) {
-            errorTips = '时间格式不一致'
+            errorTips = t('v_query.format_is_inconsistent')
             return true
           }
           for (let index = 0; index < displayTypeField.type.length; index++) {
             if (displayTypeField.type[index] !== field.type[index]) {
-              errorTips = '时间格式不一致'
+              errorTips = t('v_query.format_is_inconsistent')
               return true
             }
           }
@@ -1250,13 +1405,13 @@ const validate = () => {
         setParams(ele)
         const result = validateConditionType(ele)
         if (result) {
-          ElMessage.error('查询条件为必填项,默认值不能为空')
+          ElMessage.error(t('v_query.cannot_be_empty_de'))
         }
         return result
       }
 
       if (!ele.defaultValueCheck) {
-        ElMessage.error('查询条件为必填项,默认值不能为空')
+        ElMessage.error(t('v_query.cannot_be_empty_de'))
         return true
       }
 
@@ -1265,7 +1420,7 @@ const validate = () => {
           (ele.defaultNumValueEnd !== 0 && !ele.defaultNumValueEnd) ||
           (ele.defaultNumValueStart !== 0 && !ele.defaultNumValueStart)
         ) {
-          ElMessage.error('查询条件为必填项,默认值不能为空')
+          ElMessage.error(t('v_query.cannot_be_empty_de'))
           return true
         }
         return false
@@ -1275,7 +1430,7 @@ const validate = () => {
         (Array.isArray(ele.defaultValue) && !ele.defaultValue.length) ||
         (ele.defaultValue !== 0 && !ele.defaultValue)
       ) {
-        ElMessage.error('查询条件为必填项,默认值不能为空')
+        ElMessage.error(t('v_query.cannot_be_empty_de'))
         return true
       }
     }
@@ -1295,9 +1450,26 @@ const validate = () => {
       if (!ele.defaultValueCheck) return false
       if (ele.timeType === 'fixed') {
         if (!ele.defaultValue) {
-          ElMessage.error('默认时间不能为空!')
+          ElMessage.error(t('v_query.cannot_be_empty_time'))
           return true
         }
+      }
+    }
+
+    if (ele.displayType === '2') {
+      if (ele.optionValueSource === 1 && !ele.field.id) {
+        ElMessage.error(
+          !ele.dataset?.id ? t('v_query.option_value_field') : t('v_query.the_data_set')
+        )
+        return true
+      }
+      if (!ele.defaultValueCheck) return false
+      if (
+        (Array.isArray(ele.defaultValue) && !ele.defaultValue.length) ||
+        (!Array.isArray(ele.defaultValue) && ['', undefined, null].includes(ele.defaultValue))
+      ) {
+        ElMessage.error(t('report.filter.title'))
+        return true
       }
     }
 
@@ -1306,7 +1478,7 @@ const validate = () => {
       if (ele.timeType === 'fixed') {
         const [s, e] = ele.defaultValue || []
         if (!s || !e) {
-          ElMessage.error('默认时间不能为空!')
+          ElMessage.error(t('v_query.cannot_be_empty_time'))
           return true
         }
       }
@@ -1353,10 +1525,11 @@ const validate = () => {
         ;[startTime, endTime] = getCustomRange(relativeToCurrentRange)
       }
       if (+startTime > +endTime) {
-        ElMessage.error('结束时间必须大于开始时间!')
+        ElMessage.error(t('v_query.the_start_time'))
         return true
       }
       if (!ele.setTimeRange) return false
+
       if (
         isInRange(
           ele,
@@ -1368,13 +1541,9 @@ const validate = () => {
             : +endTime
         )
       ) {
-        ElMessage.error('默认值超出日期筛选范围内，请重新设置！')
+        ElMessage.error(t('v_query.range_please_reset'))
         return true
       }
-      return false
-    }
-
-    if ([1].includes(+ele.displayType)) {
       return false
     }
 
@@ -1383,12 +1552,18 @@ const validate = () => {
       ele.optionValueSource === 2 &&
       !ele.valueSource?.filter(ele => !!ele).length
     ) {
-      ElMessage.error('手工输入-选项值不能为空')
+      ElMessage.error(t('v_query.cannot_be_empty_input'))
       return true
     }
 
-    if (!['9', '22'].includes(ele.displayType) && ele.optionValueSource === 1 && !ele.field.id) {
-      ElMessage.error(!ele.dataset?.id ? '请选择数据集及选项值字段' : '请选择数据集的选项值字段')
+    if (
+      !['9', '22', '1', '7'].includes(ele.displayType) &&
+      ele.optionValueSource === 1 &&
+      !ele.field.id
+    ) {
+      ElMessage.error(
+        !ele.dataset?.id ? t('v_query.option_value_field') : t('v_query.the_data_set')
+      )
       return true
     }
   })
@@ -1398,9 +1573,13 @@ const handleBeforeClose = () => {
   defaultConfigurationRef.value?.mult()
   defaultConfigurationRef.value?.single()
   handleDialogClick()
+  if (curComponent.value) {
+    curComponent.value.id = ''
+  }
+  relationshipChartIndex.value = 0
   dialogVisible.value = false
 }
-const emits = defineEmits(['queryData'])
+const emits = defineEmits(['queryData', 'reRenderAll'])
 const confirmClick = () => {
   if (validate()) return
   defaultConfigurationRef.value?.mult()
@@ -1415,6 +1594,7 @@ const confirmClick = () => {
         : curComponent.value.multiple
     )
   })
+  const oldArr = cloneDeep(unref(queryElement.value.propValue))
   queryElement.value.propValue = []
   nextTick(() => {
     conditions.value.forEach(itx => {
@@ -1431,12 +1611,25 @@ const confirmClick = () => {
     queryElement.value.cascade = cloneDeep(cascadeArr)
     cascadeArr = []
     queryElement.value.propValue = cloneDeep(conditions.value)
-    snapshotStore.recordSnapshotCache()
+    snapshotStore.recordSnapshotCache('confirmClick')
+    curComponent.value.id = ''
+    relationshipChartIndex.value = 0
     nextTick(() => {
+      emits('reRenderAll', oldArr, cloneDeep(unref(conditions)))
       emits('queryData')
     })
   })
 }
+
+const fieldsComputed = computed(() => {
+  return curComponent.value.dataset.fields.filter(ele => {
+    return (
+      ele.deType === +curComponent.value.displayType ||
+      ([0, 2, 3, 4].includes(ele.deType) && [0, 2].includes(+curComponent.value.displayType)) ||
+      (ele.deType === 7 && +curComponent.value.displayType === 0)
+    )
+  })
+})
 
 const cancelValueSource = () => {
   valueSource.value = cloneDeep(curComponent.value.valueSource)
@@ -1455,7 +1648,7 @@ const confirmValueSource = () => {
       return false
     })
   ) {
-    ElMessage.error('手工输入-选项值不能为空')
+    ElMessage.error(t('v_query.cannot_be_empty_input'))
     return
   }
 
@@ -1472,12 +1665,16 @@ const confirmValueSource = () => {
 }
 
 const setCondition = (queryId: string) => {
-  conditions.value = cloneDeep(props.queryElement.propValue) || []
+  conditions.value = (cloneDeep(props.queryElement.propValue) || []).map(ele =>
+    parameterCompletion(ele)
+  )
   init(queryId)
 }
 
 const setConditionOut = () => {
-  conditions.value = cloneDeep(props.queryElement.propValue) || []
+  conditions.value = (cloneDeep(props.queryElement.propValue) || []).map(ele =>
+    parameterCompletion(ele)
+  )
   addQueryCriteria()
   init(conditions.value[conditions.value.length - 1].id)
 }
@@ -1497,6 +1694,7 @@ const setActiveSelectTab = (arr, id) => {
 
 const init = (queryId: string) => {
   initDataset()
+  relationshipChartIndex.value = 0
   renameInput.value = []
   handleCondition({ id: queryId })
   cascadeArr = cloneDeep(queryElement.value.cascade || [])
@@ -1547,6 +1745,11 @@ const init = (queryId: string) => {
         .filter(ele => !!ele)
     })
     .finally(() => {
+      if (!curComponent.value.treeDatasetId) {
+        nextTick(() => {
+          setTreeDefault()
+        })
+      }
       handleCheckedFieldsChange(curComponent.value.checkedFields)
     })
 }
@@ -1555,7 +1758,7 @@ const weightlessness = () => {
   valueSource.value = Array.from(new Set(valueSource.value))
 }
 
-const parameterCompletion = () => {
+const parameterCompletion = ele => {
   const attributes = {
     timeType: 'fixed',
     hideConditionSwitching: false,
@@ -1583,6 +1786,7 @@ const parameterCompletion = () => {
     timeNumRange: 0,
     relativeToCurrentTypeRange: 'year',
     aroundRange: 'f',
+    treeDatasetId: '',
     displayId: '',
     sortId: '',
     sort: 'asc',
@@ -1593,6 +1797,7 @@ const parameterCompletion = () => {
     defaultNumValueEnd: null,
     numValueEnd: null,
     numValueStart: null,
+    displayFormat: 0,
     timeRange: {
       intervalType: 'none',
       dynamicWindow: false,
@@ -1607,19 +1812,62 @@ const parameterCompletion = () => {
       relativeToCurrentTypeRange: 'year',
       aroundRange: 'f'
     },
+    oldTreeLoad: false,
+    treeCheckedList: [],
+    defaultValueFirstItem: false,
     treeFieldList: []
   }
   Object.entries(attributes).forEach(([key, val]) => {
-    curComponent.value[key] ?? (curComponent.value[key] = val)
+    ele[key] ?? (ele[key] = val)
   })
 
-  if (!curComponent.value.timeRange.relativeToCurrentRange) {
-    curComponent.value.timeRange.relativeToCurrentRange = 'custom'
+  if (!ele.treeDatasetId) {
+    ele.treeDatasetId = ele.dataset.id
   }
-}
 
-const handleCondition = item => {
+  if (!ele.timeRange.relativeToCurrentRange) {
+    ele.timeRange.relativeToCurrentRange = 'custom'
+  }
+
+  return ele
+}
+let fastClickId
+let fastDbClickId
+let fastDbDelayClickId
+const fastClickLoading = ref(false)
+const fastDbClickLoading = ref(false)
+const handleFastClick = (item, idx = 0) => {
+  clearTimeout(fastDbDelayClickId)
+  fastDbDelayClickId = setTimeout(() => {
+    if (fastDbClickLoading.value) {
+      return
+    }
+    clearTimeout(fastClickId)
+    fastClickLoading.value = true
+    cancelAllRequest()
+    handleCondition(item, idx)
+    fastClickId = setTimeout(() => {
+      fastClickLoading.value = false
+    }, 800)
+  }, 200)
+}
+const handleFastDbClick = (cmd, condition, index) => {
+  clearTimeout(fastDbClickId)
+  fastDbClickLoading.value = true
+  addOperation(cmd, condition, index)
+  fastDbClickId = setTimeout(() => {
+    fastDbClickLoading.value = false
+  }, 800)
+}
+onUnmounted(() => {
+  clearTimeout(fastClickId)
+  clearTimeout(fastDbClickId)
+  clearTimeout(fastDbDelayClickId)
+})
+
+const handleCondition = (item, idx = 0) => {
   handleDialogClick()
+  oldDisplayType = null
   if (activeConditionForRename.id) return
   activeCondition.value = item.id
   const obj = conditions.value.find(ele => ele.id === item.id)
@@ -1710,8 +1958,18 @@ const handleCondition = item => {
   if (!valueSource.value.length) {
     valueSource.value.push('')
   }
-  parameterCompletion()
   nextTick(() => {
+    if (curComponent.value.displayType === '9') {
+      oldDisplayType = '9'
+      handleRelationshipChart(idx, true)
+      if (!curComponent.value.treeDatasetId && fields.value?.length) {
+        nextTick(() => {
+          setTreeDefault()
+        })
+      } else if (curComponent.value.treeDatasetId) {
+        getOptions(curComponent.value.treeDatasetId, curComponent.value)
+      }
+    }
     curComponent.value.showError = showError.value
     curComponent.value.auto && (document.querySelector('.chart-field').scrollTop = 0)
   })
@@ -1723,45 +1981,111 @@ const getOptions = (id, component) => {
   })
 }
 
+const handleSortChange = () => {
+  handleFieldChange()
+  curComponent.value.sortList = []
+  if (sortComputed.value) {
+    curComponent.value.sort = ''
+  }
+}
+
+const resetSort = () => {
+  if (sortComputed.value) {
+    curComponent.value.sort = ''
+  }
+  if (!curComponent.value.defaultValueCheck) return
+  curComponent.value.defaultValue = curComponent.value.multiple ? [] : undefined
+}
+
+const customSortFilterRef = ref()
+
+const sortSave = list => {
+  curComponent.value.sortList = cloneDeep(list)
+}
+
+const handleCustomClick = async () => {
+  if (sortComputed.value || curComponent.value.sort !== 'customSort') return
+  let list = cloneDeep(curComponent.value.sortList || [])
+  if (!list.length) {
+    const arr = await enumValueObj({ queryId: curComponent.value.sortId, searchText: '' })
+    list = arr.map(ele => ele[curComponent.value.sortId])
+  }
+  customSortFilterRef.value.sortInit([...new Set(list)])
+}
+
+const sortComputed = computed(() => {
+  const { sortId, displayId } = curComponent.value
+  return sortId && displayId && sortId !== displayId
+})
+
 const treeDialog = ref()
 const startTreeDesign = () => {
-  const [comId] = curComponent.value.checkedFields
-  const componentObj = fields.value.find(ele => ele.componentId === comId)
   treeDialog.value.init(
-    (curComponent.value.optionValueSource === 0
-      ? componentObj?.fields?.dimensionList
-      : curComponent.value.dataset?.fields
-    ).filter(ele => ele.deType === +curComponent.value.field.deType),
+    curComponent.value.dataset.fields.filter(ele => ele.groupType === 'd' && ele.deType === 0),
     curComponent.value.treeFieldList
   )
 }
 const saveTree = arr => {
   curComponent.value.treeFieldList = arr
+  setSameField()
 }
+
+const setSameField = () => {
+  curComponent.value.treeFieldList.forEach((ele, index) => {
+    if (!curComponent.value.treeCheckedList[index]) {
+      curComponent.value.treeCheckedList = [
+        ...curComponent.value.treeCheckedList,
+        {
+          checkedFields: [...curComponent.value.checkedFields],
+          checkedFieldsMap: cloneDeep(curComponent.value.checkedFieldsMap)
+        }
+      ]
+    }
+    fields.value.forEach(item => {
+      const ids = item.fields.dimensionList.map(itx => itx.id)
+      if (ids.includes(ele.id)) {
+        curComponent.value.treeCheckedList[index].checkedFieldsMap[item.componentId] = ele.id
+      }
+    })
+  })
+
+  curComponent.value.checkedFields =
+    curComponent.value.treeCheckedList[relationshipChartIndex.value].checkedFields
+  curComponent.value.checkedFieldsMap =
+    curComponent.value.treeCheckedList[relationshipChartIndex.value].checkedFieldsMap
+}
+
 const showError = computed(() => {
   if (!curComponent.value) return false
-  const { optionValueSource, checkedFieldsMap, checkedFields, field, valueSource, displayType } =
-    curComponent.value
+  const {
+    optionValueSource,
+    checkedFieldsMap,
+    checkedFields,
+    field,
+    valueSource,
+    displayType,
+    treeCheckedList,
+    treeFieldList
+  } = curComponent.value
   const arr = checkedFields.filter(ele => !!checkedFieldsMap[ele])
   if (!checkedFields.length || !arr.length) {
     return true
   }
-  if ([1, 7, 8, 22].includes(+displayType)) {
-    return false
+
+  if (9 === +displayType) {
+    for (const key in treeCheckedList) {
+      if (key > treeFieldList.length) continue
+      const treeArr = treeCheckedList[key].checkedFields.filter(
+        ele => !!treeCheckedList[key].checkedFieldsMap[ele]
+      )
+      if (!treeCheckedList[key].checkedFields.length || !treeArr.length) {
+        return true
+      }
+    }
   }
 
-  if (displayType === '9') {
-    let displayField = null
-    return checkedFields.some(id => {
-      const arr = (fields.value || []).find(itx => itx.componentId === id)
-      const field = arr?.id
-      if (!field) return false
-      if (displayField === null) {
-        displayField = field
-        return false
-      }
-      return displayField !== field
-    })
+  if ([1, 7, 8, 22, 9].includes(+displayType)) {
+    return false
   }
   return (optionValueSource === 1 && !field.id) || (optionValueSource === 2 && !valueSource.length)
 })
@@ -1776,11 +2100,11 @@ const relativeToCurrentList = computed(() => {
     case 'year':
       list = [
         {
-          label: '今年',
+          label: t('dynamic_year.current'),
           value: 'thisYear'
         },
         {
-          label: '去年',
+          label: t('dynamic_year.last'),
           value: 'lastYear'
         }
       ]
@@ -1788,11 +2112,11 @@ const relativeToCurrentList = computed(() => {
     case 'month':
       list = [
         {
-          label: '本月',
+          label: t('cron.this_month'),
           value: 'thisMonth'
         },
         {
-          label: '上月',
+          label: t('dynamic_month.last'),
           value: 'lastMonth'
         }
       ]
@@ -1800,19 +2124,23 @@ const relativeToCurrentList = computed(() => {
     case 'date':
       list = [
         {
-          label: '今天',
+          label: t('dynamic_time.today'),
           value: 'today'
         },
         {
-          label: '昨天',
+          label: t('dynamic_time.yesterday'),
           value: 'yesterday'
         },
         {
-          label: '月初',
+          label: t('dynamic_time.firstOfMonth'),
           value: 'monthBeginning'
         },
         {
-          label: '年初',
+          label: t('dynamic_time.endOfMonth'),
+          value: 'monthEnd'
+        },
+        {
+          label: t('dynamic_time.firstOfYear'),
           value: 'yearBeginning'
         }
       ]
@@ -1820,19 +2148,23 @@ const relativeToCurrentList = computed(() => {
     case 'datetime':
       list = [
         {
-          label: '今天',
+          label: t('dynamic_time.today'),
           value: 'today'
         },
         {
-          label: '昨天',
+          label: t('dynamic_time.yesterday'),
           value: 'yesterday'
         },
         {
-          label: '月初',
+          label: t('dynamic_time.firstOfMonth'),
           value: 'monthBeginning'
         },
         {
-          label: '年初',
+          label: t('dynamic_time.endOfMonth'),
+          value: 'monthEnd'
+        },
+        {
+          label: t('dynamic_time.firstOfYear'),
           value: 'yearBeginning'
         }
       ]
@@ -1845,7 +2177,7 @@ const relativeToCurrentList = computed(() => {
   return [
     ...list,
     {
-      label: '自定义',
+      label: t('dynamic_time.custom'),
       value: 'custom'
     }
   ]
@@ -1858,11 +2190,11 @@ const relativeToCurrentListRange = computed(() => {
     case 'yearrange':
       list = [
         {
-          label: '今年',
+          label: t('dynamic_year.current'),
           value: 'thisYear'
         },
         {
-          label: '去年',
+          label: t('dynamic_year.last'),
           value: 'lastYear'
         }
       ]
@@ -1870,24 +2202,32 @@ const relativeToCurrentListRange = computed(() => {
     case 'monthrange':
       list = [
         {
-          label: '本月',
+          label: t('cron.this_month'),
           value: 'thisMonth'
         },
         {
-          label: '上月',
+          label: t('dynamic_month.last'),
           value: 'lastMonth'
         },
         {
-          label: '最近 3 个 月',
+          label: t('v_query.last_3_months'),
           value: 'LastThreeMonths'
         },
         {
-          label: '最近 6 个 月',
+          label: t('v_query.last_6_months'),
           value: 'LastSixMonths'
         },
         {
-          label: '最近 12 个 月',
+          label: t('v_query.last_12_months'),
           value: 'LastTwelveMonths'
+        },
+        {
+          label: t('common.to_this_month'),
+          value: 'YearToThisMonth'
+        },
+        {
+          label: t('v_query.year_to_last_month_end'),
+          value: 'YearToLastMonthEnd'
         }
       ]
       break
@@ -1895,24 +2235,36 @@ const relativeToCurrentListRange = computed(() => {
     case 'datetimerange':
       list = [
         {
-          label: '今天',
+          label: t('dynamic_time.today'),
           value: 'today'
         },
         {
-          label: '昨天',
+          label: t('dynamic_time.yesterday'),
           value: 'yesterday'
         },
         {
-          label: '最近 3 天',
+          label: t('v_query.last_3_days'),
           value: 'LastThreeDays'
         },
         {
-          label: '月初至今',
+          label: t('v_query.month_to_date'),
           value: 'monthBeginning'
         },
         {
-          label: '年初至今',
+          label: t('v_query.year_to_date'),
           value: 'yearBeginning'
+        },
+        {
+          label: t('v_query.year_to_last_month_end'),
+          value: 'YearToLastMonthEnd'
+        },
+        {
+          label: t('common.month_to_yesterday'),
+          value: 'monthToYesterday'
+        },
+        {
+          label: t('v_query.last_month_full'),
+          value: 'LastMonthFull'
         }
       ]
       break
@@ -1924,7 +2276,7 @@ const relativeToCurrentListRange = computed(() => {
   return [
     ...list,
     {
-      label: '自定义',
+      label: t('dynamic_time.custom'),
       value: 'custom'
     }
   ]
@@ -1938,8 +2290,11 @@ const timeGranularityChange = (val: string) => {
 }
 
 const handleTimeTypeChange = () => {
-  timeGranularityChange(curComponent.value.timeGranularity)
-  timeGranularityMultipleChange(curComponent.value.timeGranularityMultiple)
+  if (curComponent.value.displayType === '1') {
+    timeGranularityChange(curComponent.value.timeGranularity)
+  } else {
+    timeGranularityMultipleChange(curComponent.value.timeGranularityMultiple)
+  }
 }
 
 const timeGranularityMultipleChange = (val: string) => {
@@ -1951,6 +2306,8 @@ const timeGranularityMultipleChange = (val: string) => {
   if (curComponent.value.relativeToCurrentRange !== 'custom') {
     curComponent.value.relativeToCurrentRange = relativeToCurrentListRange.value[0]?.value
   }
+
+  if (curComponent.value.timeRange) return
 
   curComponent.value.timeRange = {
     intervalType: 'none',
@@ -1971,12 +2328,62 @@ const timeGranularityMultipleChange = (val: string) => {
 watch(
   () => showError.value,
   val => {
+    if (!curComponent.value) return
     curComponent.value.showError = val
   }
 )
 
 const setRenameInput = val => {
   renameInput.value.push(val)
+}
+const relationshipChartIndex = ref(0)
+const notCurrentEle = (ele, index) => {
+  if (activeCondition.value !== ele.id) {
+    handleFastClick(ele, index)
+  } else {
+    handleRelationshipChart(index)
+  }
+}
+
+const setRelationBack = () => {
+  curComponent.value.treeCheckedList[relationshipChartIndex.value] = {
+    checkedFields: [...curComponent.value.checkedFields],
+    checkedFieldsMap: cloneDeep(curComponent.value.checkedFieldsMap)
+  }
+}
+const handleRelationshipChart = (index, initShip = false) => {
+  if (curComponent.value.treeCheckedList?.length && !initShip) {
+    curComponent.value.treeCheckedList[relationshipChartIndex.value] = {
+      checkedFields: [...curComponent.value.checkedFields],
+      checkedFieldsMap: cloneDeep(curComponent.value.checkedFieldsMap)
+    }
+  }
+  relationshipChartIndex.value = index
+  if (!curComponent.value?.treeCheckedList?.length && !curComponent.value.oldTreeLoad) {
+    curComponent.value.treeCheckedList = curComponent.value.treeFieldList.map(ele => {
+      return {
+        checkedFields: [...curComponent.value.checkedFields],
+        checkedFieldsMap: curComponent.value.checkedFields.reduce((pre, next) => {
+          pre[next] = ele.id
+          return pre
+        }, {})
+      }
+    })
+  } else if (!curComponent.value?.treeCheckedList?.length && curComponent.value.oldTreeLoad) {
+    curComponent.value.treeCheckedList = curComponent.value.treeFieldList.map(() => {
+      return {
+        checkedFields: [...curComponent.value.checkedFields],
+        checkedFieldsMap: cloneDeep(curComponent.value.checkedFieldsMap)
+      }
+    })
+  }
+  if (!curComponent.value?.treeCheckedList[index]) return
+  const { checkedFields, checkedFieldsMap } = curComponent.value?.treeCheckedList[index]
+  curComponent.value.checkedFields = checkedFields
+  curComponent.value.checkedFieldsMap = checkedFieldsMap
+  const checkedCount = checkedFields?.length
+  checkAll.value = checkedCount === fields.value?.length
+  isIndeterminate.value = checkedCount > 0 && checkedCount < fields.value?.length
 }
 
 const addOperation = (cmd, condition, index) => {
@@ -1987,9 +2394,10 @@ const addOperation = (cmd, condition, index) => {
       curComponent.value = null
       break
     case 'rename':
+      clearTimeout(fastDbClickId)
       renameInput.value = []
       Object.assign(activeConditionForRename, condition)
-      setTimeout(() => {
+      fastDbClickId = setTimeout(() => {
         nextTick(() => {
           renameInput.value[0].focus()
         })
@@ -2007,9 +2415,9 @@ const dsSelectProps = {
 }
 
 const dfs = arr => {
-  return arr.filter(ele => {
+  return (arr || []).filter(ele => {
     if (!!ele.children?.length && !ele.leaf) {
-      ele.children = dfs(ele.children)
+      ele.children = dfs(ele.children) || []
       return !!ele.children?.length
     }
     return ele.leaf
@@ -2018,7 +2426,7 @@ const dfs = arr => {
 
 const renameInputBlur = () => {
   if (activeConditionForRename.name.trim() === '') {
-    ElMessage.error('字段名称不能为空')
+    ElMessage.error(t('v_query.cannot_be_empty_name'))
     renameInput.value[0]?.focus()
     return
   }
@@ -2033,7 +2441,8 @@ const renameInputBlur = () => {
 }
 
 const addQueryCriteria = () => {
-  conditions.value.push(addQueryCriteriaConfig())
+  relationshipChartIndex.value = 0
+  conditions.value.push(parameterCompletion(addQueryCriteriaConfig()))
 }
 
 const addQueryCriteriaAndSelect = () => {
@@ -2058,7 +2467,7 @@ defineExpose({
     class="query-condition-configuration"
     v-model="dialogVisible"
     width="1200px"
-    title="查询条件设置"
+    :title="t('v_query.query_condition_setting')"
     @click.stop
     :before-close="handleBeforeClose"
     @mousedown.stop
@@ -2067,7 +2476,7 @@ defineExpose({
     <div class="container" @click="handleDialogClick">
       <div class="query-condition-list">
         <div class="title">
-          查询条件
+          {{ t('v_query.query_condition') }}
           <el-icon @click="addQueryCriteriaAndSelect">
             <Icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></Icon>
           </el-icon>
@@ -2076,926 +2485,1111 @@ defineExpose({
           <template #item="{ element, index }">
             <div
               :key="element.id"
-              @dblclick.stop="addOperation('rename', element, index)"
-              @click.stop="handleCondition(element)"
-              class="list-item_primary"
-              :class="element.id === activeCondition && 'active'"
+              @dblclick.stop="handleFastDbClick('rename', element, index)"
+              @click.stop="handleFastClick(element)"
+              class="list-item_box"
+              :style="{
+                marginBottom: element.treeFieldList
+                  ? element.treeFieldList.slice(1).length * 40 + 'px'
+                  : 0
+              }"
             >
-              <el-icon class="handle">
-                <Icon name="icon_drag_outlined"><icon_drag_outlined class="svg-icon" /></Icon>
-              </el-icon>
-              <div class="label flex-align-center icon" :title="element.name">
-                <el-icon
-                  v-if="!element.auto && element.showError"
-                  style="font-size: 16px; color: #f54a45"
+              <div
+                class="list-item_primary"
+                :class="element.id === activeCondition && relationshipChartIndex === 0 && 'active'"
+              >
+                <el-icon class="handle">
+                  <Icon name="icon_drag_outlined"><icon_drag_outlined class="svg-icon" /></Icon>
+                </el-icon>
+                <div class="label flex-align-center icon" :title="element.name">
+                  <el-icon
+                    v-if="!element.auto && element.showError"
+                    style="font-size: 16px; color: #f54a45"
+                  >
+                    <icon name="icon_warning_filled"><icon_warning_filled class="svg-icon" /></icon>
+                  </el-icon>
+                  {{ element.name }}
+                </div>
+                <div class="condition-icon flex-align-center">
+                  <handle-more
+                    @handle-command="cmd => addOperation(cmd, element, index)"
+                    :menu-list="typeList"
+                    :icon-name="more_v"
+                    placement="bottom-end"
+                  ></handle-more>
+                  <el-icon
+                    class="hover-icon"
+                    @click.stop="element.visible = !element.visible"
+                    v-if="element.visible"
+                  >
+                    <Icon name="icon_visible_outlined"
+                      ><icon_visible_outlined class="svg-icon"
+                    /></Icon>
+                  </el-icon>
+                  <el-icon
+                    class="hover-icon"
+                    @click.stop="element.visible = !element.visible"
+                    v-else
+                  >
+                    <Icon name="de_pwd_invisible"><de_pwd_invisible class="svg-icon" /></Icon>
+                  </el-icon>
+                </div>
+                <div @click.stop v-if="activeConditionForRename.id === element.id" class="rename">
+                  <el-input
+                    @blur="renameInputBlur"
+                    :ref="setRenameInput"
+                    v-model="activeConditionForRename.name"
+                  ></el-input>
+                </div>
+              </div>
+              <template v-if="element.treeFieldList">
+                <div
+                  :class="
+                    element.id === activeCondition &&
+                    relationshipChartIndex === index + 1 &&
+                    'active'
+                  "
+                  class="list-item_primary list-tree_primary"
+                  :style="{
+                    top: 40 * (index + 1) + 'px',
+                    paddingLeft: 32 + 16 * (index + 1) + 'px'
+                  }"
+                  v-for="(itx, index) in element.treeFieldList.slice(1)"
+                  :key="itx.field"
+                  @click.stop="notCurrentEle(element, index + 1)"
                 >
-                  <icon name="icon_warning_filled"><icon_warning_filled class="svg-icon" /></icon>
-                </el-icon>
-                {{ element.name }}
-              </div>
-              <div class="condition-icon flex-align-center">
-                <handle-more
-                  @handle-command="cmd => addOperation(cmd, element, index)"
-                  :menu-list="typeList"
-                  :icon-name="more_v"
-                  placement="bottom-end"
-                ></handle-more>
-                <el-icon
-                  class="hover-icon"
-                  @click.stop="element.visible = !element.visible"
-                  v-if="element.visible"
-                >
-                  <Icon name="icon_visible_outlined"
-                    ><icon_visible_outlined class="svg-icon"
-                  /></Icon>
-                </el-icon>
-                <el-icon class="hover-icon" @click.stop="element.visible = !element.visible" v-else>
-                  <Icon name="de_pwd_invisible"><de_pwd_invisible class="svg-icon" /></Icon>
-                </el-icon>
-              </div>
-              <div @click.stop v-if="activeConditionForRename.id === element.id" class="rename">
-                <el-input
-                  @blur="renameInputBlur"
-                  :ref="setRenameInput"
-                  v-model="activeConditionForRename.name"
-                ></el-input>
-              </div>
+                  {{ itx.name }}
+                </div>
+              </template>
             </div>
           </template>
         </draggable>
       </div>
       <div v-if="!!curComponent" class="chart-field" :class="curComponent.auto && 'hidden'">
-        <div class="mask" v-if="curComponent.auto"></div>
-        <div class="title flex-align-center">
-          选择关联图表及字段
-          <el-radio-group class="ml-4 larger-radio" v-model="curComponent.auto">
-            <el-radio :disabled="!curComponent.auto" :label="true">
-              <div class="flex-align-center">
-                自动
-                <el-tooltip effect="dark" placement="top">
-                  <template #content>
-                    <div>
-                      注意:自动模式支持同数据集自动关联字段，可切换到
-                      <br />
-                      自定义模式。切换到自定义模式后无法再切换为自动！
-                    </div>
-                  </template>
-                  <el-icon style="margin-left: 4px; color: #646a73">
-                    <icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></icon>
-                  </el-icon>
-                </el-tooltip>
-              </div>
-            </el-radio>
-            <el-radio :label="false">{{ t('commons.custom') }}</el-radio>
-          </el-radio-group>
-        </div>
-        <div class="select-all">
-          <el-checkbox
-            v-model="checkAll"
-            :indeterminate="isIndeterminate"
-            @change="handleCheckAllChange"
-            >{{ t('dataset.check_all') }}</el-checkbox
-          >
-        </div>
-        <div class="field-list">
-          <el-checkbox-group
-            v-model="curComponent.checkedFields"
-            @change="handleCheckedFieldsChangeTree"
-          >
-            <div v-for="field in fields" :key="field.componentId" class="list-item_field_de">
-              <el-checkbox :label="field.componentId"
-                ><el-icon class="component-type">
-                  <Icon
-                    ><component
-                      :is="iconChartMap[canvasViewInfo[field.componentId].type]"
-                    ></component
-                  ></Icon> </el-icon
-                ><span
-                  :title="canvasViewInfo[field.componentId].title"
-                  class="checkbox-name ellipsis"
-                  >{{ canvasViewInfo[field.componentId].title }}</span
-                ></el-checkbox
-              >
-              <span :title="field.name" class="dataset ellipsis">{{ field.name }}</span>
-              <el-select
-                @change="val => setParametersArr(val, field.componentId)"
-                @focus="handleDialogClick"
-                multiple
-                collapse-tags
-                collapse-tags-tooltip
-                key="checkedFieldsMapArrTime"
-                :multiple-limit="2"
-                class="field-select--input"
-                style="margin-left: 12px"
-                popper-class="field-select--dqp"
-                v-if="
-                  curComponent.checkedFields.includes(field.componentId) &&
-                  curComponent.checkedFieldsMapArr &&
-                  curComponent.checkedFieldsMapArr[field.componentId] &&
-                  curComponent.checkedFieldsMapArr[field.componentId].length
-                "
-                v-model="curComponent.checkedFieldsMapArr[field.componentId]"
-                clearable
-              >
-                <template v-if="curComponent.checkedFieldsMap[field.componentId]" #prefix>
-                  <el-icon>
-                    <Icon
-                      ><component
-                        :class="`field-icon-${
-                          fieldType[
-                            getDetype(
-                              curComponent.checkedFieldsMap[field.componentId],
-                              Object.values(field.fields)
-                            )
-                          ]
-                        }`"
-                        :is="
-                          iconFieldMap[
-                            fieldType[
-                              getDetype(
-                                curComponent.checkedFieldsMap[field.componentId],
-                                Object.values(field.fields)
-                              )
-                            ]
-                          ]
-                        "
-                      ></component
-                    ></Icon>
-                  </el-icon>
-                </template>
-                <template #header>
-                  <el-tabs stretch class="params-select--header" v-model="field.activelist">
-                    <el-tab-pane disabled label="维度" name="dimensionList"></el-tab-pane>
-                    <el-tab-pane disabled label="指标" name="quotaList"></el-tab-pane>
-                    <el-tab-pane label="参数" name="parameterList"></el-tab-pane>
-                  </el-tabs>
-                </template>
-                <el-option
-                  v-for="ele in field.fields[field.activelist]"
-                  :key="ele.id"
-                  :label="ele.name || ele.variableName"
-                  :value="ele.id"
-                  :disabled="isParametersDisable(ele)"
-                >
-                  <div class="flex-align-center icon">
-                    <el-icon>
-                      <Icon :className="`field-icon-${fieldType[ele.deType]}`"
-                        ><component
-                          class="svg-icon"
-                          :class="`field-icon-${fieldType[ele.deType]}`"
-                          :is="iconFieldMap[fieldType[ele.deType]]"
-                        ></component
-                      ></Icon>
+        <el-scrollbar>
+          <div class="mask" v-if="curComponent.auto"></div>
+          <div class="title flex-align-center">
+            {{ t('v_query.chart_and_field') }}
+            <el-radio-group class="ml-4 larger-radio" v-model="curComponent.auto">
+              <el-radio :disabled="!curComponent.auto" :label="true">
+                <div class="flex-align-center">
+                  {{ t('chart.margin_model_auto') }}
+                  <el-tooltip effect="dark" placement="top">
+                    <template #content>
+                      <div>
+                        {{ t('v_query.be_switched_to') }}
+                        <br />
+                        {{ t('v_query.to_automatic_again') }}
+                      </div>
+                    </template>
+                    <el-icon style="margin-left: 4px; color: #646a73">
+                      <icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></icon>
                     </el-icon>
-                    <span :title="ele.name || ele.variableName" class="ellipsis">
-                      {{ ele.name || ele.variableName }}
-                    </span>
-                    <span
-                      v-if="
-                        curComponent.checkedFieldsMapArr[field.componentId].includes(ele.id) &&
-                        field.activelist === 'parameterList'
-                      "
-                      @click.stop="timeClick(field.componentId, ele)"
-                      class="range-time_setting"
-                    >
-                      {{
-                        curComponent.checkedFieldsMapStart[field.componentId] === ele.id
-                          ? '开始时间'
-                          : curComponent.checkedFieldsMapEnd[field.componentId] === ele.id
-                          ? '结束时间'
-                          : ''
-                      }}
-                      <el-icon>
-                        <Icon>
-                          <icon_edit_outlined class="svg-icon"></icon_edit_outlined>
-                        </Icon>
-                      </el-icon>
-                    </span>
-                  </div>
-                </el-option>
-              </el-select>
-              <el-select
-                @change="val => setParametersArrNum(val, field.componentId)"
-                @focus="handleDialogClick"
-                multiple
-                collapse-tags
-                collapse-tags-tooltip
-                key="checkedFieldsMapArr"
-                :multiple-limit="2"
-                class="field-select--input"
-                style="margin-left: 12px"
-                popper-class="field-select--dqp"
-                v-else-if="
-                  curComponent.checkedFields.includes(field.componentId) &&
-                  curComponent.checkedFieldsMapArrNum &&
-                  curComponent.checkedFieldsMapArrNum[field.componentId] &&
-                  curComponent.checkedFieldsMapArrNum[field.componentId].length
-                "
-                v-model="curComponent.checkedFieldsMapArrNum[field.componentId]"
-                clearable
-              >
-                <template v-if="curComponent.checkedFieldsMap[field.componentId]" #prefix>
-                  <el-icon>
-                    <Icon
-                      ><component
-                        :class="`field-icon-${
-                          fieldType[
-                            getDetype(
-                              curComponent.checkedFieldsMap[field.componentId],
-                              Object.values(field.fields)
-                            )
-                          ]
-                        }`"
-                        :is="
-                          iconFieldMap[
-                            fieldType[
-                              getDetype(
-                                curComponent.checkedFieldsMap[field.componentId],
-                                Object.values(field.fields)
-                              )
-                            ]
-                          ]
-                        "
-                      ></component
-                    ></Icon>
-                  </el-icon>
-                </template>
-                <template #header>
-                  <el-tabs stretch class="params-select--header" v-model="field.activelist">
-                    <el-tab-pane disabled label="维度" name="dimensionList"></el-tab-pane>
-                    <el-tab-pane disabled label="指标" name="quotaList"></el-tab-pane>
-                    <el-tab-pane label="参数" name="parameterList"></el-tab-pane>
-                  </el-tabs>
-                </template>
-                <el-option
-                  v-for="ele in field.fields[field.activelist]"
-                  :key="ele.id"
-                  :label="ele.name || ele.variableName"
-                  :value="ele.id"
-                  :disabled="![2, 3].includes(ele.deType)"
-                >
-                  <div class="flex-align-center icon">
-                    <el-icon>
-                      <Icon :className="`field-icon-${fieldType[ele.deType]}`"
-                        ><component
-                          class="svg-icon"
-                          :class="`field-icon-${fieldType[ele.deType]}`"
-                          :is="iconFieldMap[fieldType[ele.deType]]"
-                        ></component
-                      ></Icon>
-                    </el-icon>
-                    <span :title="ele.name || ele.variableName" class="ellipsis">
-                      {{ ele.name || ele.variableName }}
-                    </span>
-                    <span
-                      v-if="
-                        curComponent.checkedFieldsMapArrNum[field.componentId].includes(ele.id) &&
-                        field.activelist === 'parameterList'
-                      "
-                      @click.stop="numClick(field.componentId, ele)"
-                      class="range-time_setting"
-                    >
-                      {{
-                        curComponent.checkedFieldsMapStartNum[field.componentId] === ele.id
-                          ? '最小值'
-                          : curComponent.checkedFieldsMapEndNum[field.componentId] === ele.id
-                          ? '最大值'
-                          : ''
-                      }}
-                      <el-icon>
-                        <Icon>
-                          <icon_edit_outlined class="svg-icon"></icon_edit_outlined>
-                        </Icon>
-                      </el-icon>
-                    </span>
-                  </div>
-                </el-option>
-              </el-select>
-              <el-select
-                @change="setParameters(field)"
-                @focus="handleDialogClick"
-                style="margin-left: 12px"
-                popper-class="field-select--dqp"
-                v-else-if="curComponent.checkedFields.includes(field.componentId)"
-                v-model="curComponent.checkedFieldsMap[field.componentId]"
-                clearable
-              >
-                <template v-if="curComponent.checkedFieldsMap[field.componentId]" #prefix>
-                  <el-icon>
-                    <Icon
-                      ><component
-                        :class="`field-icon-${
-                          fieldType[
-                            getDetype(
-                              curComponent.checkedFieldsMap[field.componentId],
-                              Object.values(field.fields)
-                            )
-                          ]
-                        }`"
-                        :is="
-                          iconFieldMap[
-                            fieldType[
-                              getDetype(
-                                curComponent.checkedFieldsMap[field.componentId],
-                                Object.values(field.fields)
-                              )
-                            ]
-                          ]
-                        "
-                      ></component
-                    ></Icon>
-                  </el-icon>
-                </template>
-                <template #header>
-                  <el-tabs stretch class="params-select--header" v-model="field.activelist">
-                    <el-tab-pane label="维度" name="dimensionList"></el-tab-pane>
-                    <el-tab-pane
-                      :disabled="curComponent.displayType === '9'"
-                      label="指标"
-                      name="quotaList"
-                    ></el-tab-pane>
-                    <el-tab-pane
-                      v-if="field.hasParameter"
-                      label="参数"
-                      :disabled="curComponent.displayType === '9'"
-                      name="parameterList"
-                    ></el-tab-pane>
-                  </el-tabs>
-                </template>
-                <el-option
-                  v-for="ele in field.fields[field.activelist]"
-                  :key="ele.id"
-                  :label="ele.name || ele.variableName"
-                  :value="ele.id"
-                  :disabled="
-                    ele.desensitized ||
-                    (curComponent.displayType === '9' && ele.deType === 1) ||
-                    isParametersDisable(ele)
-                  "
-                >
-                  <div
-                    class="flex-align-center icon"
-                    :title="ele.desensitized ? '脱敏字段，不能被设置为查询条件' : ''"
-                  >
-                    <el-icon>
-                      <Icon :className="`field-icon-${fieldType[ele.deType]}`"
-                        ><component
-                          class="svg-icon"
-                          :class="`field-icon-${fieldType[ele.deType]}`"
-                          :is="iconFieldMap[fieldType[ele.deType]]"
-                        ></component
-                      ></Icon>
-                    </el-icon>
-                    <span :title="ele.name || ele.variableName" class="ellipsis">
-                      {{ ele.name || ele.variableName }}
-                    </span>
-                    <span
-                      @click.stop="
-                        () =>
-                          isNumParameter
-                            ? numClick(field.componentId, ele)
-                            : timeClick(field.componentId, ele)
-                      "
-                      v-if="
-                        curComponent.checkedFieldsMap[field.componentId] === ele.id &&
-                        field.activelist === 'parameterList' &&
-                        (isTimeParameter || isNumParameter)
-                      "
-                      class="range-time_setting"
-                    >
-                      {{ isNumParameter ? '数值' : '时间' }}
-                      <el-icon>
-                        <Icon>
-                          <icon_edit_outlined class="svg-icon"></icon_edit_outlined>
-                        </Icon>
-                      </el-icon>
-                    </span>
-                  </div>
-                </el-option>
-              </el-select>
-              <span style="width: 172px; margin-left: 12px" v-else></span>
-            </div>
-          </el-checkbox-group>
-        </div>
-      </div>
-      <div v-if="!!curComponent" class="condition-configuration">
-        <div class="mask condition" v-if="curComponent.auto"></div>
-        <div class="title flex-align-center">
-          查询条件配置
-          <el-checkbox
-            :disabled="curComponent.auto"
-            v-model="curComponent.required"
-            label="必填项"
-          />
-        </div>
-        <div
-          v-show="showConfiguration && !showTypeError && !showDatasetError"
-          class="configuration-list"
-        >
-          <div class="list-item">
-            <div class="label">展示类型</div>
-            <div class="value">
-              <el-select
-                @focus="handleDialogClick"
-                @change="setTypeChange"
-                v-model="curComponent.displayType"
-              >
-                <el-option
-                  :disabled="!['0', '8', '9'].includes(curComponent.displayType)"
-                  label="文本下拉"
-                  value="0"
-                />
-                <el-option
-                  :disabled="!['0', '8', '9'].includes(curComponent.displayType)"
-                  label="文本搜索"
-                  value="8"
-                />
-                <el-option
-                  :disabled="
-                    !['0', '8', '9'].includes(curComponent.displayType) ||
-                    !!curComponent.parameters.length
-                  "
-                  label="下拉树"
-                  value="9"
-                />
-
-                <template v-if="['2', '22'].includes(curComponent.displayType)">
-                  <el-option
-                    :disabled="!['2', '22'].includes(curComponent.displayType) || notNumRange"
-                    label="数字下拉"
-                    value="2"
-                  />
-                  <el-option
-                    :disabled="!['2', '22'].includes(curComponent.displayType) || canNotNumRange"
-                    label="数值区间"
-                    value="22"
-                  />
-                </template>
-                <el-option
-                  v-else
-                  :disabled="curComponent.displayType !== '5'"
-                  label="数字下拉"
-                  value="5"
-                />
-                <el-option
-                  :disabled="
-                    !['1', '7'].includes(curComponent.displayType) ||
-                    (isTimeParameter && notTimeRange)
-                  "
-                  label="时间"
-                  value="1"
-                />
-                <el-option
-                  :disabled="
-                    !['1', '7'].includes(curComponent.displayType) ||
-                    (isTimeParameter && !notTimeRange)
-                  "
-                  label="时间范围"
-                  value="7"
-                />
-              </el-select>
-            </div>
-          </div>
-          <div class="list-item" v-if="curComponent.displayType === '9'">
-            <div class="label">选项值数量</div>
-            <div class="value">
-              <el-radio-group class="larger-radio" v-model="curComponent.resultMode">
-                <el-radio :label="0">默认</el-radio>
-                <el-radio :label="1">全部</el-radio>
-              </el-radio-group>
-            </div>
-          </div>
-          <div class="list-item" v-if="curComponent.displayType === '9'">
-            <div class="label" style="width: 135px; height: 26px; line-height: 26px">
-              下拉树结构设计
-              <el-button
-                v-if="curComponent.treeFieldList && !!curComponent.treeFieldList.length"
-                text
-                @click="startTreeDesign"
-              >
-                <template #icon>
-                  <icon name="icon_edit_outlined"><icon_edit_outlined class="svg-icon" /></icon>
-                </template>
-              </el-button>
-            </div>
-            <div class="search-tree">
-              <template v-if="curComponent.treeFieldList && !!curComponent.treeFieldList.length">
-                <div
-                  v-for="(ele, index) in curComponent.treeFieldList"
-                  :key="ele.id"
-                  class="tree-field"
-                >
-                  <span class="level-index">层级{{ indexCascade[index + 1] }}</span>
-                  <span class="field-type"
-                    ><el-icon>
-                      <Icon :className="`field-icon-${fieldType[ele.deType]}`"
-                        ><component
-                          :class="`field-icon-${fieldType[ele.deType]}`"
-                          class="svg-icon"
-                          :is="iconFieldMap[fieldType[ele.deType]]"
-                        ></component
-                      ></Icon> </el-icon
-                  ></span>
-                  <span class="field-tree_name">{{ ele.name }}</span>
+                  </el-tooltip>
                 </div>
-              </template>
-              <el-button @click="startTreeDesign" v-else text>
-                <template #icon>
-                  <Icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></Icon>
-                </template>
-                点击进行树结构设计
-              </el-button>
-            </div>
-            <TreeFieldDialog ref="treeDialog" @save-tree="saveTree"></TreeFieldDialog>
+              </el-radio>
+              <el-radio :label="false">{{ t('commons.custom') }}</el-radio>
+            </el-radio-group>
           </div>
-          <div class="list-item" v-if="['1', '7'].includes(curComponent.displayType)">
-            <div class="label">时间粒度</div>
-            <div class="value">
-              <template v-if="curComponent.displayType === '7' && !isTimeParameter">
+          <div class="select-all">
+            <el-checkbox
+              v-model="checkAll"
+              :indeterminate="isIndeterminate"
+              @change="handleCheckAllChange"
+              >{{ t('dataset.check_all') }}</el-checkbox
+            >
+          </div>
+          <div class="field-list">
+            <el-checkbox-group
+              v-model="curComponent.checkedFields"
+              @change="handleCheckedFieldsChangeTree"
+            >
+              <div v-for="field in fields" :key="field.componentId" class="list-item_field_de">
+                <el-checkbox :label="field.componentId"
+                  ><el-icon class="component-type">
+                    <Icon
+                      ><component
+                        :is="iconChartMap[canvasViewInfo[field.componentId].type]"
+                      ></component
+                    ></Icon> </el-icon
+                  ><span
+                    :title="canvasViewInfo[field.componentId].title"
+                    class="checkbox-name ellipsis"
+                    >{{ canvasViewInfo[field.componentId].title }}</span
+                  ></el-checkbox
+                >
+                <span :title="field.name" class="dataset ellipsis">{{ field.name }}</span>
                 <el-select
-                  @change="timeGranularityMultipleChange"
-                  placeholder="请选择时间粒度"
+                  @change="val => setParametersArr(val, field.componentId)"
                   @focus="handleDialogClick"
-                  v-model="curComponent.timeGranularityMultiple"
+                  multiple
+                  filterable
+                  collapse-tags
+                  collapse-tags-tooltip
+                  key="checkedFieldsMapArrTime"
+                  :multiple-limit="2"
+                  class="field-select--input"
+                  style="margin-left: 12px"
+                  popper-class="field-select--dqp"
+                  v-if="
+                    curComponent.checkedFields.includes(field.componentId) &&
+                    curComponent.checkedFieldsMapArr &&
+                    curComponent.checkedFieldsMapArr[field.componentId] &&
+                    curComponent.checkedFieldsMapArr[field.componentId].length
+                  "
+                  v-model="curComponent.checkedFieldsMapArr[field.componentId]"
+                  clearable
                 >
-                  <el-option label="年" value="yearrange" />
-                  <el-option label="年月" value="monthrange" />
-                  <el-option label="年月日" value="daterange" />
-                  <el-option label="年月日时分秒" value="datetimerange" />
-                </el-select>
-              </template>
-              <template v-else>
-                <el-select
-                  @change="timeGranularityChange"
-                  placeholder="请选择时间粒度"
-                  v-model="curComponent.timeGranularity"
-                >
+                  <template v-if="curComponent.checkedFieldsMap[field.componentId]" #prefix>
+                    <el-icon>
+                      <Icon
+                        ><component
+                          :class="`field-icon-${
+                            fieldType[
+                              getDetype(
+                                curComponent.checkedFieldsMap[field.componentId],
+                                Object.values(field.fields)
+                              )
+                            ]
+                          }`"
+                          :is="
+                            iconFieldMap[
+                              fieldType[
+                                getDetype(
+                                  curComponent.checkedFieldsMap[field.componentId],
+                                  Object.values(field.fields)
+                                )
+                              ]
+                            ]
+                          "
+                        ></component
+                      ></Icon>
+                    </el-icon>
+                  </template>
+                  <template #header>
+                    <el-tabs stretch class="params-select--header" v-model="field.activelist">
+                      <el-tab-pane
+                        disabled
+                        :label="t('chart.dimension')"
+                        name="dimensionList"
+                      ></el-tab-pane>
+                      <el-tab-pane
+                        disabled
+                        :label="t('chart.quota')"
+                        name="quotaList"
+                      ></el-tab-pane>
+                      <el-tab-pane :label="t('dataset.param')" name="parameterList"></el-tab-pane>
+                    </el-tabs>
+                  </template>
                   <el-option
-                    v-for="ele in timeParameterList"
-                    :key="ele.value"
-                    :label="ele.label"
-                    :value="ele.value"
-                  />
+                    v-for="ele in field.fields[field.activelist]"
+                    :key="ele.id"
+                    :label="ele.name || ele.variableName"
+                    :value="ele.id"
+                    :disabled="isParametersDisable(ele)"
+                  >
+                    <div class="flex-align-center icon">
+                      <el-icon>
+                        <Icon :className="`field-icon-${fieldType[ele.deType]}`"
+                          ><component
+                            class="svg-icon"
+                            :class="`field-icon-${fieldType[ele.deType]}`"
+                            :is="iconFieldMap[fieldType[ele.deType]]"
+                          ></component
+                        ></Icon>
+                      </el-icon>
+                      <span :title="ele.name || ele.variableName" class="ellipsis">
+                        {{ ele.name || ele.variableName }}
+                      </span>
+                      <span
+                        v-if="
+                          curComponent.checkedFieldsMapArr[field.componentId].includes(ele.id) &&
+                          field.activelist === 'parameterList'
+                        "
+                        @click.stop="timeClick(field.componentId, ele)"
+                        class="range-time_setting"
+                      >
+                        {{
+                          curComponent.checkedFieldsMapStart[field.componentId] === ele.id
+                            ? t('dataset.start_time')
+                            : curComponent.checkedFieldsMapEnd[field.componentId] === ele.id
+                            ? t('dataset.end_time')
+                            : ''
+                        }}
+                        <el-icon>
+                          <Icon>
+                            <icon_edit_outlined class="svg-icon"></icon_edit_outlined>
+                          </Icon>
+                        </el-icon>
+                      </span>
+                    </div>
+                  </el-option>
                 </el-select>
-              </template>
-            </div>
+                <el-select
+                  @change="val => setParametersArrNum(val, field.componentId)"
+                  @focus="handleDialogClick"
+                  multiple
+                  filterable
+                  collapse-tags
+                  collapse-tags-tooltip
+                  key="checkedFieldsMapArr"
+                  :multiple-limit="2"
+                  class="field-select--input"
+                  style="margin-left: 12px"
+                  popper-class="field-select--dqp"
+                  v-else-if="
+                    curComponent.checkedFields.includes(field.componentId) &&
+                    curComponent.checkedFieldsMapArrNum &&
+                    curComponent.checkedFieldsMapArrNum[field.componentId] &&
+                    curComponent.checkedFieldsMapArrNum[field.componentId].length
+                  "
+                  v-model="curComponent.checkedFieldsMapArrNum[field.componentId]"
+                  clearable
+                >
+                  <template v-if="curComponent.checkedFieldsMap[field.componentId]" #prefix>
+                    <el-icon>
+                      <Icon
+                        ><component
+                          :class="`field-icon-${
+                            fieldType[
+                              getDetype(
+                                curComponent.checkedFieldsMap[field.componentId],
+                                Object.values(field.fields)
+                              )
+                            ]
+                          }`"
+                          :is="
+                            iconFieldMap[
+                              fieldType[
+                                getDetype(
+                                  curComponent.checkedFieldsMap[field.componentId],
+                                  Object.values(field.fields)
+                                )
+                              ]
+                            ]
+                          "
+                        ></component
+                      ></Icon>
+                    </el-icon>
+                  </template>
+                  <template #header>
+                    <el-tabs stretch class="params-select--header" v-model="field.activelist">
+                      <el-tab-pane
+                        disabled
+                        :label="t('chart.dimension')"
+                        name="dimensionList"
+                      ></el-tab-pane>
+                      <el-tab-pane
+                        disabled
+                        :label="t('chart.quota')"
+                        name="quotaList"
+                      ></el-tab-pane>
+                      <el-tab-pane :label="t('dataset.param')" name="parameterList"></el-tab-pane>
+                    </el-tabs>
+                  </template>
+                  <el-option
+                    v-for="ele in field.fields[field.activelist]"
+                    :key="ele.id"
+                    :label="ele.name || ele.variableName"
+                    :value="ele.id"
+                    :disabled="![2, 3].includes(ele.deType)"
+                  >
+                    <div class="flex-align-center icon">
+                      <el-icon>
+                        <Icon :className="`field-icon-${fieldType[ele.deType]}`"
+                          ><component
+                            class="svg-icon"
+                            :class="`field-icon-${fieldType[ele.deType]}`"
+                            :is="iconFieldMap[fieldType[ele.deType]]"
+                          ></component
+                        ></Icon>
+                      </el-icon>
+                      <span :title="ele.name || ele.variableName" class="ellipsis">
+                        {{ ele.name || ele.variableName }}
+                      </span>
+                      <span
+                        v-if="
+                          curComponent.checkedFieldsMapArrNum[field.componentId].includes(ele.id) &&
+                          field.activelist === 'parameterList'
+                        "
+                        @click.stop="numClick(field.componentId, ele)"
+                        class="range-time_setting"
+                      >
+                        {{
+                          curComponent.checkedFieldsMapStartNum[field.componentId] === ele.id
+                            ? t('chart.min')
+                            : curComponent.checkedFieldsMapEndNum[field.componentId] === ele.id
+                            ? t('chart.max')
+                            : ''
+                        }}
+                        <el-icon>
+                          <Icon>
+                            <icon_edit_outlined class="svg-icon"></icon_edit_outlined>
+                          </Icon>
+                        </el-icon>
+                      </span>
+                    </div>
+                  </el-option>
+                </el-select>
+                <el-select
+                  @change="setParameters(field)"
+                  @focus="handleDialogClick"
+                  filterable
+                  style="margin-left: 12px"
+                  popper-class="field-select--dqp"
+                  v-else-if="curComponent.checkedFields.includes(field.componentId)"
+                  v-model="curComponent.checkedFieldsMap[field.componentId]"
+                  clearable
+                >
+                  <template v-if="curComponent.checkedFieldsMap[field.componentId]" #prefix>
+                    <el-icon>
+                      <Icon
+                        ><component
+                          :class="`field-icon-${
+                            fieldType[
+                              getDetype(
+                                curComponent.checkedFieldsMap[field.componentId],
+                                Object.values(field.fields)
+                              )
+                            ]
+                          }`"
+                          :is="
+                            iconFieldMap[
+                              fieldType[
+                                getDetype(
+                                  curComponent.checkedFieldsMap[field.componentId],
+                                  Object.values(field.fields)
+                                )
+                              ]
+                            ]
+                          "
+                        ></component
+                      ></Icon>
+                    </el-icon>
+                  </template>
+                  <template #header>
+                    <el-tabs stretch class="params-select--header" v-model="field.activelist">
+                      <el-tab-pane :label="t('chart.dimension')" name="dimensionList"></el-tab-pane>
+                      <el-tab-pane
+                        :disabled="curComponent.displayType === '9'"
+                        :label="t('chart.quota')"
+                        name="quotaList"
+                      ></el-tab-pane>
+                      <el-tab-pane
+                        v-if="field.hasParameter"
+                        :label="t('dataset.param')"
+                        :disabled="curComponent.displayType === '9'"
+                        name="parameterList"
+                      ></el-tab-pane>
+                    </el-tabs>
+                  </template>
+                  <el-option
+                    v-for="ele in field.fields[field.activelist]"
+                    :key="ele.id"
+                    :label="ele.name || ele.variableName"
+                    :value="ele.id"
+                    :disabled="
+                      ele.desensitized ||
+                      (curComponent.displayType === '9' && ele.deType === 1) ||
+                      isParametersDisable(ele)
+                    "
+                  >
+                    <div
+                      class="flex-align-center icon"
+                      :title="ele.desensitized ? t('v_query.as_query_conditions') : ''"
+                    >
+                      <el-icon>
+                        <Icon :className="`field-icon-${fieldType[ele.deType]}`"
+                          ><component
+                            class="svg-icon"
+                            :class="`field-icon-${fieldType[ele.deType]}`"
+                            :is="iconFieldMap[fieldType[ele.deType]]"
+                          ></component
+                        ></Icon>
+                      </el-icon>
+                      <span :title="ele.name || ele.variableName" class="ellipsis">
+                        {{ ele.name || ele.variableName }}
+                      </span>
+                      <span
+                        @click.stop="
+                          () =>
+                            isNumParameter
+                              ? numClick(field.componentId, ele)
+                              : timeClick(field.componentId, ele)
+                        "
+                        v-if="
+                          curComponent.checkedFieldsMap[field.componentId] === ele.id &&
+                          field.activelist === 'parameterList' &&
+                          (isTimeParameter || isNumParameter)
+                        "
+                        class="range-time_setting"
+                      >
+                        {{ isNumParameter ? t('chart.value_formatter_value') : t('dataset.time') }}
+                        <el-icon>
+                          <Icon>
+                            <icon_edit_outlined class="svg-icon"></icon_edit_outlined>
+                          </Icon>
+                        </el-icon>
+                      </span>
+                    </div>
+                  </el-option>
+                </el-select>
+                <span style="width: 172px; margin-left: 12px" v-else></span>
+              </div>
+            </el-checkbox-group>
+          </div>
+        </el-scrollbar>
+      </div>
+      <div
+        v-if="!!curComponent"
+        class="condition-configuration"
+        :class="curComponent.auto && 'condition-configuration_hide'"
+      >
+        <el-scrollbar>
+          <div class="mask condition" v-if="curComponent.auto"></div>
+          <div class="title flex-align-center">
+            {{ t('v_query.query_condition_configuration') }}
+            <el-checkbox
+              :disabled="
+                curComponent.auto ||
+                (curComponent.displayType === '9' && relationshipChartIndex !== 0)
+              "
+              v-model="curComponent.required"
+              :label="t('v_query.required_items')"
+            />
           </div>
           <div
-            class="list-item top-item"
-            v-if="!['1', '7', '8', '9', '22'].includes(curComponent.displayType)"
+            v-show="
+              (curComponent.displayType !== '9' && showConfiguration && !showTypeError) ||
+              (curComponent.displayType === '9' && relationshipChartIndex == 0)
+            "
+            class="configuration-list"
           >
-            <div class="label">选项值来源</div>
-            <div class="value">
+            <div class="list-item">
+              <div class="label">{{ t('v_query.display_type') }}</div>
               <div class="value">
-                <el-radio-group
-                  class="larger-radio"
-                  @change="handleValueSourceChange"
-                  v-model="curComponent.optionValueSource"
+                <el-select
+                  @focus="handleDialogClick"
+                  @change="handleSetTypeChange"
+                  v-model="curComponent.displayType"
                 >
-                  <el-radio :disabled="!!curComponent.parameters.length" :label="0">{{
-                    t('chart.margin_model_auto')
-                  }}</el-radio>
-                  <el-radio :label="1">{{ t('chart.select_dataset') }}</el-radio>
-                  <el-radio :label="2">手动输入</el-radio>
+                  <el-option
+                    :disabled="!['0', '8', '9'].includes(curComponent.displayType)"
+                    :label="t('v_query.text_drop_down')"
+                    value="0"
+                  />
+                  <el-option
+                    :disabled="!['0', '8', '9'].includes(curComponent.displayType)"
+                    :label="t('v_query.text_search')"
+                    value="8"
+                  />
+                  <el-option
+                    :disabled="
+                      !['0', '8', '9'].includes(curComponent.displayType) ||
+                      !!curComponent.parameters.length
+                    "
+                    :label="t('v_query.drop_down_tree')"
+                    value="9"
+                  />
+
+                  <template v-if="['2', '22'].includes(curComponent.displayType)">
+                    <el-option
+                      :disabled="!['2', '22'].includes(curComponent.displayType) || notNumRange"
+                      :label="t('v_query.number_drop_down')"
+                      value="2"
+                    />
+                    <el-option
+                      :disabled="!['2', '22'].includes(curComponent.displayType) || canNotNumRange"
+                      :label="t('v_query.number_range')"
+                      value="22"
+                    />
+                  </template>
+                  <el-option
+                    v-else
+                    :disabled="curComponent.displayType !== '5'"
+                    :label="t('v_query.number_drop_down')"
+                    value="5"
+                  />
+                  <el-option
+                    :disabled="
+                      !['1', '7'].includes(curComponent.displayType) ||
+                      (isTimeParameter && notTimeRange)
+                    "
+                    :label="t('dataset.time')"
+                    value="1"
+                  />
+                  <el-option
+                    :disabled="
+                      !['1', '7'].includes(curComponent.displayType) ||
+                      (isTimeParameter && !notTimeRange)
+                    "
+                    :label="t('common.component.dateRange')"
+                    value="7"
+                  />
+                </el-select>
+              </div>
+            </div>
+            <div class="list-item" v-if="curComponent.displayType === '9'">
+              <div :title="t('v_query.of_option_values')" class="label ellipsis">
+                {{ t('v_query.of_option_values') }}
+              </div>
+              <div class="value">
+                <el-radio-group class="larger-radio icon-info" v-model="curComponent.resultMode">
+                  <el-radio :label="0"
+                    >{{ t('login.default_login') }}
+                    <el-tooltip effect="dark" :content="t('common.up_to_options')" placement="top">
+                      <el-icon style="margin-left: 4px; color: #646a73">
+                        <icon name="icon_info_outlined"
+                          ><icon_info_outlined class="svg-icon"
+                        /></icon>
+                      </el-icon> </el-tooltip
+                  ></el-radio>
+
+                  <el-radio :label="1">{{ t('chart.result_mode_all') }}</el-radio>
                 </el-radio-group>
               </div>
-              <template v-if="curComponent.optionValueSource === 1">
-                <div class="value">
-                  <el-tree-select
-                    :teleported="false"
-                    v-model="curComponent.dataset.id"
-                    :data="datasetTree"
-                    placeholder="请选择数据集"
-                    @change="handleDatasetChange"
-                    @current-change="handleCurrentChange"
-                    :props="dsSelectProps"
-                    placement="bottom"
-                    :render-after-expand="false"
-                    filterable
-                    popper-class="dataset-tree"
+            </div>
+            <div class="list-item" v-if="curComponent.displayType === '9'">
+              <div :title="t('copilot.pls_choose_dataset')" class="label ellipsis">
+                {{ t('copilot.pls_choose_dataset') }}
+              </div>
+              <div class="value">
+                <el-tree-select
+                  :teleported="false"
+                  v-model="curComponent.treeDatasetId"
+                  :data="datasetTree"
+                  :placeholder="t('copilot.pls_choose_dataset')"
+                  @change="handleDatasetTreeChange"
+                  :props="dsSelectProps"
+                  placement="bottom"
+                  :render-after-expand="false"
+                  filterable
+                  popper-class="dataset-tree"
+                >
+                  <template #default="{ node, data }">
+                    <div class="content">
+                      <el-icon size="18px" v-if="!data.leaf">
+                        <Icon><dvFolder class="svg-icon" /></Icon>
+                      </el-icon>
+                      <el-icon size="18px" v-if="data.leaf">
+                        <Icon><icon_dataset class="svg-icon" /></Icon>
+                      </el-icon>
+                      <span
+                        class="label-tree ellipsis"
+                        style="margin-left: 8px"
+                        :title="node.label"
+                        >{{ node.label }}</span
+                      >
+                    </div>
+                  </template>
+                </el-tree-select>
+              </div>
+            </div>
+            <div class="list-item" v-if="curComponent.displayType === '9'">
+              <div class="label" style="width: 135px; height: 26px; line-height: 26px">
+                {{ t('v_query.tree_structure_design') }}
+                <el-button
+                  v-if="curComponent.treeFieldList && !!curComponent.treeFieldList.length"
+                  text
+                  @click="startTreeDesign"
+                >
+                  <template #icon>
+                    <icon><icon_edit_outlined class="svg-icon" /></icon>
+                  </template>
+                </el-button>
+              </div>
+              <div class="search-tree">
+                <template v-if="curComponent.treeFieldList && !!curComponent.treeFieldList.length">
+                  <div
+                    v-for="(ele, index) in curComponent.treeFieldList"
+                    :key="ele.id"
+                    class="tree-field"
                   >
-                    <template #default="{ node, data }">
-                      <div class="content">
-                        <el-icon size="18px" v-if="!data.leaf">
-                          <Icon name="dv-folder"><dvFolder class="svg-icon" /></Icon>
-                        </el-icon>
-                        <el-icon size="18px" v-if="data.leaf">
-                          <Icon name="icon_dataset"><icon_dataset class="svg-icon" /></Icon>
-                        </el-icon>
-                        <span
-                          class="label-tree ellipsis"
-                          style="margin-left: 8px"
-                          :title="node.label"
-                          >{{ node.label }}</span
-                        >
-                      </div>
-                    </template>
-                  </el-tree-select>
-                </div>
-                <div class="value">
-                  <span class="label">查询字段</span>
-                  <el-select
-                    @change="handleFieldChange"
-                    placeholder="查询字段"
-                    class="search-field"
-                    v-model="curComponent.field.id"
-                  >
-                    <template v-if="curComponent.field.id" #prefix>
-                      <el-icon>
+                    <span class="level-index"
+                      >{{ t('visualization.level') }}{{ indexNumCascade[index] }}</span
+                    >
+                    <span class="field-type"
+                      ><el-icon>
                         <Icon
                           ><component
+                            :class="`field-icon-${fieldType[ele.deType]}`"
                             class="svg-icon"
-                            :class="`field-icon-${
-                              fieldType[
-                                getDetype(curComponent.field.id, curComponent.dataset.fields)
-                              ]
-                            }`"
-                            :is="
-                              iconFieldMap[
-                                fieldType[
-                                  getDetype(curComponent.field.id, curComponent.dataset.fields)
-                                ]
-                              ]
-                            "
+                            :is="iconFieldMap[fieldType[ele.deType]]"
                           ></component
-                        ></Icon>
-                      </el-icon>
-                    </template>
-                    <el-option
-                      v-for="ele in curComponent.dataset.fields.filter(
-                        ele =>
-                          ele.deType === +curComponent.displayType ||
-                          ([3, 4].includes(ele.deType) && +curComponent.displayType === 2) ||
-                          (ele.deType === 7 && +curComponent.displayType === 0)
-                      )"
-                      :key="ele.id"
-                      :label="ele.name"
-                      :value="ele.id"
-                      :disabled="ele.desensitized"
-                    >
-                      <div
-                        class="flex-align-center icon"
-                        :title="ele.desensitized ? '脱敏字段，不能被设置为查询条件' : ''"
-                      >
-                        <el-icon>
-                          <Icon :className="`field-icon-${fieldType[ele.deType]}`"
-                            ><component
-                              class="svg-icon"
-                              :class="`field-icon-${fieldType[ele.deType]}`"
-                              :is="iconFieldMap[fieldType[ele.deType]]"
-                            ></component
-                          ></Icon>
-                        </el-icon>
-                        <span>
-                          {{ ele.name }}
-                        </span>
-                      </div>
-                    </el-option>
+                        ></Icon> </el-icon
+                    ></span>
+                    <span class="field-tree_name ellipsis" :title="ele.name">{{ ele.name }}</span>
+                    <span class="field-relationship_chart" v-if="index === 0">{{
+                      t('common.associated_chart_first')
+                    }}</span>
+                    <span class="field-relationship_chart" v-else>
+                      <el-button text @click="handleRelationshipChart(index)">
+                        {{ t('common.associated_chart') }}
+                      </el-button>
+                    </span>
+                  </div>
+                </template>
+                <el-button class="start-tree_design" @click="startTreeDesign" v-else text>
+                  <template #icon>
+                    <Icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></Icon>
+                  </template>
+                  {{ t('v_query.the_tree_structure') }}
+                </el-button>
+              </div>
+              <TreeFieldDialog ref="treeDialog" @save-tree="saveTree"></TreeFieldDialog>
+            </div>
+            <div class="list-item" v-if="['1', '7'].includes(curComponent.displayType)">
+              <div :title="t('v_query.time_granularity')" class="label ellipsis">
+                {{ t('v_query.time_granularity') }}
+              </div>
+              <div class="value">
+                <template v-if="curComponent.displayType === '7' && !isTimeParameter">
+                  <el-select
+                    @change="timeGranularityMultipleChange"
+                    :placeholder="t('v_query.the_time_granularity')"
+                    @focus="handleDialogClick"
+                    v-model="curComponent.timeGranularityMultiple"
+                  >
+                    <el-option :label="t('chart.y')" value="yearrange" />
+                    <el-option :label="t('chart.y_M')" value="monthrange" />
+                    <el-option :label="t('chart.y_M_d')" value="daterange" />
+                    <el-option :label="t('chart.y_M_d_H_m_s')" value="datetimerange" />
                   </el-select>
-                </div>
-                <div class="value">
-                  <span class="label">显示字段</span>
+                </template>
+                <template v-else>
                   <el-select
-                    placeholder="显示字段"
-                    class="search-field"
-                    v-model="curComponent.displayId"
+                    @change="timeGranularityChange"
+                    :placeholder="t('v_query.the_time_granularity')"
+                    v-model="curComponent.timeGranularity"
                   >
-                    <template v-if="curComponent.displayId" #prefix>
-                      <el-icon>
-                        <Icon
-                          ><component
-                            class="svg-icon"
-                            :class="`field-icon-${
-                              fieldType[
-                                getDetype(curComponent.displayId, curComponent.dataset.fields)
-                              ]
-                            }`"
-                            :is="
-                              iconFieldMap[
-                                fieldType[
-                                  getDetype(curComponent.displayId, curComponent.dataset.fields)
-                                ]
-                              ]
-                            "
-                          ></component
-                        ></Icon>
-                      </el-icon>
-                    </template>
                     <el-option
-                      v-for="ele in curComponent.dataset.fields.filter(
-                        ele =>
-                          ele.deType === +curComponent.displayType ||
-                          ([3, 4].includes(ele.deType) && +curComponent.displayType === 2) ||
-                          (ele.deType === 7 && +curComponent.displayType === 0)
-                      )"
-                      :key="ele.id"
-                      :label="ele.name"
-                      :value="ele.id"
-                      :disabled="ele.desensitized"
-                    >
-                      <div
-                        class="flex-align-center icon"
-                        :title="ele.desensitized ? '脱敏字段，不能被设置为查询条件' : ''"
-                      >
-                        <el-icon>
-                          <Icon :className="`field-icon-${fieldType[ele.deType]}`"
-                            ><component
-                              class="svg-icon"
-                              :class="`field-icon-${fieldType[ele.deType]}`"
-                              :is="iconFieldMap[fieldType[ele.deType]]"
-                            ></component
-                          ></Icon>
-                        </el-icon>
-                        <span>
-                          {{ ele.name }}
-                        </span>
-                      </div>
-                    </el-option>
+                      v-for="ele in timeParameterList"
+                      :key="ele.value"
+                      :label="ele.label"
+                      :value="ele.value"
+                    />
                   </el-select>
-                </div>
+                </template>
+              </div>
+            </div>
+            <div
+              class="list-item top-item"
+              v-if="!['1', '7', '8', '9', '22'].includes(curComponent.displayType)"
+            >
+              <div :title="t('v_query.option_value_source')" class="label ellipsis">
+                {{ t('v_query.option_value_source') }}
+              </div>
+              <div class="value">
                 <div class="value">
-                  <span class="label">排序字段</span>
-                  <el-select
-                    clearable
-                    placeholder="请选择排序字段"
-                    v-model="curComponent.sortId"
-                    class="sort-field"
-                    @change="handleFieldChange"
+                  <el-radio-group
+                    class="larger-radio"
+                    @change="handleValueSourceChange"
+                    v-model="curComponent.optionValueSource"
                   >
-                    <template v-if="curComponent.sortId" #prefix>
-                      <el-icon>
-                        <Icon
-                          ><component
-                            class="svg-icon"
-                            :class="`field-icon-${
-                              fieldType[getDetype(curComponent.sortId, curComponent.dataset.fields)]
-                            }`"
-                            :is="
-                              iconFieldMap[
-                                fieldType[
-                                  getDetype(curComponent.sortId, curComponent.dataset.fields)
-                                ]
-                              ]
-                            "
-                          ></component
-                        ></Icon>
-                      </el-icon>
-                    </template>
-                    <el-option
-                      v-for="ele in curComponent.dataset.fields"
-                      :key="ele.id"
-                      :label="ele.name"
-                      :value="ele.id"
-                      :disabled="ele.desensitized"
+                    <el-radio :disabled="!!curComponent.parameters.length" :label="0">{{
+                      t('chart.margin_model_auto')
+                    }}</el-radio>
+                    <el-radio :label="1">{{ t('chart.select_dataset') }}</el-radio>
+                    <el-radio :label="2">{{ t('v_query.manual_input') }}</el-radio>
+                  </el-radio-group>
+                </div>
+                <template v-if="curComponent.optionValueSource === 1">
+                  <div class="value">
+                    <el-tree-select
+                      :teleported="false"
+                      v-model="curComponent.dataset.id"
+                      :data="datasetTree"
+                      :placeholder="t('copilot.pls_choose_dataset')"
+                      @change="handleDatasetChange"
+                      @current-change="handleCurrentChange"
+                      :props="dsSelectProps"
+                      placement="bottom"
+                      :render-after-expand="false"
+                      filterable
+                      popper-class="dataset-tree"
                     >
-                      <div
-                        class="flex-align-center icon"
-                        :title="ele.desensitized ? '脱敏字段，不能被设置为查询条件' : ''"
-                      >
+                      <template #default="{ node, data }">
+                        <div class="content">
+                          <el-icon size="18px" v-if="!data.leaf">
+                            <Icon name="dv-folder"><dvFolder class="svg-icon" /></Icon>
+                          </el-icon>
+                          <el-icon size="18px" v-if="data.leaf">
+                            <Icon name="icon_dataset"><icon_dataset class="svg-icon" /></Icon>
+                          </el-icon>
+                          <span
+                            class="label-tree ellipsis"
+                            style="margin-left: 8px"
+                            :title="node.label"
+                            >{{ node.label }}</span
+                          >
+                        </div>
+                      </template>
+                    </el-tree-select>
+                  </div>
+                  <div style="display: flex; align-items: center" class="value ellipsis">
+                    <span :title="t('v_query.query_field')" class="label">{{
+                      t('v_query.query_field')
+                    }}</span>
+                    <el-select
+                      @change="handleFieldChange"
+                      :placeholder="t('v_query.query_field')"
+                      class="search-field"
+                      v-model="curComponent.field.id"
+                    >
+                      <template v-if="curComponent.field.id" #prefix>
                         <el-icon>
                           <Icon
                             ><component
-                              :class="`field-icon-${fieldType[ele.deType]}`"
                               class="svg-icon"
-                              :is="iconFieldMap[fieldType[ele.deType]]"
+                              :class="`field-icon-${
+                                fieldType[
+                                  getDetype(curComponent.field.id, curComponent.dataset.fields)
+                                ]
+                              }`"
+                              :is="
+                                iconFieldMap[
+                                  fieldType[
+                                    getDetype(curComponent.field.id, curComponent.dataset.fields)
+                                  ]
+                                ]
+                              "
                             ></component
                           ></Icon>
                         </el-icon>
-                        <span>
-                          {{ ele.name }}
-                        </span>
-                      </div>
-                    </el-option>
-                  </el-select>
-                  <el-select
-                    class="sort-type"
-                    v-model="curComponent.sort"
-                    @change="handleFieldChange"
-                  >
-                    <el-option label="升序" value="asc" />
-                    <el-option label="降序" value="desc" />
-                  </el-select>
-                </div>
-              </template>
-              <div v-if="curComponent.optionValueSource === 2" class="value flex-align-center">
-                <el-popover
-                  placement="bottom-start"
-                  popper-class="manual-input"
-                  ref="manual"
-                  :width="358"
-                  trigger="click"
-                >
-                  <template #reference>
-                    <el-button text>
-                      <template #icon>
-                        <Icon name="icon_edit_outlined"
-                          ><icon_edit_outlined class="svg-icon"
-                        /></Icon>
                       </template>
-                      {{ t('common.edit') }}
-                    </el-button>
-                  </template>
-                  <div class="manual-input-container">
-                    <div class="title">{{ t('auth.manual_input') }}</div>
-                    <div class="select-value">
-                      <span> 选项值 </span>
-                      <div :key="index" v-for="(_, index) in valueSource" class="select-item">
-                        <el-input
-                          maxlength="20"
-                          v-if="curComponent.displayType === '2'"
-                          @blur="weightlessness"
-                          v-model.number="valueSource[index]"
-                        ></el-input>
-                        <el-input
-                          maxlength="20"
-                          v-else
-                          @blur="weightlessness"
-                          v-model="valueSource[index]"
-                        ></el-input>
-                        <el-button
-                          v-if="valueSource.length !== 1"
-                          @click="valueSource.splice(index, 1)"
-                          class="value"
-                          text
+                      <el-option
+                        v-for="ele in curComponent.dataset.fields.filter(
+                          ele =>
+                            ele.deType === +curComponent.displayType ||
+                            ([3, 4].includes(ele.deType) && +curComponent.displayType === 2) ||
+                            (ele.deType === 7 && +curComponent.displayType === 0)
+                        )"
+                        :key="ele.id"
+                        :label="ele.name"
+                        :value="ele.id"
+                        :disabled="ele.desensitized"
+                      >
+                        <div
+                          class="flex-align-center icon"
+                          :title="ele.desensitized ? t('v_query.as_query_conditions') : ''"
                         >
+                          <el-icon>
+                            <Icon :className="`field-icon-${fieldType[ele.deType]}`"
+                              ><component
+                                class="svg-icon"
+                                :class="`field-icon-${fieldType[ele.deType]}`"
+                                :is="iconFieldMap[fieldType[ele.deType]]"
+                              ></component
+                            ></Icon>
+                          </el-icon>
+                          <span>
+                            {{ ele.name }}
+                          </span>
+                        </div>
+                      </el-option>
+                    </el-select>
+                  </div>
+                  <div style="display: flex; align-items: center" class="value">
+                    <span :title="t('v_query.display_field')" class="label ellipsis">{{
+                      t('v_query.display_field')
+                    }}</span>
+                    <el-select
+                      :placeholder="t('v_query.display_field')"
+                      class="search-field"
+                      v-model="curComponent.displayId"
+                      @change="resetSort"
+                    >
+                      <template v-if="curComponent.displayId" #prefix>
+                        <el-icon>
+                          <Icon
+                            ><component
+                              class="svg-icon"
+                              :class="`field-icon-${
+                                fieldType[
+                                  getDetype(curComponent.displayId, curComponent.dataset.fields)
+                                ]
+                              }`"
+                              :is="
+                                iconFieldMap[
+                                  fieldType[
+                                    getDetype(curComponent.displayId, curComponent.dataset.fields)
+                                  ]
+                                ]
+                              "
+                            ></component
+                          ></Icon>
+                        </el-icon>
+                      </template>
+                      <el-option
+                        v-for="ele in fieldsComputed"
+                        :key="ele.id"
+                        :label="ele.name"
+                        :value="ele.id"
+                        :disabled="ele.desensitized"
+                      >
+                        <div
+                          class="flex-align-center icon"
+                          :title="ele.desensitized ? t('v_query.as_query_conditions') : ''"
+                        >
+                          <el-icon>
+                            <Icon :className="`field-icon-${fieldType[ele.deType]}`"
+                              ><component
+                                class="svg-icon"
+                                :class="`field-icon-${fieldType[ele.deType]}`"
+                                :is="iconFieldMap[fieldType[ele.deType]]"
+                              ></component
+                            ></Icon>
+                          </el-icon>
+                          <span>
+                            {{ ele.name }}
+                          </span>
+                        </div>
+                      </el-option>
+                    </el-select>
+                  </div>
+                  <div class="value">
+                    <span class="label">{{ t('chart.total_sort_field') }}</span>
+                    <div>
+                      <el-select
+                        clearable
+                        :placeholder="t('v_query.the_sorting_field')"
+                        v-model="curComponent.sortId"
+                        class="sort-field"
+                        style="width: 240px"
+                        @change="handleSortChange"
+                      >
+                        <template v-if="curComponent.sortId" #prefix>
+                          <el-icon>
+                            <Icon
+                              ><component
+                                class="svg-icon"
+                                :class="`field-icon-${
+                                  fieldType[
+                                    getDetype(curComponent.sortId, curComponent.dataset.fields)
+                                  ]
+                                }`"
+                                :is="
+                                  iconFieldMap[
+                                    fieldType[
+                                      getDetype(curComponent.sortId, curComponent.dataset.fields)
+                                    ]
+                                  ]
+                                "
+                              ></component
+                            ></Icon>
+                          </el-icon>
+                        </template>
+                        <el-option
+                          v-for="ele in curComponent.dataset.fields"
+                          :key="ele.id"
+                          :label="ele.name"
+                          :value="ele.id"
+                          :disabled="ele.desensitized"
+                        >
+                          <div
+                            class="flex-align-center icon"
+                            :title="ele.desensitized ? t('v_query.as_query_conditions') : ''"
+                          >
+                            <el-icon>
+                              <Icon
+                                ><component
+                                  :class="`field-icon-${fieldType[ele.deType]}`"
+                                  class="svg-icon"
+                                  :is="iconFieldMap[fieldType[ele.deType]]"
+                                ></component
+                              ></Icon>
+                            </el-icon>
+                            <span>
+                              {{ ele.name }}
+                            </span>
+                          </div>
+                        </el-option>
+                      </el-select>
+                      <el-select
+                        class="sort-type"
+                        v-model="curComponent.sort"
+                        @change="handleFieldChange"
+                      >
+                        <el-option :label="t('chart.asc')" value="asc" />
+                        <el-option :label="t('chart.desc')" value="desc" />
+                        <el-option
+                          @click="handleCustomClick"
+                          :title="sortComputed ? $t('v_query.display_sort') : ''"
+                          :disabled="sortComputed"
+                          :label="t('v_query.custom_sort')"
+                          value="customSort"
+                        />
+                      </el-select>
+                    </div>
+                  </div>
+                </template>
+                <div v-if="curComponent.optionValueSource === 2" class="value flex-align-center">
+                  <el-popover
+                    placement="bottom-start"
+                    popper-class="manual-input"
+                    ref="manual"
+                    :width="358"
+                    trigger="click"
+                  >
+                    <template #reference>
+                      <el-button text>
+                        <template #icon>
+                          <Icon name="icon_edit_outlined"
+                            ><icon_edit_outlined class="svg-icon"
+                          /></Icon>
+                        </template>
+                        {{ t('common.edit') }}
+                      </el-button>
+                    </template>
+                    <div class="manual-input-container">
+                      <el-scrollbar>
+                        <div class="title">{{ t('auth.manual_input') }}</div>
+                        <div class="select-value">
+                          <span> {{ t('data_fill.form.option_value') }} </span>
+                          <div :key="index" v-for="(_, index) in valueSource" class="select-item">
+                            <el-input
+                              maxlength="64"
+                              v-if="curComponent.displayType === '2'"
+                              @blur="weightlessness"
+                              v-model.number="valueSource[index]"
+                            ></el-input>
+                            <el-input
+                              maxlength="64"
+                              v-else
+                              @blur="weightlessness"
+                              v-model="valueSource[index]"
+                            ></el-input>
+                            <el-button
+                              v-if="valueSource.length !== 1"
+                              @click="valueSource.splice(index, 1)"
+                              class="value"
+                              text
+                            >
+                              <template #icon>
+                                <Icon name="icon_delete-trash_outlined"
+                                  ><icon_deleteTrash_outlined class="svg-icon"
+                                /></Icon>
+                              </template>
+                            </el-button>
+                          </div>
+                        </div>
+                      </el-scrollbar>
+                      <div class="add-btn">
+                        <el-button @click="valueSource.push('')" text>
                           <template #icon>
-                            <Icon name="icon_delete-trash_outlined"
-                              ><icon_deleteTrash_outlined class="svg-icon"
+                            <Icon name="icon_add_outlined"
+                              ><icon_add_outlined class="svg-icon"
                             /></Icon>
                           </template>
+                          {{ t('data_fill.form.add_option') }}
+                        </el-button>
+                      </div>
+                      <div class="manual-footer flex-align-center">
+                        <el-button @click="cancelValueSource">{{ t('chart.cancel') }} </el-button>
+                        <el-button @click="confirmValueSource" type="primary"
+                          >{{ t('chart.confirm') }}
                         </el-button>
                       </div>
                     </div>
-                    <div class="add-btn">
-                      <el-button @click="valueSource.push('')" text>
-                        <template #icon>
-                          <Icon name="icon_add_outlined"
-                            ><icon_add_outlined class="svg-icon"
-                          /></Icon>
-                        </template>
-                        添加选项值
-                      </el-button>
-                    </div>
-                    <div class="manual-footer flex-align-center">
-                      <el-button @click="cancelValueSource">{{ t('chart.cancel') }} </el-button>
-                      <el-button @click="confirmValueSource" type="primary"
-                        >{{ t('chart.confirm') }}
-                      </el-button>
-                    </div>
+                  </el-popover>
+                  <div
+                    v-if="!!curComponent.valueSource.length"
+                    class="config-flag flex-align-center"
+                  >
+                    {{ t('v_query.configured') }}
                   </div>
-                </el-popover>
-                <div v-if="!!curComponent.valueSource.length" class="config-flag flex-align-center">
-                  已配置
                 </div>
               </div>
-            </div>
-            <div class="label" style="margin-top: 10.5px">选项值数量</div>
-            <div class="value" style="margin-top: 10.5px">
-              <el-radio-group class="larger-radio" v-model="curComponent.resultMode">
-                <el-radio :label="0">默认</el-radio>
-                <el-radio :label="1">全部</el-radio>
-              </el-radio-group>
-            </div>
-          </div>
-          <div class="list-item top-item" v-if="curComponent.displayType === '8'">
-            <div class="label">条件类型</div>
-            <div class="value">
-              <div class="value">
-                <el-radio-group class="larger-radio" v-model="curComponent.conditionType">
-                  <el-radio :label="0">单条件</el-radio>
-                  <el-radio :label="1" :disabled="!!curComponent.parameters.length"
-                    >与条件</el-radio
+              <template v-if="['0', '2', '5'].includes(curComponent.displayType)">
+                <div
+                  class="label ellipsis"
+                  :title="t('common.display_formats')"
+                  style="margin-top: 10.5px"
+                >
+                  {{ t('common.display_formats') }}
+                </div>
+                <div class="value" style="margin-top: 10.5px">
+                  <el-radio-group
+                    class="larger-radio icon-info"
+                    v-model="curComponent.displayFormat"
                   >
-                  <el-radio :label="2" :disabled="!!curComponent.parameters.length"
-                    >或条件</el-radio
-                  >
+                    <el-radio :label="0">{{ t('common.dropdown_display') }} </el-radio>
+                    <el-radio :label="1">{{ t('common.tile_display') }}</el-radio>
+                  </el-radio-group>
+                </div>
+              </template>
+              <div
+                class="label ellipsis"
+                :title="t('v_query.of_option_values')"
+                style="margin-top: 10.5px"
+              >
+                {{ t('v_query.of_option_values') }}
+              </div>
+              <div class="value" style="margin-top: 10.5px">
+                <el-radio-group class="larger-radio icon-info" v-model="curComponent.resultMode">
+                  <el-radio :label="0"
+                    >{{ t('chart.default') }}
+                    <el-tooltip effect="dark" :content="t('common.up_to_options')" placement="top">
+                      <el-icon style="margin-left: 4px; color: #646a73">
+                        <icon name="icon_info_outlined"
+                          ><icon_info_outlined class="svg-icon"
+                        /></icon>
+                      </el-icon> </el-tooltip
+                  ></el-radio>
+                  <el-radio :label="1">{{ t('data_set.all') }}</el-radio>
                 </el-radio-group>
               </div>
             </div>
+            <div class="list-item top-item" v-if="curComponent.displayType === '8'">
+              <div :title="t('v_query.condition_type')" class="label ellipsis">
+                {{ t('v_query.condition_type') }}
+              </div>
+              <div class="value">
+                <div class="value">
+                  <el-radio-group class="larger-radio" v-model="curComponent.conditionType">
+                    <el-radio :label="0">{{ t('v_query.single_condition') }}</el-radio>
+                    <el-radio :label="1" :disabled="!!curComponent.parameters.length">{{
+                      t('v_query.with_condition')
+                    }}</el-radio>
+                    <el-radio :label="2" :disabled="!!curComponent.parameters.length">{{
+                      t('v_query.or_condition')
+                    }}</el-radio>
+                  </el-radio-group>
+                </div>
+              </div>
+            </div>
+            <div style="margin-bottom: 10.5px" v-if="curComponent.displayType === '8'">
+              <el-checkbox
+                v-model="curComponent.hideConditionSwitching"
+                :label="t('v_query.hide_condition_switch')"
+              />
+            </div>
+            <condition-default-configuration
+              ref="defaultConfigurationRef"
+              @handleTimeTypeChange="handleTimeTypeChange"
+              :cur-component="curComponent"
+            ></condition-default-configuration>
           </div>
-          <div style="margin-bottom: 10.5px" v-if="curComponent.displayType === '8'">
-            <el-checkbox v-model="curComponent.hideConditionSwitching" label="隐藏条件切换" />
+          <div v-if="showTypeError && showConfiguration" class="empty">
+            <empty-background :description="t('v_query.cannot_be_performed')" img-type="error" />
           </div>
-          <condition-default-configuration
-            ref="defaultConfigurationRef"
-            @handleTimeTypeChange="handleTimeTypeChange"
-            :cur-component="curComponent"
-          ></condition-default-configuration>
-        </div>
-        <div v-if="showTypeError && showConfiguration" class="empty">
-          <empty-background description="所选字段类型不一致，无法进行查询配置" img-type="error" />
-        </div>
-        <div v-else-if="showDatasetError && showConfiguration" class="empty">
-          <empty-background description="图表所使用的数据集不同, 无法展示配置项" img-type="error" />
-        </div>
-        <div v-else-if="!showConfiguration" class="empty">
-          <empty-background description="请先勾选需要联动的图表及字段" img-type="noneWhite" />
-        </div>
+          <div
+            v-else-if="curComponent.displayType === '9' && relationshipChartIndex !== 0"
+            class="empty"
+          >
+            <empty-background :description="t('common.other_levels')" img-type="error" />
+          </div>
+          <div v-else-if="!showConfiguration" class="empty">
+            <empty-background :description="t('v_query.be_linked_first')" img-type="noneWhite" />
+          </div>
+        </el-scrollbar>
       </div>
     </div>
     <template #footer>
       <div class="dialog-footer">
-        <el-button class="query-cascade" @click="openCascadeDialog">查询组件级联配置</el-button>
+        <el-button class="query-cascade" @click="openCascadeDialog">{{
+          t('v_query.component_cascade_configuration')
+        }}</el-button>
         <el-button @click="cancelClick">{{ t('chart.cancel') }} </el-button>
         <el-button @click="confirmClick" type="primary">{{ t('chart.confirm') }} </el-button>
       </div>
@@ -3003,34 +3597,35 @@ defineExpose({
   </el-dialog>
   <el-dialog :title="timeName" v-model="timeDialogShow" width="420px">
     <el-form label-position="top">
-      <el-form-item label="时间类型" class="form-item" prop="name">
+      <el-form-item :label="t('v_query.time_type')" class="form-item" prop="name">
         <el-radio-group v-model="timeParameterType">
-          <el-radio :label="0">时间</el-radio>
-          <el-radio :label="1">开始时间</el-radio>
-          <el-radio :label="2">结束时间</el-radio>
+          <el-radio :label="0">{{ t('data_set.time') }}</el-radio>
+          <el-radio :label="1">{{ t('datasource.start_time') }}</el-radio>
+          <el-radio :label="2">{{ t('datasource.end_time') }}</el-radio>
         </el-radio-group>
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button secondary @click="timeDialogShow = false">取消</el-button>
-      <el-button type="primary" @click="timeTypeChange">确认</el-button>
+      <el-button secondary @click="timeDialogShow = false">{{ t('chart.cancel') }}</el-button>
+      <el-button type="primary" @click="timeTypeChange">{{ t('chart.confirm') }}</el-button>
     </template>
   </el-dialog>
   <el-dialog :title="numName" v-model="numDialogShow" width="420px">
     <el-form label-position="top">
-      <el-form-item label="类型" class="form-item" prop="name">
+      <el-form-item :label="t('chart.map_line_type')" class="form-item" prop="name">
         <el-radio-group v-model="numParameterType">
-          <el-radio :label="0">数值</el-radio>
-          <el-radio :label="1">最小值</el-radio>
-          <el-radio :label="2">最大值</el-radio>
+          <el-radio :label="0">{{ t('chart.value_formatter_value') }}</el-radio>
+          <el-radio :label="1">{{ t('chart.min') }}</el-radio>
+          <el-radio :label="2">{{ t('chart.max') }}</el-radio>
         </el-radio-group>
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button secondary @click="numDialogShow = false">取消</el-button>
-      <el-button type="primary" @click="numTypeChange">确认</el-button>
+      <el-button secondary @click="numDialogShow = false">{{ t('dataset.cancel') }}</el-button>
+      <el-button type="primary" @click="numTypeChange">{{ t('dataset.confirm') }}</el-button>
     </template>
   </el-dialog>
+  <customSortFilter ref="customSortFilterRef" @save="sortSave"></customSortFilter>
   <CascadeDialog @saveCascade="saveCascade" ref="cascadeDialog"></CascadeDialog>
 </template>
 
@@ -3058,7 +3653,7 @@ defineExpose({
   min-width: 210px !important;
 }
 .ed-select-dropdown__header {
-  padding: 0 8px;
+  padding: 0 8px !important;
   .params-select--header {
     --ed-tabs-header-height: 32px;
     .ed-tabs__item {
@@ -3110,18 +3705,18 @@ defineExpose({
     justify-content: center;
   }
 
-  .ed-input .ed-select__prefix--light {
-    border-right: none;
-    padding: 0;
+  .ed-select__prefix {
     font-size: 16px;
-    margin-right: 4px;
+    &::after {
+      display: none;
+    }
   }
   .container {
     font-size: 14px;
     font-family: var(--de-custom_font, 'PingFang');
     width: 1152px;
     height: 454px;
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid #dee0e3;
     display: flex;
     .ed-checkbox:not(.is-disabled) {
@@ -3151,6 +3746,17 @@ defineExpose({
           cursor: pointer;
           font-size: 16px;
           color: var(--ed-color-primary);
+        }
+      }
+
+      .list-item_box {
+        width: 100%;
+        position: relative;
+        .list-tree_primary {
+          position: absolute;
+          left: 0;
+          padding: 8px 32px;
+          width: 100%;
         }
       }
       .list-item_primary {
@@ -3183,8 +3789,8 @@ defineExpose({
       height: calc(100% - 30px);
 
       &.condition {
-        height: calc(100% - 45px);
-        top: 45px;
+        height: 100%;
+        top: 0;
       }
     }
 
@@ -3218,6 +3824,8 @@ defineExpose({
 
       .select-all {
         height: 40px;
+        display: flex;
+        align-items: center;
       }
 
       .field-list {
@@ -3233,11 +3841,21 @@ defineExpose({
           margin-bottom: 8px;
 
           .field-select--input {
-            .ed-select-tags-wrapper.has-prefix {
-              margin-left: 25px;
+            .ed-select__prefix {
+              padding-right: 0;
             }
-            .ed-select__tags-text {
-              max-width: 30px !important;
+
+            .ed-select__input {
+              margin-left: 6px !important;
+            }
+            .ed-tag {
+              max-width: 46px !important;
+              .ed-tag__close {
+                margin-left: 2px;
+              }
+              .ed-select__tags-text {
+                max-width: 30px !important;
+              }
             }
           }
 
@@ -3269,11 +3887,18 @@ defineExpose({
     }
 
     .condition-configuration {
-      padding: 16px;
       border-left: 1px solid #dee0e3;
       width: 467px;
       position: relative;
-      overflow-y: auto;
+      overflow: hidden;
+
+      .ed-scrollbar {
+        padding: 16px;
+      }
+
+      &.condition-configuration_hide {
+        overflow: hidden;
+      }
       .mask {
         left: -1px;
         width: calc(100% + 2px);
@@ -3339,13 +3964,13 @@ defineExpose({
           flex-wrap: wrap;
           .search-tree {
             width: 100%;
-            height: 200px;
+            height: 216px;
             margin-top: 8px;
             position: relative;
             padding: 16px;
             box-shadow: 0px 0px 12px rgba(0, 0, 0, 0.12);
 
-            .ed-button {
+            .start-tree_design {
               position: absolute;
               left: 50%;
               top: 50%;
@@ -3369,6 +3994,11 @@ defineExpose({
 
               .field-tree_name {
                 margin-left: 8px;
+                width: 100px;
+              }
+
+              .field-relationship_chart {
+                margin-left: 8px;
               }
             }
           }
@@ -3385,7 +4015,7 @@ defineExpose({
             }
           }
           .label {
-            width: 100px;
+            width: 85px;
             color: #1f2329;
           }
 
@@ -3630,7 +4260,6 @@ defineExpose({
     .select-value {
       padding-left: 16px;
       max-height: 246px;
-      overflow-y: auto;
       .value {
         color: #646a73;
         margin-left: 6px;
@@ -3674,6 +4303,12 @@ defineExpose({
   }
 }
 .larger-radio {
+  &.icon-info {
+    .ed-radio__label {
+      display: flex;
+      align-items: center;
+    }
+  }
   .ed-radio__inner {
     width: 16px;
     height: 16px;

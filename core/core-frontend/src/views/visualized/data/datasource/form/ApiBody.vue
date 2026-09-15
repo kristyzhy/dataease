@@ -3,7 +3,7 @@ import { propTypes } from '@/utils/propTypes'
 import { onBeforeMount, watch, toRefs, PropType } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import ApiVariable from './ApiVariable.vue'
-import CodeEdit from './CodeEdit.vue'
+import CodeEdit from '@/components/CodeEdit/CodeEdit.vue'
 import Convert from './convert.js'
 import { KeyValue, BODY_TYPE } from './ApiTestModel.js'
 export interface ApiBodyItem {
@@ -191,7 +191,7 @@ const emits = defineEmits(['headersChange'])
 </script>
 
 <template>
-  <div>
+  <div class="radio-group_api">
     <el-radio-group v-model="apiBody.type">
       <el-radio :disabled="isReadOnly" :label="BODY_TYPE.FORM_DATA" @change="modeChange">
         {{ t('datasource.body_form_data') }}
@@ -213,7 +213,7 @@ const emits = defineEmits(['headersChange'])
         {{ t('datasource.body_raw') }}
       </el-radio>
     </el-radio-group>
-    <div v-if="apiBody.type == 'Form_Data' || apiBody.type == 'WWW_FORM'">
+    <div style="padding-top: 16px" v-if="apiBody.type == 'Form_Data' || apiBody.type == 'WWW_FORM'">
       <api-variable
         :is-read-only="isReadOnly"
         :parameters="apiBody.kvs"
@@ -264,6 +264,11 @@ const emits = defineEmits(['headersChange'])
 </template>
 
 <style lang="less" scoped>
+.radio-group_api {
+  :deep(.ed-radio) {
+    height: 22px !important;
+  }
+}
 .ms-body {
   padding: 15px 0;
 }
@@ -275,7 +280,7 @@ const emits = defineEmits(['headersChange'])
 }
 
 .api-body-code {
-  border-radius: 4px;
-  border: 1px solid #bbbfc4;
+  border-radius: 6px;
+  border: 1px solid #d9dcdf;
 }
 </style>

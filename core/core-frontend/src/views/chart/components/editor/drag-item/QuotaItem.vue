@@ -4,18 +4,18 @@ import icon_sortZToA_outlined from '@/assets/svg/icon_sort-z-to-a_outlined.svg'
 import icon_sort_outlined from '@/assets/svg/icon_sort_outlined.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
 import icon_down_outlined1 from '@/assets/svg/icon_down_outlined-1.svg'
-import icon_dashboard_outlined from '@/assets/svg/icon_dashboard_outlined.svg'
 import icon_right_outlined from '@/assets/svg/icon_right_outlined.svg'
 import icon_done_outlined from '@/assets/svg/icon_done_outlined.svg'
 import icon_functions_outlined from '@/assets/svg/icon_functions_outlined.svg'
-import icon_describe_outlined from '@/assets/svg/icon_describe_outlined.svg'
+import icon_visible_outlined from '@/assets/svg/icon_visible_outlined.svg'
+import icon_invisible_outlined from '@/assets/svg/icon_invisible_outlined.svg'
 import icon_edit_outlined from '@/assets/svg/icon_edit_outlined.svg'
+import iconFilter from '@/assets/svg/icon-filter.svg'
 import { useI18n } from '@/hooks/web/useI18n'
 import { computed, onMounted, reactive, ref, toRefs, watch } from 'vue'
 import { formatterItem } from '@/views/chart/components/js/formatter'
 import { getItemType, resetValueFormatter } from '@/views/chart/components/editor/drag-item/utils'
-import { Filter } from '@element-plus/icons-vue'
-import { quotaViews } from '@/views/chart/components/js/util'
+import { quotaViews, notSupportAccumulateViews } from '@/views/chart/components/js/util'
 import { SUPPORT_Y_M } from '@/views/chart/components/editor/util/chart'
 import { fieldType } from '@/utils/attr'
 import { iconFieldMap } from '@/components/icon-group/field-list'
@@ -27,7 +27,8 @@ const tagType = ref('success')
 const state = reactive({
   formatterItem: formatterItem,
   disableEditCompare: false,
-  quotaViews: quotaViews
+  quotaViews: quotaViews,
+  notSupportAccumulateViews: notSupportAccumulateViews
 })
 
 const props = defineProps({
@@ -73,12 +74,13 @@ const emit = defineEmits([
   'editItemFilter',
   'editItemCompare',
   'valueFormatter',
-  'onToggleHide'
+  'onToggleHide',
+  'editSortPriority'
 ])
 
 const { item, chart } = toRefs(props)
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 watch(
   [() => props.quotaData, () => props.item, () => props.chart.type],
@@ -92,6 +94,13 @@ watch(
   () => props.chart,
   () => {
     isEnableCompare()
+    // 不支持累加计算的图表，自动设置快速计算为无
+    if (
+      state.notSupportAccumulateViews.indexOf(chart.value.type) > -1 &&
+      item.value.compareCalc.type === 'accumulate'
+    ) {
+      quickCalc({ type: 'none' })
+    }
   },
   { deep: true }
 )
@@ -166,6 +175,9 @@ const clickItem = param => {
     case 'toggleHide':
       toggleHide()
       break
+    case 'sortPriority':
+      emit('editSortPriority')
+      break
     default:
       break
   }
@@ -198,11 +210,6 @@ const beforeSort = type => {
   }
 }
 
-const switchChartType = param => {
-  item.value.chartType = param.type
-  emit('onQuotaItemChange', item.value)
-}
-
 const summary = param => {
   item.value.summary = param.type
   emit('onQuotaItemChange', item.value)
@@ -214,16 +221,9 @@ const beforeSummary = type => {
   }
 }
 
-const beforeSwitchType = type => {
-  return {
-    type: type
-  }
-}
-
 const showRename = () => {
   item.value.index = props.index
   item.value.renameType = props.type
-  // item.value.dsFieldName = getOriginFieldName(props.dimensionData, props.quotaData, item.value)
   emit('onNameEdit', item.value)
 }
 
@@ -267,6 +267,10 @@ const quickCalc = param => {
       item.value.compareCalc.type = 'percent'
       emit('onQuotaItemChange', item.value)
       break
+    case 'accumulate':
+      item.value.compareCalc.type = 'accumulate'
+      emit('onQuotaItemChange', item.value)
+      break
     default:
       break
   }
@@ -298,6 +302,33 @@ const toggleHide = () => {
 const showHideIcon = computed(() => {
   return ['tale-info', 'table-normal'].includes(props.chart.type) && item.value.hide
 })
+
+const NOT_SUPPORT_SORT = [
+  'circle-packing',
+  'indicator',
+  'liquid',
+  'gauge',
+  'word-cloud',
+  'stock-line',
+  'treemap'
+]
+
+const showSort = computed(() => {
+  if (['multi-scatter', 'box-plot'].includes(chart.value.type)) {
+    return false
+  }
+  return (
+    props.type !== 'extLabel' &&
+    props.type !== 'extTooltip' &&
+    props.type !== 'extBubble' &&
+    !NOT_SUPPORT_SORT.includes(chart.value.type) &&
+    !chart.value.type.includes('chart-mix')
+  )
+})
+
+// 同环比计算类型
+const yoyLabel = ['day_mom', 'month_yoy', 'year_yoy', 'month_mom', 'year_mom']
+
 onMounted(() => {
   isEnableCompare()
   getItemTagType()
@@ -313,17 +344,17 @@ onMounted(() => {
         :style="{ backgroundColor: tagType + '0a', border: '1px solid ' + tagType }"
       >
         <span style="display: flex; color: #646a73">
-          <el-icon v-if="'asc' === item.sort">
+          <el-icon v-if="'asc' === item.sort && showSort">
             <Icon name="icon_sort-a-to-z_outlined"
               ><icon_sortAToZ_outlined class="svg-icon"
             /></Icon>
           </el-icon>
-          <el-icon v-if="'desc' === item.sort">
+          <el-icon v-if="'desc' === item.sort && showSort">
             <Icon name="icon_sort-z-to-a_outlined"
               ><icon_sortZToA_outlined class="svg-icon"
             /></Icon>
           </el-icon>
-          <el-icon v-if="'custom_sort' === item.sort">
+          <el-icon v-if="'custom_sort' === item.sort && showSort">
             <Icon name="icon_sort_outlined"><icon_sort_outlined class="svg-icon" /></Icon>
           </el-icon>
           <el-icon>
@@ -336,16 +367,38 @@ onMounted(() => {
             ></Icon>
           </el-icon>
         </span>
-        <el-tooltip
-          :effect="toolTip"
-          placement="top"
-          :content="item.chartShowName ? item.chartShowName : item.name"
-        >
-          <span class="item-span-style">
+        <el-tooltip :effect="toolTip" placement="top">
+          <template #content>
+            <table>
+              <tbody>
+                <tr>
+                  <td>{{ t('dataset.field_origin_name') }}</td>
+                  <td>:</td>
+                  <td>{{ item.name }}</td>
+                </tr>
+                <tr>
+                  <td>{{ t('chart.show_name') }}</td>
+                  <td>:</td>
+                  <td>{{ item.chartShowName ? item.chartShowName : item.name }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+          <span
+            class="item-span-style"
+            :class="{
+              'hidden-status': showHideIcon,
+              'sort-status': showSort && item.sort !== 'none'
+            }"
+          >
             <span class="item-name">{{ item.chartShowName ? item.chartShowName : item.name }}</span>
-            <span v-if="item.summary !== ''" class="item-right-summary">
+            <span
+              v-if="item.summary !== '' && !['multi-scatter', 'box-plot'].includes(chart.type)"
+              class="item-right-summary"
+            >
               ({{ t('chart.' + item.summary) }})
             </span>
+            <span :data-id="item.id" class="node-id_private"></span>
           </span>
         </el-tooltip>
         <span
@@ -364,10 +417,9 @@ onMounted(() => {
             -{{ t('chart.' + item.compareCalc.type) }}
           </span>
         </span>
-        <el-icon style="margin-left: 8px">
+        <el-icon v-if="showHideIcon" style="margin-left: 4px">
           <Icon>
-            <Hide
-              v-show="showHideIcon"
+            <icon_invisible_outlined
               :class="`field-icon-${fieldType[[2, 3].includes(item.deType) ? 2 : 0]}`"
               class="svg-icon inner-class"
             />
@@ -396,7 +448,10 @@ onMounted(() => {
         >
           <el-dropdown-item
             @click.prevent
-            v-if="chart.type !== 'table-info' && item.summary !== ''"
+            v-if="
+              !['table-info', 'multi-scatter', 'box-plot'].includes(chart.type) &&
+              item.summary !== ''
+            "
           >
             <el-dropdown
               :effect="themes"
@@ -562,10 +617,13 @@ onMounted(() => {
             </el-dropdown>
           </el-dropdown-item>
 
-          <!--同比/环比等快速计算-->
+          <!-- 箱线图直接使用原始样本计算分位数，不开放汇总后的快速计算 -->
           <el-dropdown-item
             @click.prevent
-            v-if="chart.type !== 'table-info' && props.type !== 'extBubble'"
+            v-if="
+              !['table-info', 'bullet-graph', 'multi-scatter', 'box-plot'].includes(chart.type) &&
+              props.type !== 'extBubble'
+            "
           >
             <el-dropdown
               placement="right-start"
@@ -614,26 +672,30 @@ onMounted(() => {
                     :disabled="state.disableEditCompare"
                     :command="beforeQuickCalc('setting')"
                   >
-                    <span
+                    <div
                       class="sub-menu-content"
-                      :class="'yoy_label' === item.compareCalc.type ? 'content-active' : ''"
+                      :class="yoyLabel.includes(item.compareCalc.type) ? 'content-active' : ''"
+                      :disabled="state.disableEditCompare"
                     >
                       {{ t('chart.yoy_label') }}
                       <el-icon class="sub-menu-content--icon">
-                        <Icon name="icon_done_outlined" v-if="'yoy_label' === item.compareCalc.type"
+                        <Icon
+                          name="icon_done_outlined"
+                          v-if="yoyLabel.includes(item.compareCalc.type)"
                           ><icon_done_outlined class="svg-icon"
                         /></Icon>
                       </el-icon>
-                    </span>
+                    </div>
                   </el-dropdown-item>
                   <el-dropdown-item
                     class="menu-item-padding"
                     :disabled="state.quotaViews.indexOf(chart.type) > -1"
                     :command="beforeQuickCalc('percent')"
                   >
-                    <span
+                    <div
                       class="sub-menu-content"
                       :class="'percent' === item.compareCalc.type ? 'content-active' : ''"
+                      :disabled="state.quotaViews.indexOf(chart.type) > -1"
                     >
                       {{ t('chart.percent') }}
                       <el-icon class="sub-menu-content--icon">
@@ -641,23 +703,34 @@ onMounted(() => {
                           ><icon_done_outlined class="svg-icon"
                         /></Icon>
                       </el-icon>
-                    </span>
+                    </div>
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    class="menu-item-padding"
+                    :disabled="state.notSupportAccumulateViews.indexOf(chart.type) > -1"
+                    :command="beforeQuickCalc('accumulate')"
+                  >
+                    <div
+                      class="sub-menu-content"
+                      :class="'accumulate' === item.compareCalc.type ? 'content-active' : ''"
+                      :disabled="state.notSupportAccumulateViews.indexOf(chart.type) > -1"
+                    >
+                      {{ t('chart.accumulate') }}
+                      <el-icon class="sub-menu-content--icon">
+                        <Icon
+                          name="icon_done_outlined"
+                          v-if="'accumulate' === item.compareCalc.type"
+                          ><icon_done_outlined class="svg-icon"
+                        /></Icon>
+                      </el-icon>
+                    </div>
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
           </el-dropdown-item>
 
-          <el-dropdown-item
-            @click.prevent
-            v-if="
-              props.type !== 'extLabel' &&
-              props.type !== 'extTooltip' &&
-              props.type !== 'extBubble' &&
-              !['chart-mix', 'indicator', 'liquid', 'gauge'].includes(chart.type)
-            "
-            :divided="chart.type !== 'table-info'"
-          >
+          <el-dropdown-item @click.prevent v-if="showSort" :divided="chart.type !== 'table-info'">
             <el-dropdown
               :effect="themes"
               placement="right-start"
@@ -728,11 +801,23 @@ onMounted(() => {
           </el-dropdown-item>
 
           <el-dropdown-item
+            v-if="showSort"
+            class="menu-item-padding"
+            :command="beforeClickItem('sortPriority')"
+          >
+            <el-icon />
+            <span>{{ t('chart.sort_priority') }}</span>
+          </el-dropdown-item>
+
+          <el-dropdown-item
             class="menu-item-padding"
             v-if="
-              props.type !== 'extLabel' && props.type !== 'extTooltip' && props.type !== 'extBubble'
+              props.type !== 'extLabel' &&
+              props.type !== 'extTooltip' &&
+              props.type !== 'extBubble' &&
+              chart.type !== 'multi-scatter'
             "
-            :icon="Filter"
+            :icon="iconFilter"
             :command="beforeClickItem('filter')"
             :divided="chart.type.includes('chart-mix')"
           >
@@ -761,8 +846,10 @@ onMounted(() => {
             :command="beforeClickItem('toggleHide')"
           >
             <el-icon>
-              <icon v-if="item.hide === true" name="view"><View class="svg-icon" /></icon>
-              <icon v-else name="hide"><Hide class="svg-icon" /></icon>
+              <icon
+                ><icon_visible_outlined v-if="item.hide === true" class="svg-icon" />
+                <icon_invisible_outlined v-else class="svg-icon"
+              /></icon>
             </el-icon>
             <span>{{ item.hide === true ? t('chart.show') : t('chart.hide') }}</span>
           </el-dropdown-item>
@@ -797,7 +884,7 @@ onMounted(() => {
   position: relative;
   width: 100%;
   display: block;
-
+  overflow: hidden;
   .ed-dropdown {
     display: flex;
   }
@@ -811,11 +898,11 @@ onMounted(() => {
 
 .item-axis {
   padding: 1px 8px;
-  margin: 0 3px 2px 3px;
+  margin-bottom: 3px;
   height: 28px;
   line-height: 28px;
   display: flex;
-  border-radius: 4px;
+  border-radius: 6px;
   box-sizing: border-box;
   white-space: nowrap;
   width: 100%;
@@ -875,7 +962,7 @@ span {
 
 .item-span-style {
   display: flex;
-  max-width: 180px;
+  max-width: 170px;
   color: #1f2329;
   margin-left: 4px;
 
@@ -889,6 +976,13 @@ span {
   .item-right-summary {
     flex-shrink: 0;
     margin-left: 4px;
+  }
+  &.hidden-status,
+  &.sort-status {
+    max-width: 150px;
+  }
+  &.hidden-status[class*='sort-status'] {
+    max-width: 135px !important;
   }
 }
 
@@ -917,6 +1011,14 @@ span {
     background-color: rgba(31, 35, 41, 0.1);
   }
   &.dark-dimension-quota {
+    background-color: #292929;
+    border: 1px solid #434343;
+    :deep(.ed-dropdown-menu__item--divided) {
+      border-color: #ebebeb26;
+    }
+    :deep(.ed-dropdown-menu__item:not(.is-disabled):hover) {
+      background-color: #ebebeb1a;
+    }
     .inner-dropdown-menu {
       color: rgba(235, 235, 235, 1);
     }
@@ -935,7 +1037,7 @@ span {
 .remove-icon {
   position: absolute;
   top: 7px;
-  right: 26px;
+  right: 24px;
   cursor: pointer;
 
   .inner-class {
@@ -966,7 +1068,14 @@ span {
 }
 
 .father:hover .item-span-style {
-  max-width: 150px;
+  max-width: 130px;
+  &.hidden-status,
+  &.sort-status {
+    max-width: 120px;
+  }
+  &.hidden-status[class*='sort-status'] {
+    max-width: 100px !important;
+  }
 }
 </style>
 <style lang="less">

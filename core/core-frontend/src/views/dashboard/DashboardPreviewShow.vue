@@ -7,26 +7,38 @@ import DePreview from '@/components/data-visualization/canvas/DePreview.vue'
 import PreviewHead from '@/views/data-visualization/PreviewHead.vue'
 import EmptyBackground from '@/components/empty-background/src/EmptyBackground.vue'
 import ArrowSide from '@/views/common/DeResourceArrow.vue'
-import { initCanvasData, initCanvasDataPrepare, onInitReady } from '@/utils/canvasUtils'
+import {
+  getMapElementIds,
+  initCanvasData,
+  initCanvasDataPrepare,
+  onInitReady
+} from '@/utils/canvasUtils'
 import { useAppStoreWithOut } from '@/store/modules/app'
-import { useRequestStoreWithOut } from '@/store/modules/request'
-import { usePermissionStoreWithOut } from '@/store/modules/permission'
 import { useMoveLine } from '@/hooks/web/useMoveLine'
 import { Icon } from '@/components/icon-custom'
 import { download2AppTemplate, downloadCanvas2 } from '@/utils/imgUtils'
 import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus-secondary'
-import { personInfoApi } from '@/api/user'
 import AppExportForm from '@/components/de-app/AppExportForm.vue'
 import { useEmitt } from '@/hooks/web/useEmitt'
+import { useUserStoreWithOut } from '@/store/modules/user'
+import { useI18n } from '@/hooks/web/useI18n'
+import CanvasOptBar from '@/components/visualization/CanvasOptBar.vue'
+import {
+  exportLogApp,
+  exportLogImg,
+  exportLogPDF,
+  exportLogTemplate
+} from '@/api/visualization/dataVisualization'
+const userStore = useUserStoreWithOut()
+
+const userName = computed(() => userStore.getName)
 const appExportFormRef = ref(null)
 
 const dvMainStore = dvMainStoreWithOut()
 const previewCanvasContainer = ref(null)
 const dashboardPreview = ref(null)
 const slideShow = ref(true)
-const requestStore = useRequestStoreWithOut()
-const permissionStore = usePermissionStoreWithOut()
 const appStore = useAppStoreWithOut()
 const dataInitState = ref(true)
 const downloadStatus = ref(false)
@@ -36,12 +48,16 @@ const state = reactive({
   canvasViewInfoPreview: null,
   dvInfo: null,
   curPreviewGap: 0,
-  userLoginInfo: {}
+  showOffset: {
+    top: 110,
+    left: 280
+  }
 })
 
 const { fullscreenFlag, canvasViewDataInfo } = storeToRefs(dvMainStore)
 
 const { width, node } = useMoveLine('DASHBOARD')
+const { t } = useI18n()
 
 const props = defineProps({
   showPosition: {
@@ -53,10 +69,15 @@ const props = defineProps({
     required: false,
     type: Boolean,
     default: false
+  },
+  resourceTable: {
+    required: false,
+    type: String,
+    default: 'core'
   }
 })
 
-const { showPosition } = toRefs(props)
+const { showPosition, resourceTable } = toRefs(props)
 
 const resourceTreeRef = ref()
 
@@ -91,7 +112,7 @@ const loadCanvasData = (dvId, weight?) => {
   dataInitState.value = false
   initMethod(
     dvId,
-    'dashboard',
+    { busiFlag: 'dashboard', resourceTable: 'core' },
     function ({
       canvasDataResult,
       canvasStyleResult,
@@ -105,6 +126,9 @@ const loadCanvasData = (dvId, weight?) => {
       state.canvasViewInfoPreview = canvasViewInfoPreview
       state.dvInfo = dvInfo
       state.curPreviewGap = curPreviewGap
+      if (showPosition.value === 'multiplexing') {
+        dvMainStore.setCanvasMultiply(state.canvasDataPreview, state.canvasViewInfoPreview)
+      }
       dataInitState.value = true
       nextTick(() => {
         dashboardPreview.value.restore()
@@ -116,12 +140,20 @@ const loadCanvasData = (dvId, weight?) => {
 
 const downloadH2 = type => {
   downloadStatus.value = true
-  nextTick(() => {
+  const mapElementIds = getMapElementIds(state.canvasDataPreview)
+  mapElementIds.forEach(id => useEmitt().emitter.emit('l7-prepare-picture', id))
+  setTimeout(() => {
     const vueDom = previewCanvasContainer.value.querySelector('.canvas-container')
     downloadCanvas2(type, vueDom, state.dvInfo.name, () => {
       downloadStatus.value = false
+      const param = {
+        id: state.dvInfo.id,
+        type: state.dvInfo.type === 'dashboard' ? 'panel' : 'screen'
+      }
+      type === 'img' ? exportLogImg(param) : exportLogPDF(param)
+      mapElementIds.forEach(id => useEmitt().emitter.emit('l7-unprepare-picture', id))
     })
-  })
+  }, 1000)
 }
 
 const downloadAsAppTemplate = downloadType => {
@@ -135,13 +167,13 @@ const downloadAsAppTemplate = downloadType => {
 const downLoadToAppPre = () => {
   const result = checkTemplate()
   if (result && result.length > 0) {
-    ElMessage.warning(`当前仪表板中[${result}]属于模版图表，无法导出，请先设置数据集！`)
+    ElMessage.warning(t('visualization.export_tips', [result]))
   } else {
     appExportFormRef.value.init({
       appName: state.dvInfo.name,
       icon: null,
       version: '2.0',
-      creator: state.userLoginInfo?.name,
+      creator: userName.value,
       required: '2.9.0',
       description: null
     })
@@ -161,12 +193,20 @@ const checkTemplate = () => {
 
 const fileDownload = (downloadType, attachParams) => {
   downloadStatus.value = true
-  nextTick(() => {
+  const mapElementIds = getMapElementIds(state.canvasDataPreview)
+  mapElementIds.forEach(id => useEmitt().emitter.emit('l7-prepare-picture', id))
+  setTimeout(() => {
     const vueDom = previewCanvasContainer.value.querySelector('.canvas-container')
     download2AppTemplate(downloadType, vueDom, state.dvInfo.name, attachParams, () => {
       downloadStatus.value = false
+      const param = {
+        id: state.dvInfo.id,
+        type: state.dvInfo.type === 'dashboard' ? 'panel' : 'screen'
+      }
+      downloadType === 'app' ? exportLogApp(param) : exportLogTemplate(param)
+      mapElementIds.forEach(id => useEmitt().emitter.emit('l7-unprepare-picture', id))
     })
-  })
+  }, 1000)
 }
 
 const slideOpenChange = () => {
@@ -189,18 +229,11 @@ const resourceNodeClick = data => {
 }
 
 const previewShowFlag = computed(() => !!dvMainStore.dvInfo?.name)
-const findUserData = callback => {
-  personInfoApi().then(rsp => {
-    callback(rsp)
-  })
-}
+
 onBeforeMount(() => {
   if (showPosition.value === 'preview') {
     dvMainStore.canvasDataInit()
   }
-  findUserData(res => {
-    state.userLoginInfo = res.data
-  })
 })
 const sideTreeStatus = ref(true)
 const changeSideTreeStatus = val => {
@@ -219,13 +252,18 @@ const downLoadApp = appAttachInfo => {
   fileDownload('app', appAttachInfo)
 }
 
+const freezeStyle = computed(() => [
+  { '--top-show-offset': state.showOffset.top },
+  { '--left-show-offset': state.showOffset.left }
+])
+
 defineExpose({
   getPreviewStateInfo
 })
 </script>
 
 <template>
-  <div class="dv-preview dv-teleport-query">
+  <div class="dv-preview dv-teleport-query" :style="freezeStyle">
     <ArrowSide
       v-if="!noClose"
       :style="{ left: (sideTreeStatus ? width - 12 : 0) + 'px' }"
@@ -251,13 +289,14 @@ defineExpose({
         v-show="slideShow"
         :cur-canvas-type="'dashboard'"
         :show-position="showPosition"
+        :resource-table="resourceTable"
         @node-click="resourceNodeClick"
       />
     </el-aside>
     <el-container
       class="preview-area"
-      :class="{ 'no-data': !hasTreeData }"
-      v-loading="requestStore.loadingMap[permissionStore.currentPath]"
+      :class="{ 'no-data': !state.dvInfo?.id }"
+      v-loading="!dataInitState"
     >
       <div
         @click="slideOpenChange"
@@ -281,6 +320,11 @@ defineExpose({
           id="de-preview-content"
           :class="{ 'de-screen-full': fullscreenFlag }"
         >
+          <canvas-opt-bar
+            canvas-id="canvas-main"
+            :canvas-style-data="state.canvasStylePreview || {}"
+            :component-data="state.canvasDataPreview || []"
+          ></canvas-opt-bar>
           <de-preview
             ref="dashboardPreview"
             v-if="state.canvasStylePreview && dataInitState"
@@ -291,19 +335,28 @@ defineExpose({
             :canvas-view-info="state.canvasViewInfoPreview"
             :show-position="showPosition"
             :download-status="downloadStatus"
+            :show-linkage-button="false"
           ></de-preview>
         </div>
       </template>
       <template v-else-if="hasTreeData && mounted">
-        <empty-background description="请在左侧选择仪表板" img-type="select" />
+        <empty-background
+          v-if="dataInitState"
+          :description="t('visualization.preview_select_tips')"
+          img-type="select"
+        />
       </template>
       <template v-else-if="mounted">
-        <empty-background description="暂无仪表板" img-type="none">
+        <empty-background
+          v-if="dataInitState"
+          :description="t('visualization.have_none_resource')"
+          img-type="none"
+        >
           <el-button v-if="rootManage && !isDataEaseBi" @click="createNew" type="primary">
             <template #icon>
               <Icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></Icon>
             </template>
-            {{ $t('commons.create') }}{{ $t('chart.dashboard') }}
+            {{ t('commons.create') }}{{ t('chart.dashboard') }}
           </el-button>
         </empty-background>
       </template>
@@ -345,13 +398,13 @@ defineExpose({
     overflow-x: hidden;
     overflow-y: auto;
     position: relative;
-    //transition: 0.5s;
 
     &.no-data {
       background-color: rgba(245, 246, 247, 1);
     }
 
     .content {
+      position: relative;
       display: flex;
       width: 100%;
       height: 100%;

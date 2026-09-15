@@ -1,15 +1,18 @@
 <script lang="ts" setup>
 import { computed } from 'vue'
 import { ElMenu } from 'element-plus-secondary'
-import { useRoute, useRouter } from 'vue-router'
+import { getCSSVariable } from '@/utils/color'
+import { useRoute, useRouter } from 'vue-router_2'
 import { isExternal } from '@/utils/validate'
+import { useCache } from '@/hooks/web/useCache'
 import MenuItem from './MenuItem.vue'
 import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
 const appearanceStore = useAppearanceStoreWithOut()
 const tempColor = computed(() => {
   return {
     '--temp-color':
-      (appearanceStore.themeColor === 'custom' ? appearanceStore.customColor : '#3370FF') + '1A'
+      (appearanceStore.themeColor === 'custom' ? appearanceStore.customColor : getCSSVariable()) +
+      '1A'
   }
 })
 defineProps({
@@ -17,6 +20,7 @@ defineProps({
 })
 
 const route = useRoute()
+const { wsCache } = useCache('localStorage')
 const { push } = useRouter()
 const menuList = computed(() => route.matched[0]?.children || [])
 const path = computed(() => route.matched[0]?.path)
@@ -28,7 +32,8 @@ const activeIndex = computed(() => {
 const menuSelect = (index: string, indexPath: string[]) => {
   //   自定义事件
   if (isExternal(index)) {
-    window.open(index)
+    const openType = wsCache.get('open-backend') === '1' ? '_self' : '_blank'
+    window.open(index, openType)
   } else {
     push(`${path.value}/${indexPath.join('/')}`)
   }

@@ -5,13 +5,16 @@ import userImg from '@/assets/img/user.png'
 import { mountedOrg, switchOrg } from '@/api/user'
 import { ref, onMounted, computed } from 'vue'
 import OrgCell from '@/views/mobile/components/OrgCell.vue'
-import { useRouter } from 'vue-router'
+import { useRouter } from 'vue-router_2'
 import { logoutApi } from '@/api/login'
 import { logoutHandler } from '@/utils/logout'
+import UpdatePwd from '@/views/system/modify-pwd/UpdatePwd.vue'
+import VanPopup from 'vant/es/popup'
 import VanNavBar from 'vant/es/nav-bar'
 import VanImage from 'vant/es/image'
 import 'vant/es/image/style'
 import 'vant/es/nav-bar/style'
+import 'vant/es/popup/style'
 
 interface OrgTreeNode {
   id: string | number
@@ -98,6 +101,7 @@ const switchHandler = (id: number | string) => {
     const token = res.data.token
     userStore.setToken(token)
     userStore.setExp(res.data.exp)
+    userStore.setTime(Date.now())
     window.location.reload()
   })
 }
@@ -156,12 +160,18 @@ const dfsTree = (ids, arr) => {
 const activeTableData = computed(() => {
   return directId.value.length ? dfsTree([...directId.value], tableData.value) : tableData.value
 })
+
+const showPwd = ref(false)
+const success = () => {
+  showPwd.value = false
+  logout()
+}
 </script>
 
 <template>
   <div class="de-mobile-user">
     <template v-if="showNavBar">
-      <div class="logout flex-center">我的</div>
+      <div class="logout flex-center" style="padding-top: 8px; margin: 0">{{ $t('user.my') }}</div>
       <div class="mobile-user-top">
         <van-image round width="48" height="48" :src="userImg" />
         <div class="user-name">
@@ -170,12 +180,18 @@ const activeTableData = computed(() => {
       </div>
       <OrgCell
         @click="orgClick"
-        label="切换组织"
+        :label="$t('user.switch_organization')"
         prefix-icon="icon_switch_outlined"
         :tips="name"
         nextlevel
       ></OrgCell>
-      <div class="logout flex-center danger" @click="logout">注销</div>
+      <div class="logout flex-center" @click="showPwd = true">{{ $t('user.change_password') }}</div>
+      <div class="logout flex-center danger" @click="logout">{{ $t('user.logout') }}</div>
+      <van-popup teleport="body" position="bottom" v-model:show="showPwd">
+        <div style="padding: 0 24px 24px">
+          <update-pwd @success="success" />
+        </div>
+      </van-popup>
     </template>
     <template v-else>
       <van-nav-bar
@@ -184,42 +200,49 @@ const activeTableData = computed(() => {
         left-arrow
         @click-left="onClickLeft"
       />
-      <div class="grey">
-        <div @click="clearOrg" class="flex-align-center">
-          <span class="ellipsis" :class="!!directName.length && 'active'">组织</span>
-          <el-icon v-if="!!directName.length">
-            <Icon name="icon_right_outlined"><icon_right_outlined class="svg-icon" /></Icon>
-          </el-icon>
+      <div class="cell-org_scroll">
+        <div class="grey">
+          <div @click="clearOrg" class="flex-align-center">
+            <span class="ellipsis" :class="!!directName.length && 'active'">组织</span>
+            <el-icon v-if="!!directName.length">
+              <Icon name="icon_right_outlined"><icon_right_outlined class="svg-icon" /></Icon>
+            </el-icon>
+          </div>
+          <div
+            @click="handleDir(index)"
+            class="flex-align-center"
+            v-for="(ele, index) in directName"
+            :key="ele"
+          >
+            <span class="ellipsis" :class="ele !== activeDirectName && 'active'">{{ ele }}</span>
+            <el-icon v-if="directName.length > 1 && index !== directName.length - 1">
+              <Icon name="icon_right_outlined"><icon_right_outlined class="svg-icon" /></Icon>
+            </el-icon>
+          </div>
         </div>
-        <div
-          @click="handleDir(index)"
-          class="flex-align-center"
-          v-for="(ele, index) in directName"
-          :key="ele"
-        >
-          <span class="ellipsis" :class="ele !== activeDirectName && 'active'">{{ ele }}</span>
-          <el-icon v-if="directName.length > 1 && index !== directName.length - 1">
-            <Icon name="icon_right_outlined"><icon_right_outlined class="svg-icon" /></Icon>
-          </el-icon>
-        </div>
+        <OrgCell
+          @click="type => orgCellClick(type, ele)"
+          v-for="ele in activeTableData"
+          :key="ele.id"
+          :label="ele.name"
+          :nextlevel="ele.children"
+          :active="name === ele.name"
+        ></OrgCell>
       </div>
-      <OrgCell
-        @click="type => orgCellClick(type, ele)"
-        v-for="ele in activeTableData"
-        :key="ele.id"
-        :label="ele.name"
-        :nextlevel="ele.children"
-        :active="name === ele.name"
-      ></OrgCell>
     </template>
   </div>
 </template>
 
 <style lang="less" scoped>
 .de-mobile-user {
-  height: 100vh;
+  height: calc(100% - 50px);
   width: 100vw;
   background: #f5f6f7;
+
+  .cell-org_scroll {
+    height: calc(100% - 144px);
+    overflow-y: auto;
+  }
 
   .mobile-user-top {
     padding: 16px;

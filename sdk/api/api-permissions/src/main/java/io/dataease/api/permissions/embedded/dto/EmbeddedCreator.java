@@ -12,4 +12,6 @@ public class EmbeddedCreator implements Serializable {
     private String name;
     @Schema(description = "应用域名")
     private String domain;
+    @Schema(description = "密钥长度")
+    private Integer secretLength = 16;
 }

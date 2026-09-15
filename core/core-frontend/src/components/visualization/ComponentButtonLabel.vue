@@ -7,7 +7,7 @@ import { ElCol } from 'element-plus-secondary'
 const props = defineProps({
   title: propTypes.string,
   tips: propTypes.string,
-  iconName: propTypes.string,
+  iconName: propTypes.object,
   showSplitLine: propTypes.bool,
   active: propTypes.bool
 })
@@ -39,7 +39,7 @@ const emits = defineEmits(['customClick'])
   cursor: pointer;
   flex-direction: column;
   align-items: center;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #a6a6a6;
 
   span {

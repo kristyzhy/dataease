@@ -63,10 +63,10 @@ public class StackGroupBarHandler extends BarHandler {
                     fieldsToFilter.addAll(view.getXAxis());
                     fieldsToFilter.addAll(xAxisExt);
                 }
+                groupStackDrill(noDrillFieldAxis, noDrillFilterList, fieldsToFilter, drillFields, drillRequestList);
+                formatResult.getAxisMap().put(ChartAxis.xAxis, noDrillFieldAxis);
+                result.setFilterList(noDrillFilterList);
             }
-            groupStackDrill(noDrillFieldAxis, noDrillFilterList, fieldsToFilter, drillFields, drillRequestList);
-            formatResult.getAxisMap().put(ChartAxis.xAxis, noDrillFieldAxis);
-            result.setFilterList(noDrillFilterList);
         }
         return (T) result;
     }

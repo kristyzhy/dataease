@@ -9,7 +9,7 @@ import java.io.Serializable;
  * </p>
  *
  * @author fit2cloud
- * @since 2024-08-07
+ * @since 2025-11-26
  */
 @TableName("core_dataset_table_field")
 public class CoreDatasetTableField implements Serializable {
@@ -65,6 +65,16 @@ public class CoreDatasetTableField implements Serializable {
      * de字段别名
      */
     private String fieldShortName;
+
+    /**
+     * 分组设置
+     */
+    private String groupList;
+
+    /**
+     * 未分组的值
+     */
+    private String otherGroup;
 
     /**
      * 维度/指标标识 d:维度，q:指标
@@ -130,6 +140,11 @@ public class CoreDatasetTableField implements Serializable {
      * 计算字段参数
      */
     private String params;
+
+    /**
+     * 是否排序
+     */
+    private Boolean orderChecked;
 
     public Long getId() {
         return id;
@@ -209,6 +224,22 @@ public class CoreDatasetTableField implements Serializable {
 
     public void setFieldShortName(String fieldShortName) {
         this.fieldShortName = fieldShortName;
+    }
+
+    public String getGroupList() {
+        return groupList;
+    }
+
+    public void setGroupList(String groupList) {
+        this.groupList = groupList;
+    }
+
+    public String getOtherGroup() {
+        return otherGroup;
+    }
+
+    public void setOtherGroup(String otherGroup) {
+        this.otherGroup = otherGroup;
     }
 
     public String getGroupType() {
@@ -315,6 +346,14 @@ public class CoreDatasetTableField implements Serializable {
         this.params = params;
     }
 
+    public Boolean getOrderChecked() {
+        return orderChecked;
+    }
+
+    public void setOrderChecked(Boolean orderChecked) {
+        this.orderChecked = orderChecked;
+    }
+
     @Override
     public String toString() {
         return "CoreDatasetTableField{" +
@@ -328,6 +367,8 @@ public class CoreDatasetTableField implements Serializable {
         ", description = " + description +
         ", dataeaseName = " + dataeaseName +
         ", fieldShortName = " + fieldShortName +
+        ", groupList = " + groupList +
+        ", otherGroup = " + otherGroup +
         ", groupType = " + groupType +
         ", type = " + type +
         ", size = " + size +
@@ -341,6 +382,7 @@ public class CoreDatasetTableField implements Serializable {
         ", dateFormat = " + dateFormat +
         ", dateFormatType = " + dateFormatType +
         ", params = " + params +
+        ", orderChecked = " + orderChecked +
         "}";
     }
 }

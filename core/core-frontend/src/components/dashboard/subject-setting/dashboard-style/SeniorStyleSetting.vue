@@ -6,14 +6,15 @@
           <el-col :span="12">
             <el-form-item
               :effect="themes"
-              class="form-item"
+              class="form-item h-auto"
               :class="'form-item-' + themes"
               :label="t('components.jump_icon_color')"
             >
               <el-color-picker
                 :effect="themes"
+                size="small"
                 v-model="seniorStyleSetting.linkageIconColor"
-                :trigger-width="197"
+                :trigger-width="100"
                 is-custom
                 :predefine="state.predefineColors"
                 @change="themeChange"
@@ -23,14 +24,15 @@
           <el-col :span="12">
             <el-form-item
               :effect="themes"
-              class="form-item"
+              class="form-item h-auto"
               :class="'form-item-' + themes"
               :label="t('components.level_display_color')"
             >
               <el-color-picker
                 v-model="seniorStyleSetting.drillLayerColor"
                 :effect="themes"
-                :trigger-width="197"
+                :trigger-width="100"
+                size="small"
                 is-custom
                 :predefine="state.predefineColors"
                 @change="themeChange"
@@ -58,7 +60,7 @@ const seniorStyleSetting = computed<any>(() => {
   return dvMainStore.canvasStyleData.component.seniorStyleSetting
 })
 
-const props = defineProps({
+defineProps({
   themes: {
     type: String,
     default: 'light'
@@ -109,18 +111,23 @@ onMounted(() => {
   }
 }
 .ed-form-item {
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 
   :deep(.ed-form-item__label) {
-    color: #646a73;
     font-size: 12px;
     font-weight: 400;
     line-height: 20px;
   }
 }
+
+.h-auto {
+  :deep(.ed-form-item__label) {
+    height: auto;
+  }
+}
 .form-item-dark {
   :deep(.ed-form-item__label) {
-    color: #6a6a6a;
+    color: #ebebeb;
     font-size: 12px;
     font-weight: 400;
     line-height: 20px;

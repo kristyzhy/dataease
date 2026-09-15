@@ -6,14 +6,14 @@
         :points="points"
         :stroke="element.style.borderColor"
         :fill="element.style.backgroundColor"
-        :stroke-width="element.style.borderWidth"
+        :stroke-width="borderWidth"
       />
     </svg>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, toRefs, watch } from 'vue'
+import { computed, onMounted, ref, toRefs, watch } from 'vue'
 
 const props = defineProps({
   propValue: {
@@ -49,6 +49,10 @@ watch(
 
 onMounted(() => {
   draw()
+})
+
+const borderWidth = computed(() => {
+  return element.value.style.borderActive ? element.value.style.borderWidth : 0
 })
 
 const draw = () => {

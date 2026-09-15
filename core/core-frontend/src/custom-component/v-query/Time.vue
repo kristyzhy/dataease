@@ -5,8 +5,16 @@ import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import type { ManipulateType } from 'dayjs'
 import { type TimeRange } from './time-format'
 import dayjs from 'dayjs'
+import { useI18n } from '@/hooks/web/useI18n'
 import { useShortcuts } from './shortcuts'
-import { getThisStart, getLastStart, getAround } from './time-format-dayjs'
+import {
+  getThisStart,
+  getThisEnd,
+  getLastStart,
+  getAround,
+  getAroundStart,
+  getCustomRange
+} from './time-format-dayjs'
 import VanPopup from 'vant/es/popup'
 import VanDatePicker from 'vant/es/date-picker'
 import VanTimePicker from 'vant/es/time-picker'
@@ -21,6 +29,7 @@ interface SelectConfig {
   defaultValue: any
   defaultValueCheck: boolean
   id: string
+  queryConditionWidth: number
   displayType: string
   timeGranularity: DatePickType
   timeGranularityMultiple: DatePickType
@@ -28,6 +37,7 @@ interface SelectConfig {
   placeholder: string
   setTimeRange: boolean
 }
+const { t } = useI18n()
 
 const props = defineProps({
   config: {
@@ -36,6 +46,7 @@ const props = defineProps({
       return {
         selectValue: '',
         defaultValue: '',
+        queryConditionWidth: 0,
         defaultValueCheck: false,
         displayType: '1',
         timeGranularity: 'date',
@@ -65,7 +76,7 @@ const props = defineProps({
 })
 const placeholder: Ref = inject('placeholder')
 const placeholderText = computed(() => {
-  if (placeholder.value.placeholderShow) {
+  if (placeholder?.value?.placeholderShow) {
     return props.config.placeholder
   }
   return ' '
@@ -135,6 +146,13 @@ watch(
 )
 
 const handleValueChange = () => {
+  if (selectValue.value === null) {
+    selectValue.value = multiple.value ? [] : undefined
+  }
+
+  selectValue.value = Array.isArray(selectValue.value)
+    ? selectValue.value.map(ele => ele && dayjs(ele).format('YYYY/MM/DD HH:mm:ss'))
+    : selectValue.value && dayjs(selectValue.value).format('YYYY/MM/DD HH:mm:ss')
   const value = Array.isArray(selectValue.value) ? [...selectValue.value] : selectValue.value
   if (!props.isConfig) {
     config.value.selectValue = Array.isArray(selectValue.value)
@@ -165,13 +183,21 @@ const init = () => {
 }
 
 const queryConditionWidth = inject('com-width', Function, true)
+const getCustomWidth = () => {
+  if (placeholder?.value?.placeholderShow) {
+    if (props.config.queryConditionWidth === undefined) {
+      return queryConditionWidth()
+    }
+    return props.config.queryConditionWidth
+  }
+  return 227
+}
 const isConfirmSearch = inject('is-confirm-search', Function, true)
 const selectStyle = computed(() => {
   return props.isConfig
     ? {}
     : {
-        width:
-          (multiple.value ? queryConditionWidth() * 2 : queryConditionWidth()) + 'px !important'
+        width: (multiple.value ? getCustomWidth() * 2 : getCustomWidth()) + 'px !important'
       }
 })
 
@@ -220,8 +246,13 @@ const calendarChange = val => {
   startWindowTime.value = +new Date(val[0])
 }
 
-const visibleChange = () => {
+const datePicker = ref()
+
+const visibleChange = (visible: boolean) => {
   startWindowTime.value = 0
+  if (!visible) {
+    datePicker.value?.blur()
+  }
 }
 
 const queryTimeType = computed(() => {
@@ -239,6 +270,7 @@ const disabledDate = val => {
     regularOrTrends,
     regularOrTrendsValue,
     relativeToCurrent,
+    relativeToCurrentRange,
     timeNum,
     relativeToCurrentType,
     around,
@@ -249,6 +281,7 @@ const disabledDate = val => {
     aroundRange
   } = config.value.timeRange || {}
   let isDynamicWindowTime = false
+
   if (startWindowTime.value && dynamicWindow) {
     isDynamicWindowTime =
       dayjs(startWindowTime.value)
@@ -256,7 +289,13 @@ const disabledDate = val => {
         .startOf(queryTimeType.value)
         .valueOf() -
         1000 <
-      timeStamp
+        timeStamp ||
+      dayjs(startWindowTime.value)
+        .subtract(maximumSingleQuery, queryTimeType.value)
+        .startOf(queryTimeType.value)
+        .valueOf() +
+        1000 >
+        timeStamp
   }
   if (intervalType === 'none') {
     if (dynamicWindow) return isDynamicWindowTime
@@ -264,7 +303,7 @@ const disabledDate = val => {
   }
   let startTime
   if (relativeToCurrent === 'custom') {
-    startTime = getAround(relativeToCurrentType, around === 'f' ? 'subtract' : 'add', timeNum)
+    startTime = getAroundStart(relativeToCurrentType, around === 'f' ? 'subtract' : 'add', timeNum)
   } else {
     switch (relativeToCurrent) {
       case 'thisYear':
@@ -279,6 +318,12 @@ const disabledDate = val => {
       case 'lastMonth':
         startTime = getLastStart('month')
         break
+      case 'thisQuarter':
+        startTime = getThisStart('quarter')
+        break
+      case 'thisWeek':
+        startTime = getThisStart('week')
+        break
       case 'today':
         startTime = getThisStart('day')
         break
@@ -287,6 +332,9 @@ const disabledDate = val => {
         break
       case 'monthBeginning':
         startTime = getThisStart('month')
+        break
+      case 'monthEnd':
+        startTime = getThisEnd('month')
         break
       case 'yearBeginning':
         startTime = getThisStart('year')
@@ -299,7 +347,10 @@ const disabledDate = val => {
   const startValue = regularOrTrends === 'fixed' ? regularOrTrendsValue : startTime
 
   if (intervalType === 'start') {
-    return timeStamp < +new Date(startValue) || isDynamicWindowTime
+    return (
+      timeStamp < +new Date(dayjs(startValue).startOf('day').format('YYYY/MM/DD HH:mm:ss')) ||
+      isDynamicWindowTime
+    )
   }
 
   if (intervalType === 'end') {
@@ -307,26 +358,31 @@ const disabledDate = val => {
   }
 
   if (intervalType === 'timeInterval') {
-    const startTime =
-      regularOrTrends === 'fixed'
-        ? new Date(
-            dayjs(new Date(regularOrTrendsValue[0]))
-              .startOf(queryTimeType.value)
-              .format('YYYY/MM/DD HH:mm:ss')
-          )
-        : getAround(relativeToCurrentType, around === 'f' ? 'subtract' : 'add', timeNum)
-    const endTime =
-      regularOrTrends === 'fixed'
-        ? new Date(
-            dayjs(new Date(regularOrTrendsValue[1]))
-              .endOf(queryTimeType.value)
-              .format('YYYY/MM/DD HH:mm:ss')
-          )
-        : getAround(
-            relativeToCurrentTypeRange,
-            aroundRange === 'f' ? 'subtract' : 'add',
-            timeNumRange
-          )
+    let endTime
+    if (relativeToCurrentRange === 'custom') {
+      startTime =
+        regularOrTrends === 'fixed'
+          ? new Date(
+              dayjs(new Date(regularOrTrendsValue[0]))
+                .startOf(queryTimeType.value)
+                .format('YYYY/MM/DD HH:mm:ss')
+            )
+          : getAroundStart(relativeToCurrentType, around === 'f' ? 'subtract' : 'add', timeNum)
+      endTime =
+        regularOrTrends === 'fixed'
+          ? new Date(
+              dayjs(new Date(regularOrTrendsValue[1]))
+                .endOf(queryTimeType.value)
+                .format('YYYY/MM/DD HH:mm:ss')
+            )
+          : getAround(
+              relativeToCurrentTypeRange,
+              aroundRange === 'f' ? 'subtract' : 'add',
+              timeNumRange
+            )
+    } else {
+      ;[startTime, endTime] = getCustomRange(relativeToCurrentRange)
+    }
     return (
       timeStamp < +new Date(startTime) - 1000 ||
       timeStamp > +new Date(endTime) ||
@@ -370,28 +426,51 @@ const selectSecond = ref(false)
 
 const setArrValue = () => {
   currentDate.value = currentDate.value.slice(0, getIndex() + 1)
+  const timeFormat = [1, 2].includes(currentDate.value.length)
+    ? currentDate.value.concat(Array([0, 2, 1][currentDate.value.length]).fill('01'))
+    : currentDate.value
   if (isRange.value) {
     const [start, end] = selectValue.value || []
     if (selectSecond.value) {
       selectValue.value = [
-        start ? start : new Date(`${currentDate.value.join('/')} ${currentTime.value.join(':')}`),
-        new Date(`${currentDate.value.join('/')} ${currentTime.value.join(':')}`)
+        start ? start : new Date(`${timeFormat.join('/')} ${currentTime.value.join(':')}`),
+        new Date(`${timeFormat.join('/')} ${currentTime.value.join(':')}`)
       ]
     } else {
       selectValue.value = [
-        new Date(`${currentDate.value.join('/')} ${currentTime.value.join(':')}`),
-        end ? end : new Date(`${currentDate.value.join('/')} ${currentTime.value.join(':')}`)
+        new Date(`${timeFormat.join('/')} ${currentTime.value.join(':')}`),
+        end ? end : new Date(`${timeFormat.join('/')} ${currentTime.value.join(':')}`)
       ]
     }
   } else {
-    selectValue.value = new Date(`${currentDate.value.join('/')} ${currentTime.value.join(':')}`)
+    selectValue.value = new Date(`${timeFormat.join('/')} ${currentTime.value.join(':')}`)
   }
+}
+
+const onClear = () => {
+  showDate.value = false
+  const { displayType } = config.value
+  const plus = displayType === '7'
+  config.value.selectValue = plus ? [] : undefined
+  selectValue.value = plus ? [] : undefined
+  handleValueChange()
 }
 
 const onConfirm = () => {
   setArrValue()
   handleValueChange()
   showDate.value = false
+}
+const showDateQuick = ref(false)
+const showQuick = () => {
+  showDateQuick.value = true
+}
+
+const emitMobile = (_, val) => {
+  const [start, end] = val
+  selectValue.value = [start?.format('YYYY/MM/DD HH:mm:ss'), end?.format('YYYY/MM/DD HH:mm:ss')]
+  handleValueChange()
+  showDateQuick.value = false
 }
 
 onBeforeMount(() => {
@@ -414,6 +493,7 @@ const formatDate = computed(() => {
     :key="config.timeGranularityMultiple"
     :type="config.timeGranularityMultiple"
     :style="selectStyle"
+    ref="datePicker"
     @visible-change="visibleChange"
     :disabled-date="disabledDate"
     @calendar-change="calendarChange"
@@ -431,6 +511,9 @@ const formatDate = computed(() => {
     v-else
     :key="config.timeGranularity + 1"
     v-model="selectValue"
+    class="icon-fixed_16"
+    @visible-change="visibleChange"
+    :disabled-date="disabledDate"
     :type="config.timeGranularity"
     @change="handleValueChange"
     :style="selectStyle"
@@ -442,7 +525,19 @@ const formatDate = computed(() => {
     :class="isRange && 'wl50'"
     @click="showPopup"
   />
-  <div v-if="dvMainStore.mobileInPc && isRange" class="vant-mobile wr50" @click="showPopupRight" />
+  <div v-if="dvMainStore.mobileInPc && isRange" class="vant-mobile wr50" @click="showPopupRight">
+    <div class="quick-selection" @click.stop="showQuick"></div>
+    <van-popup teleport="body" position="bottom" v-model:show="showDateQuick">
+      <div
+        @click="ele.onClick({ emit: emitMobile })"
+        class="shortcuts-mobile"
+        v-for="ele in shortcuts"
+        :key="ele.text"
+      >
+        {{ ele.text }}
+      </div></van-popup
+    >
+  </div>
   <van-popup
     v-if="dvMainStore.mobileInPc"
     teleport="body"
@@ -453,9 +548,9 @@ const formatDate = computed(() => {
       @confirm="onConfirm"
       @cancel="onCancel"
       v-if="showTimePick"
-      title="时间选择"
-      :tabs="['选择日期', '选择时间']"
-      next-step-text="下一步"
+      :title="t('v_query.time_selection')"
+      :tabs="[t('dataset.select_date'), t('dataset.select_time')]"
+      :next-step-text="t('sync_datasource.next')"
     >
       <van-date-picker
         :min-date="minDate"
@@ -466,7 +561,7 @@ const formatDate = computed(() => {
       <van-time-picker :columns-type="['hour', 'minute', 'second']" v-model="currentTime" />
     </van-picker-group>
     <van-date-picker
-      title="选择日期"
+      :title="t('dataset.select_date')"
       :columns-type="columnsType"
       @confirm="onConfirm"
       @cancel="onCancel"
@@ -476,6 +571,15 @@ const formatDate = computed(() => {
       v-model="currentDate"
     />
   </van-popup>
+  <Teleport v-if="showDate" to=".van-picker__toolbar">
+    <button
+      style="position: absolute; top: 0; right: 60px"
+      @click="onClear"
+      class="van-picker__confirm van-haptics-feedback oooo"
+    >
+      {{ t('commons.clear') }}
+    </button></Teleport
+  >
 </template>
 
 <style lang="less">
@@ -494,6 +598,25 @@ const formatDate = computed(() => {
     left: auto;
     right: 0;
     width: 50%;
+
+    .quick-selection {
+      position: absolute;
+      top: 0px;
+      right: 10px;
+      width: 24px;
+      height: 32px;
+      z-index: 10;
+    }
+  }
+}
+.shortcuts-mobile {
+  padding: 10px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+}
+.icon-fixed_16 {
+  .ed-input__icon {
+    font-size: 16px !important;
   }
 }
 </style>

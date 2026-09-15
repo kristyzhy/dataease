@@ -5,7 +5,8 @@ import eventBus from '@/utils/eventBus'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { XpackComponent } from '@/components/plugin'
 import DePreviewMobile from './MobileInPc.vue'
-import { findComponentById, mobileViewStyleSwitch } from '@/utils/canvasUtils'
+import { findComponentById, initTabMobileLayout, mobileViewStyleSwitch } from '@/utils/canvasUtils'
+import { deepCopy } from '@/utils/utils'
 const panelInit = ref(false)
 const dvMainStore = dvMainStoreWithOut()
 
@@ -18,42 +19,63 @@ const checkItemPosition = component => {
   component.sizeY = 20
 }
 
+const apdataQuery = ele => {
+  if (ele.component === 'VQuery') {
+    ele.propValue?.forEach(queryItem => {
+      queryItem['tempPlaceholder'] = queryItem.placeholder
+      queryItem['tempQueryConditionWidth'] = queryItem.queryConditionWidth
+      queryItem.placeholder = queryItem.mPlaceholder || queryItem.placeholder
+      queryItem.queryConditionWidth =
+        queryItem.mQueryConditionWidth || queryItem.queryConditionWidth
+    })
+  }
+}
+
+/**
+ * 将主窗口传入的 PC 图表配置应用到移动端画布并触发原有刷新入口
+ * @param component 与 viewInfo 对应的移动端组件，决定使用重绘还是重新取数
+ * @param viewInfo 已清除移动端覆盖项的 PC 图表配置
+ */
+const applySyncedViewInfo = (component, viewInfo) => {
+  mobileViewStyleSwitch(viewInfo)
+  if (component?.component === 'VQuery') {
+    useEmitt().emitter.emit('renderChart-' + component.id, viewInfo)
+  } else if (component?.component === 'UserView') {
+    useEmitt().emitter.emit('calcData-' + component.id, viewInfo)
+  }
+}
+
 const hanedleMessage = event => {
   if (event.data.type === 'panelInit') {
     const { componentData, canvasStyleData, dvInfo, canvasViewInfo, isEmbedded } = event.data.value
-    Object.keys(canvasViewInfo).forEach(viewId => {
-      const viewInfo = canvasViewInfo[viewId]
-      const { customAttrMobile, customStyleMobile } = viewInfo
-      viewInfo.customAttr = customAttrMobile || viewInfo.customAttr
-      viewInfo.customStyle = customStyleMobile || viewInfo.customStyle
-    })
     componentData.forEach(ele => {
-      const { mx, my, mSizeX, mSizeY, mStyle, mCommonBackground } = ele
+      const { mx, my, mSizeX, mSizeY, mStyle, mCommonBackground, mEvents } = ele
       ele.x = mx
       ele.y = my
       ele.sizeX = mSizeX
       ele.sizeY = mSizeY
-      ele.style = mStyle || ele.style
-      ele.commonBackground = mCommonBackground || ele.commonBackground
+      ele.style = deepCopy(mStyle || ele.style)
+      ele.commonBackground = deepCopy(mCommonBackground || ele.commonBackground)
+      ele.events = deepCopy(mEvents || ele.events)
+      apdataQuery(ele)
 
       if (ele.component === 'DeTabs') {
-        ele.propValue.forEach(tabItem => {
-          tabItem.componentData.forEach(tabComponent => {
+        // 初始化 Tab 子组件运行时 geometry，已保存的 m* 布局会优先恢复
+        initTabMobileLayout(ele)
+        ele.propValue?.forEach(tabItem => {
+          tabItem.componentData?.forEach(tabComponent => {
             const {
-              mx: tx,
-              my: ty,
-              mSizeX: tSizeX,
-              mSizeY: tSizeY,
               mStyle: tStyle,
-              mCommonBackground: tCommonBackground
+              mCommonBackground: tCommonBackground,
+              mEvents: tEvents
             } = tabComponent
-            if (tSizeX && tSizeY) {
-              tabComponent.x = tx
-              tabComponent.y = ty
-              tabComponent.sizeX = tSizeX
-              tabComponent.sizeY = tSizeY
-              tabComponent.style = tStyle || tabComponent.style
-              tabComponent.commonBackground = tCommonBackground || tabComponent.commonBackground
+            tabComponent.style = deepCopy(tStyle || tabComponent.style)
+            tabComponent.commonBackground = deepCopy(
+              tCommonBackground || tabComponent.commonBackground
+            )
+            tabComponent.events = deepCopy(tEvents || tabComponent.events)
+            if (tabComponent.component === 'VQuery') {
+              tabComponent.propValue = deepCopy(tabComponent.propValue)
             }
           })
         })
@@ -70,7 +92,7 @@ const hanedleMessage = event => {
   }
   // 进行内部组件渲染 type render 渲染 calcData 计算  主组件渲染
   if (event.data.type === 'componentStyleChange') {
-    const { type, component } = event.data.value
+    const { type, component, otherComponent } = event.data.value
     if (type === 'renderChart') {
       mobileViewStyleSwitch(component)
       useEmitt().emitter.emit('renderChart-' + component.id, component)
@@ -80,9 +102,48 @@ const hanedleMessage = event => {
     } else if (type === 'updateTitle') {
       mobileViewStyleSwitch(component)
       useEmitt().emitter.emit('updateTitle-' + component.id)
-    } else if (['style', 'commonBackground'].includes(type)) {
+    } else if (['style', 'commonBackground', 'events', 'propValue'].includes(type)) {
       const mobileComponent = findComponentById(component.id)
       mobileComponent[type] = component[type]
+    } else if (['syncPcDesign'].includes(type)) {
+      const mobileComponent = findComponentById(component.id)
+      // key 为 Tab 子组件 ID，value 为同步前尚未保存的移动端位置和尺寸
+      const tabMobileGeometry = new Map()
+      if (mobileComponent.component === 'DeTabs') {
+        mobileComponent.propValue?.forEach(tabItem => {
+          tabItem.componentData?.forEach(tabComponent => {
+            tabMobileGeometry.set(tabComponent.id, {
+              // mx、my 对应移动端 Matrix 的列坐标和行坐标
+              mx: tabComponent.x,
+              my: tabComponent.y,
+              // mSizeX、mSizeY 对应移动端 Matrix 的列宽和行高
+              mSizeX: tabComponent.sizeX,
+              mSizeY: tabComponent.sizeY
+            })
+          })
+        })
+      }
+      mobileComponent['style'] = component['style']
+      mobileComponent['commonBackground'] = component['commonBackground']
+      mobileComponent['events'] = component['events']
+      mobileComponent['propValue'] = deepCopy(component['propValue'])
+      if (mobileComponent.component === 'DeTabs') {
+        // 同步 PC 内容时保留用户尚未保存的 Tab 子组件移动布局
+        mobileComponent.propValue?.forEach(tabItem => {
+          tabItem.componentData?.forEach(tabComponent => {
+            Object.assign(tabComponent, tabMobileGeometry.get(tabComponent.id) || {})
+          })
+        })
+        initTabMobileLayout(mobileComponent)
+      }
+      if (mobileComponent.component === 'DeTabs' && Array.isArray(otherComponent)) {
+        // Tab 内图表拥有各自的 viewInfo；逐个恢复 PC 配置并触发原有重算或重绘入口
+        otherComponent.forEach(viewInfo => {
+          applySyncedViewInfo(findComponentById(viewInfo.id), viewInfo)
+        })
+      } else {
+        applySyncedViewInfo(mobileComponent, otherComponent)
+      }
     }
   }
 
@@ -102,20 +163,23 @@ const hanedleMessage = event => {
       {
         type: `${event.data.type}FromMobile`,
         value: dvMainStore.componentData.reduce((pre, next) => {
-          const { x, y, sizeX, sizeY, id, component, style, commonBackground } = next
+          const { x, y, sizeX, sizeY, id, component, propValue, style, events, commonBackground } =
+            next
           pre[id] = {
             x,
             y,
             sizeX,
             sizeY,
             component,
+            events: deepCopy(events),
+            propValue: deepCopy(propValue),
             style: JSON.parse(JSON.stringify(style)),
             commonBackground: JSON.parse(JSON.stringify(commonBackground))
           }
           if (next.component === 'DeTabs') {
             pre[id].tab = {}
-            next.propValue.forEach(tabItem => {
-              tabItem.componentData.forEach(tabComponent => {
+            next.propValue?.forEach(tabItem => {
+              tabItem.componentData?.forEach(tabComponent => {
                 const {
                   x: tx,
                   y: ty,
@@ -123,6 +187,8 @@ const hanedleMessage = event => {
                   sizeY: tSizeY,
                   id: tId,
                   style: tStyle,
+                  events: tEvents,
+                  propValue: tPropValue,
                   commonBackground: tCommonBackground
                 } = tabComponent
                 pre[id].tab[tId] = {
@@ -131,6 +197,8 @@ const hanedleMessage = event => {
                   sizeX: tSizeX,
                   sizeY: tSizeY,
                   style: JSON.parse(JSON.stringify(tStyle)),
+                  events: deepCopy(tEvents),
+                  propValue: deepCopy(tPropValue),
                   commonBackground: JSON.parse(JSON.stringify(tCommonBackground))
                 }
               })

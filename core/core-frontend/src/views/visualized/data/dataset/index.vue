@@ -3,13 +3,16 @@ import icon_copy_filled from '@/assets/svg/icon_copy_filled.svg'
 import icon_dataset from '@/assets/svg/icon_dataset.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
 import icon_intoItem_outlined from '@/assets/svg/icon_into-item_outlined.svg'
+import { throttle } from 'lodash-es'
 import icon_rename_outlined from '@/assets/svg/icon_rename_outlined.svg'
 import dvNewFolder from '@/assets/svg/dv-new-folder.svg'
 import icon_fileAdd_outlined from '@/assets/svg/icon_file-add_outlined.svg'
+import { moveDatasetTree } from '@/api/dataset'
 import icon_searchOutline_outlined from '@/assets/svg/icon_search-outline_outlined.svg'
 import dvSortAsc from '@/assets/svg/dv-sort-asc.svg'
 import dvSortDesc from '@/assets/svg/dv-sort-desc.svg'
 import dvFolder from '@/assets/svg/dv-folder.svg'
+import { treeDraggble } from '@/utils/treeDraggble'
 import icon_add_outlined from '@/assets/svg/icon_add_outlined.svg'
 import icon_info_outlined from '@/assets/svg/icon_info_outlined.svg'
 import icon_dashboard_outlined from '@/assets/svg/icon_dashboard_outlined.svg'
@@ -45,7 +48,7 @@ import {
 import { HandleMore } from '@/components/handle-more'
 import { Icon } from '@/components/icon-custom'
 import { useMoveLine } from '@/hooks/web/useMoveLine'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router_2'
 import CreatDsGroup from './form/CreatDsGroup.vue'
 import type { BusiTreeNode, BusiTreeRequest } from '@/models/tree/TreeNode'
 import {
@@ -79,6 +82,7 @@ import { XpackComponent } from '@/components/plugin'
 import { useCache } from '@/hooks/web/useCache'
 import { RefreshLeft } from '@element-plus/icons-vue'
 import { iconFieldMap } from '@/components/icon-group/field-list'
+import { exportPermission, isFreeFolder } from '@/utils/utils'
 const { t } = useI18n()
 const interactiveStore = interactiveStoreWithOut()
 const { wsCache } = useCache()
@@ -98,6 +102,7 @@ interface Node {
   nodeType: string
   createTime: number
   weight: number
+  ext?: number
 }
 const appStore = useAppStoreWithOut()
 const rootManage = ref(false)
@@ -133,15 +138,16 @@ const state = reactive({
   curSortType: 'time_desc'
 })
 
-const resourceGroupOpt = ref()
 const curCanvasType = ref('')
 const mounted = ref(false)
-
+const openType = wsCache.get('open-backend') === '1' ? '_self' : '_blank'
 const isDataEaseBi = computed(() => appStore.getIsDataEaseBi)
 const isIframe = computed(() => appStore.getIsIframe)
+const exportPermissions = computed(() => exportPermission(nodeInfo.weight, nodeInfo.ext))
 const createPanel = path => {
   const baseUrl = `#/${path}?opt=create&id=${nodeInfo.id}`
-  window.open(baseUrl, '_blank')
+  wsCache.set('dataset-info-id', nodeInfo.id)
+  window.open(baseUrl, openType)
 }
 
 const resourceOptFinish = param => {
@@ -150,12 +156,17 @@ const resourceOptFinish = param => {
   }
 }
 
-let originResourceTree = []
+const originResourceTree = shallowRef([])
 
-const sortTypeChange = sortType => {
-  state.datasetTree = treeSort(originResourceTree, sortType)
+const handleSortTypeChange = sortType => {
+  state.datasetTree = treeSort(originResourceTree.value, sortType)
   state.curSortType = sortType
   wsCache.set('TreeSort-dataset', state.curSortType)
+}
+
+const sortTypeChange = sortType => {
+  state.datasetTree = treeSort(originResourceTree.value, sortType)
+  state.curSortType = sortType
 }
 
 const resourceCreate = (pid, name) => {
@@ -182,7 +193,7 @@ const resourceCreate = (pid, name) => {
   }
   save(canvasInfo).then(() => {
     const baseUrl = curCanvasType.value === 'dataV' ? '#/dvCanvas?dvId=' : '#/dashboard?resourceId='
-    window.open(baseUrl + newResourceId, '_blank')
+    window.open(baseUrl + newResourceId, openType)
   })
 }
 
@@ -247,6 +258,14 @@ const infoList = computed(() => {
   }
 })
 
+const { handleDrop, allowDrop, handleDragStart } = treeDraggble(
+  state,
+  'datasetTree',
+  moveDatasetTree,
+  'dataset',
+  originResourceTree
+)
+
 const generateColumns = (arr: Field[]) =>
   arr.map(ele => ({
     key: ele.dataeaseName,
@@ -274,6 +293,8 @@ const dtLoading = ref(false)
 const isCreated = ref(false)
 const getData = () => {
   dtLoading.value = true
+  let curSortType = sortList[Number(wsCache.get('TreeSort-backend')) ?? 1].value
+  curSortType = wsCache.get('TreeSort-dataset') ?? curSortType
   const request = { busiFlag: 'dataset' } as BusiTreeRequest
   interactiveStore
     .setInteractive(request)
@@ -282,13 +303,13 @@ const getData = () => {
       if (nodeData.length && nodeData[0]['id'] === '0' && nodeData[0]['name'] === 'root') {
         rootManage.value = nodeData[0]['weight'] >= 7
         state.datasetTree = nodeData[0]['children'] || []
-        originResourceTree = cloneDeep(unref(state.datasetTree))
-        sortTypeChange(state.curSortType)
+        originResourceTree.value = cloneDeep(unref(state.datasetTree))
+        sortTypeChange(curSortType)
         return
       }
       state.datasetTree = nodeData
-      originResourceTree = cloneDeep(unref(state.datasetTree))
-      sortTypeChange(state.curSortType)
+      originResourceTree.value = cloneDeep(unref(state.datasetTree))
+      sortTypeChange(curSortType)
     })
     .finally(() => {
       dtLoading.value = false
@@ -325,7 +346,11 @@ const dfsDatasetTree = (ds, id) => {
 }
 
 onBeforeMount(() => {
-  nodeInfo.id = (route.params.id as string) || (route.query.id as string) || ''
+  const paramId = wsCache.get('dataset-info-id') || route.params.id
+  nodeInfo.id = (paramId as string) || (route.query.id as string) || ''
+  wsCache.delete('dataset-info-id')
+  wsCache.delete('db-info-id')
+  wsCache.delete('dv-info-id')
   loadInit()
   getData()
   getLimit()
@@ -336,7 +361,7 @@ const tableData = shallowRef([])
 const total = ref(null)
 
 const handleNodeClick = (data: BusiTreeNode) => {
-  if (!data.leaf) {
+  if (!data.leaf || data.weight === 0) {
     datasetListTree.value.setCurrentKey(null)
     return
   }
@@ -344,6 +369,7 @@ const handleNodeClick = (data: BusiTreeNode) => {
     const nodeData = res as unknown as Node[]
     Object.assign(nodeInfo, nodeData)
     nodeInfo.weight = data.weight
+    nodeInfo.ext = data.ext || 0
     columnsPreview = []
     dataPreview = []
     activeName.value = 'dataPreview'
@@ -368,17 +394,29 @@ const closeExport = () => {
 
 const save = ({ logic, items, errorMessage }) => {
   table.value.id = nodeInfo.id
-  table.value.row = 100000
   table.value.filename = exportForm.value.name
+  table.value.dataEaseBi = isDataEaseBi.value || appStore.getIsIframe
   if (errorMessage) {
     ElMessage.error(errorMessage)
     return
   }
   table.value.expressionTree = JSON.stringify({ items, logic })
   exportDatasetLoading.value = true
+  const embeddedSyncExport = wsCache.get('embeddedExportMode-backend') !== 'async'
   exportDatasetData(table.value)
     .then(res => {
-      openMessageLoading(exportData)
+      if ((isDataEaseBi.value || appStore.getIsIframe) && embeddedSyncExport) {
+        const blob = new Blob([res.data], { type: 'application/vnd.ms-excel' })
+        const link = document.createElement('a')
+        link.style.display = 'none'
+        link.href = URL.createObjectURL(blob)
+        link.download = table.value.filename + '.xlsx' // 下载的文件名
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      } else {
+        openMessageLoading(exportData)
+      }
     })
     .finally(() => {
       exportDatasetLoading.value = false
@@ -398,6 +436,15 @@ const exportDatasetRequest = () => {
 
 const exportData = () => {
   useEmitt().emitter.emit('data-export-center', { activeName: 'IN_PROGRESS' })
+}
+
+const rowClick = (_, __, event) => {
+  const element = event.target.parentNode.parentNode
+  if ([...element.classList].includes('no-hide')) {
+    element.classList.remove('no-hide')
+    return
+  }
+  element.classList.add('no-hide')
 }
 
 const openMessageLoading = cb => {
@@ -653,7 +700,8 @@ const datasetTypeList = computed(() => {
 
 const defaultProps = {
   children: 'children',
-  label: 'name'
+  label: 'name',
+  disabled: (data: any) => data.weight === 0
 }
 
 const defaultTab = [
@@ -669,20 +717,20 @@ const defaultTab = [
 
 const sortList = [
   {
-    name: t('data_set.by_creation_time'),
+    name: t('visualization.time_asc'),
     value: 'time_asc'
   },
   {
-    name: t('data_set.by_creation_time_de'),
+    name: t('visualization.time_desc'),
     value: 'time_desc',
     divided: true
   },
   {
-    name: t('data_set.by_name_ascending'),
+    name: t('visualization.name_asc'),
     value: 'name_asc'
   },
   {
-    name: t('data_set.order_by_name'),
+    name: t('visualization.name_desc'),
     value: 'name_desc'
   }
 ]
@@ -713,8 +761,33 @@ const panelLoad = paneInfo => {
 }
 const datasetListTree = ref()
 
+// 预计算可见节点 ID 集合，filterNode 只做 O(1) 查询
+const visibleNodeIds = new Set()
+
+const buildVisibleIds = (nodes: BusiTreeNode[], keyword: string): boolean => {
+  let anyMatch = false
+  for (const node of nodes) {
+    const selfMatch = !!node.name?.toLowerCase().includes(keyword)
+    const childMatch = node.children?.length ? buildVisibleIds(node.children, keyword) : false
+    if (selfMatch || childMatch) {
+      visibleNodeIds.add(node.id)
+      anyMatch = true
+    }
+  }
+  return anyMatch
+}
+
+let searchTimer
 watch(nickName, (val: string) => {
-  datasetListTree.value.filter(val)
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    const keyword = val?.trim().toLowerCase()
+    visibleNodeIds.clear()
+    if (keyword) {
+      buildVisibleIds(state.datasetTree, keyword)
+    }
+    datasetListTree.value.filter(val?.trim())
+  }, 300)
 })
 const sideTreeStatus = ref(true)
 const changeSideTreeStatus = val => {
@@ -722,8 +795,8 @@ const changeSideTreeStatus = val => {
 }
 
 const filterNode = (value: string, data: BusiTreeNode) => {
-  if (!value) return true
-  return data.name?.toLowerCase().includes(value.toLowerCase())
+  if (!value?.trim()) return true
+  return visibleNodeIds.has(data.id)
 }
 const mouseenter = () => {
   appStore.setArrowSide(true)
@@ -744,6 +817,16 @@ const getMenuList = (val: boolean) => {
         }
       ].concat(menuList)
 }
+
+const proxyAllowDrop = throttle((arg1, arg2) => {
+  const flagArray = ['dashboard', 'dataV', 'dataset', 'datasource']
+  const flag = flagArray.findIndex(item => item === 'dataset')
+  if (flag < 0 || !isFreeFolder(arg2, flag + 1)) {
+    return allowDrop(arg1, arg2)
+  }
+  ElMessage.warning(t('free.save_error'))
+  return false
+}, 300)
 </script>
 
 <template>
@@ -774,6 +857,7 @@ const getMenuList = (val: boolean) => {
               <el-tooltip
                 class="box-item"
                 effect="dark"
+                offset="14"
                 :content="t('deDataset.new_folder')"
                 placement="top"
               >
@@ -788,6 +872,7 @@ const getMenuList = (val: boolean) => {
               <el-tooltip
                 class="box-item"
                 effect="dark"
+                offset="14"
                 :content="t('data_set.a_new_dataset')"
                 placement="top"
               >
@@ -813,7 +898,7 @@ const getMenuList = (val: boolean) => {
               </el-icon>
             </template>
           </el-input>
-          <el-dropdown @command="sortTypeChange" trigger="click">
+          <el-dropdown @command="handleSortTypeChange" trigger="click">
             <el-icon class="filter-icon-span">
               <el-tooltip :offset="16" effect="dark" :content="sortTypeTip" placement="top">
                 <Icon name="dv-sort-asc" class="opt-icon"
@@ -852,6 +937,10 @@ const getMenuList = (val: boolean) => {
             :filter-node-method="filterNode"
             expand-on-click-node
             highlight-current
+            @node-drag-start="handleDragStart"
+            :allow-drop="proxyAllowDrop"
+            @node-drop="handleDrop"
+            draggable
             @node-expand="nodeExpand"
             @node-collapse="nodeCollapse"
             :default-expanded-keys="expandedKey"
@@ -859,15 +948,22 @@ const getMenuList = (val: boolean) => {
             @node-click="handleNodeClick"
           >
             <template #default="{ node, data }">
-              <span class="custom-tree-node">
+              <span class="custom-tree-node" :class="{ 'node-disabled-custom': data.weight === 0 }">
                 <el-icon v-if="!data.leaf" style="font-size: 18px">
                   <Icon name="dv-folder"><dvFolder class="svg-icon" /></Icon>
                 </el-icon>
                 <el-icon v-if="data.leaf" style="font-size: 18px">
                   <Icon name="icon_dataset"><icon_dataset class="svg-icon" /></Icon>
                 </el-icon>
-                <span :title="node.label" class="label-tooltip ellipsis">{{ node.label }}</span>
-                <div class="icon-more" v-if="data.weight >= 7">
+                <el-tooltip
+                  effect="dark"
+                  :content="t('visualization.no_permission_tips')"
+                  :disabled="data.weight > 0"
+                  placement="top-start"
+                >
+                  <span :title="node.label" class="label-tooltip ellipsis">{{ node.label }}</span>
+                </el-tooltip>
+                <div class="icon-more" style="position: relative" v-if="data.weight >= 7">
                   <handle-more
                     icon-size="24px"
                     @handle-command="cmd => handleDatasetTree(cmd, data)"
@@ -943,7 +1039,7 @@ const getMenuList = (val: boolean) => {
                   /></Icon> </template
                 >{{ t('data_set.new_data_screen') }}
               </el-button>
-              <el-button secondary @click="exportDataset">
+              <el-button v-if="exportPermissions[0]" secondary @click="exportDataset">
                 <template #icon>
                   <Icon name="icon_download_outlined"
                     ><icon_download_outlined class="svg-icon"
@@ -986,8 +1082,8 @@ const getMenuList = (val: boolean) => {
                     key="structPreview"
                     :columns="columns"
                     v-loading="dataPreviewLoading"
-                    header-class="header-cell"
                     :data="tableData"
+                    header-class="excel-header-cell"
                     :width="width"
                     :height="height"
                     fixed
@@ -1002,8 +1098,9 @@ const getMenuList = (val: boolean) => {
               <template v-if="activeName === 'dataPreview'">
                 <el-table
                   v-loading="dataPreviewLoading"
-                  header-class="header-cell"
+                  class="dataset-preview_table"
                   :data="tableData"
+                  @row-click="rowClick"
                   key="dataPreview"
                   border
                   style="width: 100%; height: 100%"
@@ -1013,7 +1110,7 @@ const getMenuList = (val: boolean) => {
                     v-for="(column, index) in columns"
                     :prop="column.dataKey"
                     :label="column.title"
-                    :width="columns.length - 1 === index ? 150 : 'auto'"
+                    :min-width="150"
                     :fixed="columns.length - 1 === index ? 'right' : false"
                   >
                     <template #header>
@@ -1111,6 +1208,16 @@ const getMenuList = (val: boolean) => {
 <style lang="less" scoped>
 @import '@/style/mixin.less';
 
+:deep(.dataset-preview_table) {
+  .ed-table__body {
+    .ed-table__row:not(.no-hide) {
+      .cell {
+        white-space: nowrap;
+      }
+    }
+  }
+}
+
 .ed-table {
   --ed-table-header-bg-color: #f5f6f7;
 }
@@ -1119,7 +1226,7 @@ const getMenuList = (val: boolean) => {
     height: 200px;
     width: 100%;
     padding: 16px;
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid var(--deBorderBase, #dcdfe6);
     overflow: auto;
 
@@ -1130,10 +1237,10 @@ const getMenuList = (val: boolean) => {
   }
 }
 .filter-icon-span {
-  border: 1px solid #bbbfc4;
+  border: 1px solid #d9dcdf;
   width: 32px;
   height: 32px;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #1f2329;
   padding: 8px;
   margin-left: 8px;
@@ -1151,6 +1258,10 @@ const getMenuList = (val: boolean) => {
     background: #eff0f1;
   }
 }
+.custom-tree {
+  height: calc(100vh - 172px);
+  padding: 0 8px;
+}
 .dataset-manage {
   display: flex;
   width: 100%;
@@ -1160,6 +1271,9 @@ const getMenuList = (val: boolean) => {
 
   &.de-100vh {
     height: 100vh;
+    .custom-tree {
+      height: calc(100vh - 122px);
+    }
   }
 
   .resource-area {
@@ -1208,6 +1322,17 @@ const getMenuList = (val: boolean) => {
 
           &:hover {
             cursor: pointer;
+            &::after {
+              content: '';
+              background-color: var(--ed-color-primary-1a, #3370ff1a);
+              width: 28px;
+              height: 28px;
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              border-radius: 6px;
+              transform: translate(-50%, -50%);
+            }
           }
         }
       }
@@ -1261,7 +1386,7 @@ const getMenuList = (val: boolean) => {
         font-weight: 500;
 
         .dataset-name {
-          max-width: 200px;
+          max-width: 400px;
         }
 
         .create-user {
@@ -1296,7 +1421,7 @@ const getMenuList = (val: boolean) => {
       padding: 24px;
       margin: 24px;
       background: #fff;
-      border-radius: 4px;
+      border-radius: 6px;
       height: calc(100% - 138px);
     }
 
@@ -1326,26 +1451,26 @@ const getMenuList = (val: boolean) => {
   }
 }
 
-.custom-tree {
-  height: calc(100vh - 148px);
-  padding: 0 8px;
-}
-
 .custom-tree-node {
   width: calc(100% - 30px);
   display: flex;
   align-items: center;
   box-sizing: content-box;
   padding-right: 4px;
+  position: relative;
 
   .label-tooltip {
-    width: 100%;
+    width: calc(100% - 40px);
     margin-left: 8.75px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 18px;
   }
 
   .icon-more {
     margin-left: auto;
-    display: none;
+    opacity: 0;
   }
 
   &:hover {
@@ -1354,8 +1479,13 @@ const getMenuList = (val: boolean) => {
     }
 
     .icon-more {
-      display: inline-flex;
+      opacity: 1;
     }
   }
+}
+
+.node-disabled-custom {
+  color: rgba(187, 191, 196, 1);
+  cursor: not-allowed;
 }
 </style>

@@ -9,8 +9,8 @@
     @edit="edit"
     @check="validateById"
   />
-  <div>
-    <span class="de-expand-engine" @click="showPriority = !showPriority">
+  <div class="de-expand_content" :style="{ marginBottom: showPriority ? '4px' : '24px' }">
+    <div class="de-expand-engine" @click="showPriority = !showPriority">
       {{ t('datasource.priority') }}
       <el-icon>
         <Icon
@@ -20,7 +20,7 @@
           ></component
         ></Icon>
       </el-icon>
-    </span>
+    </div>
   </div>
   <InfoTemplate
     v-if="showPriority"
@@ -28,6 +28,12 @@
     style="padding-top: 0"
     hide-head
     :setting-data="templateListTime"
+  />
+  <!--    数据填报      -->
+  <XpackComponent
+    style="max-width: 100%; padding: 0 24px 8px"
+    :nodeInfo="xPackInfo"
+    jsname="L2NvbXBvbmVudC9kYXRhLWZpbGxpbmcvRGF0YXNvdXJjZURhdGFGaWxsaW5nSW5mbw=="
   />
 </template>
 
@@ -42,6 +48,8 @@ import InfoTemplate from '@/views/system/common/InfoTemplate.vue'
 import { dsTypes } from '@/views/visualized/data/datasource/form/option'
 import { getDeEngine } from '@/api/datasource'
 import request from '@/config/axios'
+import { symmetricDecrypt } from '@/utils/encryption'
+import { XpackComponent } from '@/components/plugin'
 const { t } = useI18n()
 const typeMap = dsTypes.reduce((pre, next) => {
   pre[next.type] = next.name
@@ -53,15 +61,16 @@ const infoTemplate = ref()
 const infoTemplateTime = ref()
 const templateList = ref<SettingRecord[]>([])
 const templateListTime = ref<SettingRecord[]>([])
+const xPackInfo = ref({ enableDataFill: false, type: undefined })
 const getEngine = () => {
   getDeEngine().then(res => {
     let { id, type, configuration } = res.data
+    xPackInfo.value.enableDataFill = !!res.data.enableDataFill
+    xPackInfo.value.type = type
     if (configuration) {
-      configuration = JSON.parse(configuration)
+      configuration = JSON.parse(symmetricDecrypt(configuration))
     }
-
     nodeInfoId = id
-
     templateListTime.value = [
       {
         pkey: 'datasource.initial_pool_size',
@@ -151,20 +160,26 @@ const validateById = async () => {
   })
 }
 </script>
-<style lang="less">
-.de-expand-engine {
-  font-family: var(--de-custom_font, 'PingFang');
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 22px;
-  color: var(--ed-color-primary);
-  cursor: pointer;
-  margin: 0 24px 10px 24px;
+<style lang="less" scoped>
+.de-expand_content {
+  height: 22px;
   display: inline-flex;
   align-items: center;
+  .de-expand-engine {
+    font-family: var(--de-custom_font, 'PingFang');
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 22px;
+    color: var(--ed-color-primary);
+    cursor: pointer;
+    margin-left: 24px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
 
-  .ed-icon {
-    margin-left: 4px;
+    .ed-icon {
+      margin-left: 4px;
+    }
   }
 }
 </style>

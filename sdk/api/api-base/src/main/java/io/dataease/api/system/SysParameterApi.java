@@ -2,6 +2,8 @@ package io.dataease.api.system;
 
 import com.github.xiaoymin.knife4j.annotations.ApiSupport;
 import io.dataease.api.system.request.OnlineMapEditor;
+import io.dataease.api.system.request.SQLBotConfigCreator;
+import io.dataease.api.system.vo.SQLBotConfigVO;
 import io.dataease.api.system.vo.SettingItemVO;
 import io.dataease.api.system.vo.ShareBaseVO;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "系统设置:系统参数")
 @ApiSupport(order = 799)
@@ -33,6 +36,10 @@ public interface SysParameterApi {
     @GetMapping("/queryOnlineMap")
     OnlineMapEditor queryOnlineMap();
 
+    @Operation(summary = "查询在线地图")
+    @GetMapping("/queryOnlineMap/{type}")
+    OnlineMapEditor queryOnlineMapByMapType(@PathVariable("type") String type);
+
     @Operation(summary = "查询基础设置(非xpack)")
     @GetMapping("basic/query")
     List<SettingItemVO> queryBasicSetting();
@@ -44,6 +51,10 @@ public interface SysParameterApi {
     @Operation(summary = "查询超时时间(非xpack)")
     @GetMapping("/requestTimeOut")
     public Integer RequestTimeOut();
+
+    @Operation(summary = "系统默认配置(非xpack)")
+    @GetMapping("/defaultSettings")
+    public Map<String, Object> defaultSettings();
 
     @Hidden
     @GetMapping("/ui")
@@ -57,4 +68,15 @@ public interface SysParameterApi {
     @Operation(summary = "查询分享设置")
     ShareBaseVO shareBase();
 
+    @GetMapping("/i18nOptions")
+    @Operation(summary = "查询自定义国际化选项")
+    Map<String, String> i18nOptions();
+
+    @GetMapping("/sqlbot")
+    @Operation(summary = "查询sqlbot嵌入配置")
+    SQLBotConfigVO sqlBotConfig();
+
+    @PostMapping("/sqlbot")
+    @Operation(summary = "查询sqlbot嵌入配置")
+    void saveSqlBotConfig(@RequestBody SQLBotConfigCreator configVO);
 }

@@ -2,6 +2,7 @@ declare type EditorProperty =
   | 'background-overall-component'
   | 'border-style'
   | 'basic-style-selector'
+  | 'symbolic-style-selector'
   | 'dual-basic-style-selector'
   | 'label-selector'
   | 'tooltip-selector'
@@ -30,6 +31,8 @@ declare type EditorProperty =
   | 'flow-map-line-selector'
   | 'flow-map-point-selector'
   | 'bubble-animate'
+  | 'summary-selector'
+  | 'bullet-graph-selector'
 declare type EditorPropertyInner = {
   [key in EditorProperty]?: string[]
 }

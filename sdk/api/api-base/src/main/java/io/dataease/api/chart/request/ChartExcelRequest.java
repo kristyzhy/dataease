@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.io.Serial;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @Author wangjiahao
@@ -13,6 +14,10 @@ import java.util.List;
 public class ChartExcelRequest extends ChartExcelRequestInner {
     @Serial
     private static final long serialVersionUID = 3829386417457449431L;
+
+    private String dvId;
+
+    private String busiFlag;
 
     private String viewId;
 
@@ -26,4 +31,5 @@ public class ChartExcelRequest extends ChartExcelRequestInner {
 
     private String downloadType;
 
+    private Map<String, Object> data;
 }

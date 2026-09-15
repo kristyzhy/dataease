@@ -24,6 +24,11 @@ export const useRequestStore = defineStore('request', {
     setLoadingMap(value: object) {
       this.loadingMap = value
     },
+    resetLoadingMap() {
+      for (const key in this.loadingMap) {
+        this.loadingMap[key] = 0
+      }
+    },
     addLoading(key: string) {
       if (Object.prototype.hasOwnProperty.call(this.loadingMap, key)) {
         const map = this.loadingMap

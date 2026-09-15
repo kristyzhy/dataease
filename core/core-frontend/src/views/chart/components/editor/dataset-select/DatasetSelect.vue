@@ -3,11 +3,11 @@ import dvFolder from '@/assets/svg/dv-folder.svg'
 import icon_dataset from '@/assets/svg/icon_dataset.svg'
 import icon_done_outlined from '@/assets/svg/icon_done_outlined.svg'
 import { Tree } from '../../../../visualized/data/dataset/form/CreatDsGroup.vue'
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import { useAppStoreWithOut } from '@/store/modules/app'
-import _ from 'lodash'
+import { cloneDeep, filter, find, forEach, union } from 'lodash-es'
 import { getDatasetTree, getDatasourceList } from '@/api/dataset'
 import { ElFormItem, FormInstance } from 'element-plus-secondary'
 import { useEmitt } from '@/hooks/web/useEmitt'
@@ -19,15 +19,16 @@ import treeSort from '@/utils/treeSortUtils'
 const dvMainStore = dvMainStoreWithOut()
 const { wsCache } = useCache('localStorage')
 const userStore = useUserStoreWithOut()
+const { t } = useI18n()
 
 const props = withDefaults(
   defineProps<{
     themes?: EditorTheme
     modelValue?: string | number
     stateObj: any
-    disabled: boolean
+    disabled?: boolean
     viewId: string
-    sourceType: string
+    sourceType?: string
   }>(),
   {
     datasetTree: () => [],
@@ -45,7 +46,19 @@ const orgCheck = ref(true)
 
 const datasetTree = ref<Tree[]>([])
 
-const sourceName = computed(() => (props.sourceType === 'datasource' ? '数据源' : '数据集'))
+const selectSource =
+  props.sourceType === 'datasource'
+    ? t('visualization.select_datasource')
+    : t('visualization.select_dataset')
+
+const newSource =
+  props.sourceType === 'datasource'
+    ? t('visualization.new_datasource')
+    : t('visualization.new_dataset')
+
+const sourceName = computed(() =>
+  props.sourceType === 'datasource' ? t('datasource.datasource') : t('visualization.dataset')
+)
 
 const sortTypeChange = arr => {
   const sortType = wsCache.get('TreeSort-dataset') || 'time_desc'
@@ -55,7 +68,8 @@ const sortTypeChange = arr => {
 const initDataset = () => {
   loadingDatasetTree.value = true
   const method = props.sourceType === 'datasource' ? getDatasourceList : getDatasetTree
-  method({})
+  const params = props.sourceType === 'datasource' ? null : {}
+  method(params)
     .then(res => {
       sortTypeChange((res as unknown as Tree[]) || [])
     })
@@ -88,15 +102,8 @@ const dsSelectProps = {
   isLeaf: node => !node.children?.length
 }
 
-const { t } = useI18n()
-
 const formRef = ref<FormInstance>()
-
 const searchStr = ref<string>()
-
-watch(searchStr, val => {
-  datasetSelector.value.filter(val)
-})
 
 const showTree = computed(() => {
   return (
@@ -121,12 +128,43 @@ const computedTree = computed(() => {
   return datasetTree.value
 })
 
+// 预计算可见节点 ID 集合，避免树组件异步过滤时丢失匹配节点的父级路径
+const visibleNodeIds = new Set<string | number>()
+
+const buildVisibleIds = (nodes: Tree[], keyword: string): boolean => {
+  let anyMatch = false
+  for (const node of nodes) {
+    const selfMatch = !!node.name?.toLowerCase().includes(keyword)
+    const childMatch = node.children?.length ? buildVisibleIds(node.children, keyword) : false
+    if (selfMatch || childMatch) {
+      visibleNodeIds.add(node.id)
+      anyMatch = true
+    }
+  }
+  return anyMatch
+}
+
+let searchTimer: ReturnType<typeof setTimeout>
+watch(searchStr, val => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    const keyword = val?.trim().toLowerCase()
+    visibleNodeIds.clear()
+    if (keyword) {
+      buildVisibleIds(computedTree.value || [], keyword)
+    }
+    datasetSelector.value.filter(val?.trim())
+  }, 300)
+})
+
+onBeforeUnmount(() => clearTimeout(searchTimer))
+
 const flattedTree = computed(() => {
-  return _.filter(flatTree(computedTree.value), node => node.leaf)
+  return filter(flatTree(computedTree.value), node => node.leaf)
 })
 
 const selectedNode = computed(() => {
-  return _.find(flattedTree.value, node => node.id === _modelValue.value)
+  return find(flattedTree.value, node => node.id === _modelValue.value)
 })
 
 const exist = computed(() => {
@@ -163,10 +201,10 @@ const rules = ref([
 ])
 
 function flatTree(tree: Tree[]) {
-  let result = _.cloneDeep(tree)
-  _.forEach(tree, node => {
+  let result = cloneDeep(tree)
+  forEach(tree, node => {
     if (node.children && node.children.length > 0) {
-      result = _.union(result, flatTree(node.children))
+      result = union(result, flatTree(node.children))
     }
   })
   return result
@@ -175,8 +213,8 @@ const onDatasetChange = val => {
   emits('onDatasetChange', val)
 }
 const filterNode = (value: string, data: Tree) => {
-  if (!value) return true
-  return data.name?.includes(value)
+  if (!value?.trim()) return true
+  return visibleNodeIds.has(data.id)
 }
 
 const refresh = () => {
@@ -187,6 +225,37 @@ const addDataset = () => {
 }
 
 const datasetSelectorPopover = ref()
+
+const expandNodePath = (node: any) => {
+  let currentNode = node?.parent
+  while (currentNode && currentNode.level > 0) {
+    currentNode.expanded = true
+    currentNode = currentNode.parent
+  }
+}
+
+const scrollCurrentNodeIntoView = async () => {
+  if (!selectedNode.value) {
+    return
+  }
+
+  const treeInstance = datasetSelector.value as any
+  if (!treeInstance) {
+    return
+  }
+
+  const currentTreeNode = treeInstance.getNode?.(selectedNode.value.id)
+  if (!currentTreeNode) {
+    return
+  }
+
+  expandNodePath(currentTreeNode)
+  await nextTick()
+  treeInstance.setCurrentKey?.(selectedNode.value.id)
+  treeInstance.$el
+    .querySelector('.ed-tree-node.is-current')
+    ?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+}
 
 const dsClick = (data: Tree) => {
   if (data.leaf) {
@@ -200,8 +269,9 @@ const dsClick = (data: Tree) => {
   }
 }
 const _popoverShow = ref(false)
-function onPopoverShow() {
+async function onPopoverShow() {
   _popoverShow.value = true
+  await scrollCurrentNodeIntoView()
 }
 function onPopoverHide() {
   _popoverShow.value = false
@@ -240,7 +310,7 @@ const handleFocus = () => {
 
 defineExpose({ getNode })
 const appStore = useAppStoreWithOut()
-const isDataEaseBi = computed(() => appStore.getIsDataEaseBi)
+const isDataEaseBi = computed(() => appStore.getIsDataEaseBi || appStore.getIsIframe)
 onMounted(() => {
   initDataset()
   useEmitt({
@@ -261,30 +331,46 @@ onMounted(() => {
       :show-arrow="false"
       @show="onPopoverShow"
       @hide="onPopoverHide"
+      :disabled="disabled"
       :effect="themes"
       :offset="4"
     >
       <template #reference>
         <el-form ref="formRef" :model="form">
           <el-form-item prop="name" :rules="rules">
-            <el-input
-              size="middle"
-              :effect="themes"
-              v-model="selectedNodeName"
-              class="data-set-dark"
-              @focus="handleFocus"
-              :disabled="disabled"
-              :placeholder="'请选择' + sourceName"
+            <el-tooltip
+              :effect="themes === 'dark' ? 'light' : 'dark'"
+              :content="selectedNodeName"
+              :disabled="!selectedNodeName"
+              placement="top"
             >
-              <template #suffix>
-                <el-icon class="input-arrow-icon" :class="{ reverse: _popoverShow }">
-                  <ArrowDown />
-                </el-icon>
-                <el-icon v-if="clearShow" class="input-custom-clear-icon" @click="handleClear">
-                  <CircleClose />
-                </el-icon>
-              </template>
-            </el-input>
+              <el-input
+                :effect="themes"
+                v-model="selectedNodeName"
+                class="data-set-dark"
+                @focus="handleFocus"
+                :disabled="disabled"
+                :placeholder="selectSource"
+              >
+                <template #suffix>
+                  <el-icon
+                    v-show="!disabled"
+                    class="input-arrow-icon"
+                    :class="{ reverse: _popoverShow }"
+                  >
+                    <ArrowDown />
+                  </el-icon>
+                  <el-icon
+                    v-show="!disabled"
+                    v-if="clearShow"
+                    class="input-custom-clear-icon"
+                    @click="handleClear"
+                  >
+                    <CircleClose />
+                  </el-icon>
+                </template>
+              </el-input>
+            </el-tooltip>
           </el-form-item>
         </el-form>
       </template>
@@ -298,7 +384,6 @@ onMounted(() => {
               </el-button>
             </div>
             <el-input
-              size="middle"
               :effect="themes"
               v-model="searchStr"
               :placeholder="t('dataset.search')"
@@ -316,6 +401,7 @@ onMounted(() => {
                 v-if="showTree"
                 ref="datasetSelector"
                 node-key="id"
+                :current-node-key="_modelValue"
                 :data="computedTree"
                 :teleported="false"
                 :props="dsSelectProps"
@@ -351,8 +437,15 @@ onMounted(() => {
           </el-main>
           <el-footer v-if="!isDataEaseBi">
             <div class="footer-container">
-              <el-button type="primary" :icon="Plus" link class="add-btn" @click="addDataset">
-                新建{{ sourceName }}
+              <el-button
+                type="primary"
+                :icon="Plus"
+                link
+                class="add-btn"
+                @click="addDataset"
+                v-permission="sourceType === 'datasource' ? ['datasource'] : ['dataset']"
+              >
+                {{ newSource }}
               </el-button>
             </div>
           </el-footer>

@@ -1,7 +1,7 @@
 <script lang="tsx" setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
-import { COLOR_PANEL, COLOR_CASES } from '@/views/chart/components/editor/util/chart'
+import { COLOR_CASES } from '@/views/chart/components/editor/util/chart'
 import { ElPopover } from 'element-plus-secondary'
 import { getMapColorCases } from '@/views/chart/components/js/util'
 
@@ -22,7 +22,6 @@ const props = withDefaults(
   }
 )
 const colorCases = JSON.parse(JSON.stringify(COLOR_CASES))
-const predefineColors = JSON.parse(JSON.stringify(COLOR_PANEL))
 
 const emits = defineEmits(['update:modelValue', 'selectColorCase'])
 const state = computed({
@@ -157,6 +156,7 @@ onMounted(() => {
                 class="select-color-item"
                 :class="{ active: state.basicStyleForm.colorScheme === option.value }"
                 @click="selectNode(option)"
+                :title="option.name"
               >
                 <div style="float: left">
                   <span
@@ -184,6 +184,7 @@ onMounted(() => {
 .custom-color-selector {
   :deep(.ed-input__prefix) {
     width: calc(100% - 22px);
+    .ed-input__prefix,
     .ed-input__prefix-inner {
       width: 100%;
     }
@@ -204,13 +205,13 @@ onMounted(() => {
   }
 }
 .cases-list {
-  margin: 6px 0;
+  margin: 8px 0;
 
   .select-color-item {
     width: 100%;
 
     font-size: var(--ed-font-size-base);
-    padding: 0 32px 0 20px;
+    padding: 0 20px 0 20px;
     position: relative;
     white-space: nowrap;
     overflow: hidden;
@@ -245,6 +246,10 @@ onMounted(() => {
 
   .cases-list__text {
     margin-left: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 40px;
   }
 }
 .tab-header {
@@ -282,8 +287,7 @@ onMounted(() => {
 
   :deep(.ed-tabs__content) {
     height: calc(100% - 35px);
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
   }
 }
 .padding-tab {

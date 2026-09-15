@@ -5,18 +5,22 @@ import icon_rightAlign_outlined from '@/assets/svg/icon_right-align_outlined.svg
 import icon_topAlign_outlined from '@/assets/svg/icon_top-align_outlined.svg'
 import icon_verticalAlign_outlined from '@/assets/svg/icon_vertical-align_outlined.svg'
 import icon_bottomAlign_outlined from '@/assets/svg/icon_bottom-align_outlined.svg'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, watch, ref } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import {
   COLOR_PANEL,
   DEFAULT_LEGEND_STYLE,
   DEFAULT_MISC
 } from '@/views/chart/components/editor/util/chart'
-import { ElCol, ElRow, ElSpace } from 'element-plus-secondary'
-import { cloneDeep } from 'lodash-es'
+import { ElCol, ElFormItem, ElRow, ElSpace } from 'element-plus-secondary'
+import { cloneDeep, get, set } from 'lodash-es'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import { getDynamicColorScale } from '@/views/chart/components/js/util'
-
+import CustomSortEdit from '@/views/chart/components/editor/drag-item/components/CustomSortEdit.vue'
+import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
+import { storeToRefs } from 'pinia'
+const dvMainStore = dvMainStoreWithOut()
+const { batchOptStatus } = storeToRefs(dvMainStore)
 const { t } = useI18n()
 
 const props = withDefaults(
@@ -33,7 +37,7 @@ useEmitt({
 })
 const emit = defineEmits(['onLegendChange', 'onMiscChange'])
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 watch(
   () => props.chart.customStyle,
@@ -55,7 +59,9 @@ const state = reactive({
   legendForm: {
     ...JSON.parse(JSON.stringify(DEFAULT_LEGEND_STYLE)),
     miscForm: JSON.parse(JSON.stringify(DEFAULT_MISC)) as ChartMiscAttr
-  }
+  },
+  showCustomSort: false,
+  customSortField: null
 })
 
 const chartType = computed(() => {
@@ -71,6 +77,23 @@ const fontSizeList = computed(() => {
       value: i
     })
   }
+  for (let i = 50; i <= 200; i = i + 10) {
+    arr.push({
+      name: i + '',
+      value: i
+    })
+  }
+  return arr
+})
+
+const sizeList = computed(() => {
+  const arr = []
+  for (let i = 4; i <= 20; i = i + 2) {
+    arr.push({
+      name: i + '',
+      value: i
+    })
+  }
   return arr
 })
 
@@ -79,10 +102,31 @@ const changeLegendStyle = prop => {
 }
 
 const changeMisc = prop => {
+  // 仅对子弹图区间图例字段做合并保护，避免覆盖 fixedRange/showType。
+  if (typeof prop === 'string' && prop.startsWith('bullet.')) {
+    const latestMisc = cloneDeep(props.chart?.customAttr?.misc || state.legendForm.miscForm)
+    set(latestMisc, prop, get(state.legendForm.miscForm, prop))
+    emit('onMiscChange', { data: latestMisc, requestData: true }, prop)
+    return
+  }
   emit('onMiscChange', { data: state.legendForm.miscForm, requestData: true }, prop)
 }
 
+const legendSort = ref()
+const sortAxis = computed(() => {
+  if (props.chart.type === 'line') {
+    return 'xAxisExt'
+  }
+  return 'extStack'
+})
+const legendSortDisabled = computed(() => {
+  if (props.chart?.type === 'line') {
+    return !props.chart.xAxisExt?.length
+  }
+  return !props.chart?.extStack?.length
+})
 const init = () => {
+  legendSort.value?.blur()
   const chart = JSON.parse(JSON.stringify(props.chart))
   if (chart.customStyle) {
     let customStyle = null
@@ -155,11 +199,12 @@ const initMapCustomRange = () => {
 }
 /**
  * 计算自定义区间
+ * 最大最小值取等分区间的最大最小值
  */
 const calcMapCustomRange = () => {
   const customRange = getDynamicColorScale(
-    mapLegendDefaultRange.min,
-    mapLegendDefaultRange.max,
+    state.legendForm.miscForm.mapLegendMin,
+    state.legendForm.miscForm.mapLegendMax,
     state.legendForm.miscForm.mapLegendNumber
   )
   state.legendForm.miscForm.mapLegendCustomRange = []
@@ -178,9 +223,7 @@ const calcMapCustomRange = () => {
 const changeLegendCustomType = (prop?) => {
   const type = state.legendForm.miscForm.mapLegendRangeType
   if (type === 'custom') {
-    state.legendForm.miscForm.mapLegendCustomRange = cloneDeep(
-      mapLegendCustomRangeCacheList.slice(0, state.legendForm.miscForm.mapLegendNumber + 1)
-    )
+    calcMapCustomRange()
   } else {
     state.legendForm.miscForm.mapLegendCustomRange = []
   }
@@ -190,23 +233,54 @@ const changeLegendCustomType = (prop?) => {
  * 改变自定义区间个数
  * @param prop
  */
-const changeLegendNumber = (prop?) => {
+const changeLegendNumber = (prop?, oldValue?) => {
   if (!state.legendForm.miscForm.mapLegendNumber) {
-    return
+    state.legendForm.miscForm.mapLegendNumber = oldValue ?? DEFAULT_MISC.mapLegendNumber
   }
   calcMapCustomRange()
   prop ? changeMisc(prop) : ''
 }
 const changeRangeItem = (prop, index) => {
-  console.log(state.legendForm.miscForm.mapLegendCustomRange[index])
-  console.log(mapLegendCustomRangeCacheList[index])
   if (state.legendForm.miscForm.mapLegendCustomRange[index] === null) {
     state.legendForm.miscForm.mapLegendCustomRange[index] = cloneDeep(
       mapLegendCustomRangeCacheList[index]
     )
-    console.log(state.legendForm.miscForm.mapLegendCustomRange[index])
   }
   changeMisc(prop)
+}
+const getMapCustomRange = index => {
+  if (index === 0) return t('chart.min')
+  if (index === state.legendForm.miscForm.mapLegendNumber) return t('chart.max')
+  return ''
+}
+const customSort = []
+const changeLegendSort = sort => {
+  if (sort === 'custom') {
+    if (props.chart.type === 'line') {
+      state.customSortField = cloneDeep(props.chart.xAxisExt?.[0])
+    } else {
+      state.customSortField = cloneDeep(props.chart.extStack?.[0])
+    }
+    if (!state.customSortField) {
+      return
+    }
+    state.showCustomSort = true
+  } else {
+    state.showCustomSort = false
+    state.legendForm.sort = sort
+  }
+  changeLegendStyle('sort')
+}
+const closeCustomSort = () => {
+  state.showCustomSort = false
+}
+const saveCustomSort = () => {
+  state.showCustomSort = false
+  state.legendForm.customSort = customSort
+  changeLegendStyle('customSort')
+}
+const customSortChange = list => {
+  customSort.splice(0, customSort.length, ...list)
 }
 onMounted(() => {
   init()
@@ -219,28 +293,105 @@ onMounted(() => {
     :disabled="!state.legendForm.show"
     :model="state.legendForm"
     label-position="top"
+    size="small"
   >
-    <el-form-item
-      :label="t('chart.icon')"
-      class="form-item"
-      :class="'form-item-' + themes"
-      v-if="showProperty('icon')"
-    >
-      <el-select
-        :effect="themes"
-        v-model="state.legendForm.icon"
-        :placeholder="t('chart.icon')"
-        @change="changeLegendStyle('icon')"
-      >
-        <el-option
-          v-for="item in iconSymbolOptions"
-          :key="item.value"
-          :label="item.name"
-          :value="item.value"
-        />
-      </el-select>
-    </el-form-item>
+    <el-row :gutter="8">
+      <el-col :span="12">
+        <el-form-item
+          :label="t('chart.icon')"
+          class="form-item"
+          :class="'form-item-' + themes"
+          v-if="showProperty('icon')"
+        >
+          <el-select
+            :effect="themes"
+            v-model="state.legendForm.icon"
+            :placeholder="t('chart.icon')"
+            @change="changeLegendStyle('icon')"
+          >
+            <el-option
+              v-for="item in iconSymbolOptions"
+              :key="item.value"
+              :label="item.name"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+      </el-col>
 
+      <el-col :span="12">
+        <el-form-item class="form-item" :class="'form-item-' + themes" v-if="showProperty('icon')">
+          <template #label>&nbsp;</template>
+          <el-select
+            :effect="themes"
+            v-model="state.legendForm.size"
+            size="small"
+            @change="changeLegendStyle('size')"
+          >
+            <el-option
+              v-for="option in sizeList"
+              :key="option.value"
+              :label="option.name"
+              :value="option.value"
+            />
+          </el-select>
+        </el-form-item>
+      </el-col>
+    </el-row>
+    <el-form-item v-if="showProperty('showRange')" class="form-item" :class="'form-item-' + themes">
+      <el-checkbox
+        size="small"
+        :effect="themes"
+        v-model="state.legendForm.showRange"
+        @change="changeLegendStyle('showRange')"
+        :label="t('chart.show_range_bg')"
+      />
+    </el-form-item>
+    <div
+      style="flex: 1; display: flex; width: 100%"
+      v-if="showProperty('showRange') && state.legendForm.showRange"
+    >
+      <el-form-item
+        :label="t('chart.icon')"
+        class="form-item"
+        :class="'form-item-' + themes"
+        style="flex: 1; min-width: 0"
+      >
+        <el-select
+          :effect="themes"
+          v-model="state.legendForm.miscForm.bullet.bar.ranges.symbol"
+          :placeholder="t('chart.icon')"
+          @change="changeMisc('bullet.bar.ranges.symbol')"
+        >
+          <el-option
+            v-for="item in iconSymbolOptions"
+            :key="item.value"
+            :label="item.name"
+            :value="item.value"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item
+        class="form-item"
+        :class="'form-item-' + themes"
+        style="flex: 1; min-width: 0; padding-left: 8px"
+      >
+        <template #label>&nbsp;</template>
+        <el-select
+          :effect="themes"
+          v-model="state.legendForm.miscForm.bullet.bar.ranges.symbolSize"
+          size="small"
+          @change="changeMisc('bullet.bar.ranges.symbolSize')"
+        >
+          <el-option
+            v-for="option in sizeList"
+            :key="option.value"
+            :label="option.name"
+            :value="option.value"
+          />
+        </el-select>
+      </el-form-item>
+    </div>
     <el-space>
       <el-form-item
         class="form-item"
@@ -264,7 +415,7 @@ onMounted(() => {
         v-if="showProperty('fontSize')"
       >
         <template #label> &nbsp; </template>
-        <el-tooltip content="字号" :effect="toolTip" placement="top">
+        <el-tooltip :content="t('chart.font_size')" :effect="toolTip" placement="top">
           <el-select
             style="width: 108px"
             :effect="themes"
@@ -283,7 +434,7 @@ onMounted(() => {
         </el-tooltip>
       </el-form-item>
     </el-space>
-    <el-space>
+    <el-space style="width: 100%">
       <div v-if="chartType === 'map'">
         <el-row>
           <el-col>
@@ -297,7 +448,7 @@ onMounted(() => {
                 size="small"
                 :effect="themes"
                 v-model="state.legendForm.miscForm.mapAutoLegend"
-                :label="true"
+                :value="true"
                 @change="changeMisc('mapAutoLegend')"
                 style="width: 80px"
               >
@@ -307,10 +458,10 @@ onMounted(() => {
                 size="small"
                 :effect="themes"
                 v-model="state.legendForm.miscForm.mapAutoLegend"
-                :label="false"
+                :value="false"
                 @change="changeMisc('mapAutoLegend')"
               >
-                自定义
+                {{ t('chart.custom_case') }}
               </el-radio>
             </el-form-item>
           </el-col>
@@ -321,27 +472,27 @@ onMounted(() => {
               <el-form-item
                 class="form-item"
                 :class="'form-item-' + themes"
-                label="图例区间划分"
+                :label="t('chart.legend_range_division')"
                 prop="miscForm.mapLegendRangeType"
               >
                 <el-radio
                   size="small"
                   :effect="themes"
                   v-model="state.legendForm.miscForm.mapLegendRangeType"
-                  :label="'quantize'"
+                  :value="'quantize'"
                   @change="changeLegendCustomType('mapLegendRangeType')"
-                  style="width: 80px"
+                  style="width: 75px"
                 >
-                  等分区间
+                  {{ t('chart.legend_equal_range') }}
                 </el-radio>
                 <el-radio
                   size="small"
                   :effect="themes"
                   v-model="state.legendForm.miscForm.mapLegendRangeType"
-                  :label="'custom'"
+                  :value="'custom'"
                   @change="changeLegendCustomType('mapLegendRangeType')"
                 >
-                  自定义区间
+                  {{ t('chart.legend_custom_range') }}
                 </el-radio>
               </el-form-item>
             </el-col>
@@ -362,7 +513,7 @@ onMounted(() => {
                   :step="1"
                   :controls="true"
                   controls-position="right"
-                  @change="changeLegendNumber('mapLegendNumber')"
+                  @change="(_, oldValue) => changeLegendNumber('mapLegendNumber', oldValue)"
                 />
               </el-form-item>
             </el-col>
@@ -374,9 +525,8 @@ onMounted(() => {
               v-for="(_value, index) in state.legendForm.miscForm.mapLegendCustomRange"
             >
               <el-col :span="8">
-                <label class="ed-form-item__label">
-                  {{ index === 0 ? '最小值' : '' }}
-                  {{ index === state.legendForm.miscForm.mapLegendNumber ? '最大值' : '' }}
+                <label class="ed-form-item__label text_ellipsis" :title="getMapCustomRange(index)">
+                  {{ getMapCustomRange(index) }}
                 </label>
               </el-col>
               <el-col :span="16">
@@ -442,8 +592,8 @@ onMounted(() => {
         size="small"
         @change="changeLegendStyle('orient')"
       >
-        <el-radio :effect="themes" label="horizontal">{{ t('chart.horizontal') }}</el-radio>
-        <el-radio :effect="themes" label="vertical">{{ t('chart.vertical') }}</el-radio>
+        <el-radio :effect="themes" value="horizontal">{{ t('chart.horizontal') }}</el-radio>
+        <el-radio :effect="themes" value="vertical">{{ t('chart.vertical') }}</el-radio>
       </el-radio-group>
     </el-form-item>
 
@@ -459,7 +609,7 @@ onMounted(() => {
           v-model="state.legendForm.hPosition"
           @change="changeLegendStyle('hPosition')"
         >
-          <el-radio label="left">
+          <el-radio value="left">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_left') }}
@@ -476,7 +626,7 @@ onMounted(() => {
               </div>
             </el-tooltip>
           </el-radio>
-          <el-radio label="center" :disabled="state.legendForm.vPosition === 'center'">
+          <el-radio value="center" :disabled="state.legendForm.vPosition === 'center'">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_center') }}
@@ -496,7 +646,7 @@ onMounted(() => {
               </div>
             </el-tooltip>
           </el-radio>
-          <el-radio label="right">
+          <el-radio value="right">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_right') }}
@@ -533,7 +683,7 @@ onMounted(() => {
           v-model="state.legendForm.vPosition"
           @change="changeLegendStyle('vPosition')"
         >
-          <el-radio label="top">
+          <el-radio value="top">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_top') }}
@@ -550,7 +700,7 @@ onMounted(() => {
               </div>
             </el-tooltip>
           </el-radio>
-          <el-radio label="center" :disabled="state.legendForm.hPosition === 'center'">
+          <el-radio value="center" :disabled="state.legendForm.hPosition === 'center'">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_center') }}
@@ -570,7 +720,7 @@ onMounted(() => {
               </div>
             </el-tooltip>
           </el-radio>
-          <el-radio label="bottom">
+          <el-radio value="bottom">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_bottom') }}
@@ -593,7 +743,55 @@ onMounted(() => {
         </el-radio-group>
       </el-form-item>
     </el-space>
+    <el-form-item
+      class="form-item"
+      v-if="showProperty('legendSort') && !batchOptStatus"
+      :class="'form-item-' + themes"
+      :label="t('chart.legend_sort')"
+    >
+      <el-select
+        v-model="state.legendForm.sort"
+        size="small"
+        :effect="themes"
+        :disabled="legendSortDisabled"
+        ref="legendSort"
+        @change="changeLegendSort"
+      >
+        <el-option :label="t('chart.none')" value="none" />
+        <el-option :label="t('chart.asc')" value="asc" />
+        <el-option :label="t('chart.desc')" value="desc" />
+        <el-option
+          value="custom"
+          :label="t('visualization.custom_sort')"
+          @click="changeLegendSort('custom')"
+        />
+      </el-select>
+    </el-form-item>
   </el-form>
+  <el-dialog
+    v-if="state.showCustomSort"
+    v-model="state.showCustomSort"
+    :title="t('chart.custom_sort') + t('chart.sort')"
+    :visible="state.showCustomSort"
+    :close-on-click-modal="false"
+    destroy-on-close
+    width="372px"
+    class="dialog-css custom_sort_dialog"
+  >
+    <custom-sort-edit
+      :field-type="sortAxis"
+      :chart="chart"
+      :field="state.customSortField"
+      :origin-sort-list="state.legendForm.customSort"
+      @on-sort-change="customSortChange"
+    />
+    <template #footer>
+      <div class="dialog-footer">
+        <el-button @click="closeCustomSort">{{ t('chart.cancel') }} </el-button>
+        <el-button type="primary" @click="saveCustomSort">{{ t('chart.confirm') }} </el-button>
+      </div>
+    </template>
+  </el-dialog>
 </template>
 
 <style lang="less" scoped>
@@ -603,7 +801,7 @@ onMounted(() => {
   width: 24px;
   height: 24px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 6px;
   padding-top: 4px;
 
   color: #1f2329;
@@ -682,5 +880,12 @@ onMounted(() => {
   &.position-divider--dark {
     background: rgba(235, 235, 235, 0.15);
   }
+}
+.text_ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 80px;
+  display: inline-block !important;
 }
 </style>

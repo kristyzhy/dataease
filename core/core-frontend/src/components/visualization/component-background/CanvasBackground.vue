@@ -13,7 +13,7 @@
       "
       @change="reUpload"
     />
-    <el-form label-position="top" style="width: 100%; margin-bottom: 16px">
+    <el-form size="small" label-position="top" style="width: 100%; margin-bottom: 16px">
       <el-form-item class="form-item" :class="'form-item-' + themes" v-if="showWatermarkSetting">
         <el-checkbox
           size="small"
@@ -21,7 +21,7 @@
           v-model="dvInfo.selfWatermarkStatus"
           @change="onBackgroundChange"
         >
-          水印
+          {{ t('visualization.watermark') }}
         </el-checkbox>
       </el-form-item>
       <el-form-item class="form-item no-margin-bottom" :class="'form-item-' + themes">
@@ -31,7 +31,7 @@
           v-model="canvasStyleData.backgroundColorSelect"
           @change="onBackgroundChange"
         >
-          {{ $t('chart.color') }}
+          {{ t('chart.color') }}
         </el-checkbox>
       </el-form-item>
 
@@ -94,7 +94,7 @@
                 class="image-hint"
                 :class="`image-hint_${themes}`"
               >
-                支持JPG、PNG、GIF、SVG
+                {{ t('visualization.pic_upload_tips2') }}
               </span>
               <el-button
                 size="small"
@@ -104,12 +104,48 @@
                 @click="goFile"
                 :disabled="!canvasStyleData.backgroundImageEnable"
               >
-                重新上传
+                {{ t('visualization.re_upload') }}
               </el-button>
             </el-row>
           </div>
 
           <img-view-dialog v-model="state.dialogVisible" :image-url="state.dialogImageUrl" />
+        </div>
+      </div>
+      <el-divider class="m-divider" :class="'m-divider-' + themes"></el-divider>
+      <div class="indented-container">
+        <div class="indented-item">
+          <el-form-item
+            class="form-item"
+            :class="'form-item-' + themes"
+            :label="t('visualization.jump_dialog_background')"
+          >
+            <el-color-picker
+              v-model="canvasStyleData.dialogBackgroundColor"
+              :effect="themes"
+              :trigger-width="computedBackgroundColorPickerWidth"
+              is-custom
+              show-alpha
+              class="color-picker-style"
+              :predefine="state.predefineColors"
+              @change="onBackgroundChange"
+            />
+          </el-form-item>
+          <el-form-item
+            class="form-item"
+            :class="'form-item-' + themes"
+            :label="t('visualization.jump_dialog_button')"
+          >
+            <el-color-picker
+              v-model="canvasStyleData.dialogButton"
+              :effect="themes"
+              :trigger-width="computedBackgroundColorPickerWidth"
+              is-custom
+              class="color-picker-style"
+              :predefine="state.predefineColors"
+              @change="onBackgroundChange"
+            />
+          </el-form-item>
         </div>
       </div>
     </el-form>
@@ -168,7 +204,7 @@ const goFile = () => {
 }
 
 const sizeMessage = () => {
-  ElMessage.success('图片大小不符合')
+  ElMessage.success(t('visualization.pic_size_error'))
 }
 
 const reUpload = e => {
@@ -210,7 +246,7 @@ const upload = file => {
 }
 
 const onBackgroundChange = () => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('onBackgroundChange')
 }
 
 const bgForm = ref()
@@ -238,7 +274,7 @@ watch(
   :deep(.ed-upload--picture-card) {
     background: #eff0f1;
     border: 1px dashed #dee0e3;
-    border-radius: 4px;
+    border-radius: 6px;
 
     .ed-icon {
       color: #1f2329;
@@ -291,7 +327,7 @@ watch(
   :deep(.ed-upload--picture-card) {
     background: #eff0f1;
     border: 1px dashed #dee0e3;
-    border-radius: 4px;
+    border-radius: 6px;
 
     .ed-icon {
       color: #1f2329;
@@ -391,6 +427,15 @@ watch(
   &.image-hint_dark {
     color: #757575;
   }
+}
+
+.m-divider {
+  border-color: rgba(31, 35, 41, 0.15);
+  margin: 8px 0 8px;
+}
+
+.m-divider-dark {
+  border-color: rgba(233, 236, 241, 0.15) !important;
 }
 </style>
 

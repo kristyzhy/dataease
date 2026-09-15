@@ -1,7 +1,7 @@
 <template>
   <el-row>
     <el-form ref="form">
-      <el-form-item v-show="formatInfo.showDate" label="显示日期">
+      <el-form-item v-show="formatInfo.showDate" :label="t('visualization.show_date')">
         <el-select
           v-model="formatInfo.dateFormat"
           :effect="themes"
@@ -17,7 +17,7 @@
         </el-select>
       </el-form-item>
 
-      <el-form-item label="显示时间">
+      <el-form-item :label="t('visualization.show_time')">
         <el-select
           v-model="formatInfo.timeFormat"
           :effect="themes"
@@ -35,13 +35,22 @@
           />
         </el-select>
       </el-form-item>
+      <el-form-item>
+        <el-checkbox
+          :effect="themes"
+          v-model="formatInfo.showWeek"
+          :label="t('visualization.show_week')"
+          @change="onFormatChange"
+        />
+      </el-form-item>
     </el-form>
   </el-row>
 </template>
 
 <script setup lang="ts">
 import { reactive, toRefs } from 'vue'
-
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 const state = reactive({
   timeOptions: [
     { value: 'hh:mm:ss', label: 'hh:mm:ss' },

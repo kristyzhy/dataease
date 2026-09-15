@@ -1,5 +1,6 @@
 package io.dataease.api.threshold.dto;
 
+import io.dataease.constant.CommonConstants;
 import lombok.Data;
 
 import java.io.Serial;
@@ -13,6 +14,8 @@ public class ThresholdGridRequest implements Serializable {
 
     private String keyword;
 
+    private String resourceTable = CommonConstants.RESOURCE_TABLE.CORE;
+
     private List<String> resourceTypeList;
 
     private List<Integer> statusList;
@@ -22,5 +25,4 @@ public class ThresholdGridRequest implements Serializable {
     private List<Long> timeList;
 
     private Long chartId;
-
 }

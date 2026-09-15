@@ -3,10 +3,11 @@ import icon_drag_outlined from '@/assets/svg/icon_drag_outlined.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
 import icon_add_outlined from '@/assets/svg/icon_add_outlined.svg'
 import { propTypes } from '@/utils/propTypes'
-import { computed, onBeforeMount, PropType, toRefs, inject, ref } from 'vue'
+import { computed, onBeforeMount, PropType, toRefs } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import { KeyValue } from './ApiTestModel.js'
 import draggable from 'vuedraggable'
+import { getApiParamFieldKey, getApiParamFieldValue } from './api-param-field'
 
 export interface Item {
   name: string
@@ -39,10 +40,6 @@ const { t } = useI18n()
 const keyText = computed(() => {
   return props.keyPlaceholder || t('datasource.key')
 })
-const valueText = computed(() => {
-  return props.valuePlaceholder || t('datasource.value')
-})
-
 const { suggestions, items } = toRefs(props)
 
 onBeforeMount(() => {
@@ -55,8 +52,6 @@ onBeforeMount(() => {
     }
   }
 })
-
-const activeName = inject('api-active-name')
 
 const remove = (index: number) => {
   if (isDisable()) return
@@ -111,20 +106,32 @@ const timeFunLists = [
   {
     label: t('data_source.that_day') + '（yyyy/MM/dd）',
     value: 'currentDay yyyy/MM/dd'
+  },
+  {
+    label: t('data_source.previous_day') + '（yyyy-MM-dd）',
+    value: 'yesterday yyyy-MM-dd'
+  },
+  {
+    label: t('data_source.previous_day') + '（yyyy/MM/dd）',
+    value: 'yesterday yyyy/MM/dd'
+  },
+  {
+    label: t('data_source.timestamp'),
+    value: 'currentTimestamp'
   }
 ]
 </script>
 
 <template>
   <div class="api-key-value">
-    <draggable tag="div" :list="items" handle=".handle">
+    <draggable tag="div" :list="items" handle=".handle" class="draggable-content_api">
       <template #item="{ element, index }">
         <div style="margin-bottom: 16px">
           <el-row :gutter="8">
             <el-icon class="drag handle">
               <Icon name="icon_drag_outlined"><icon_drag_outlined class="svg-icon" /></Icon>
             </el-icon>
-            <el-col :span="activeName === 'params' ? 8 : 6" v-if="!unShowSelect">
+            <el-col :span="6" v-if="!unShowSelect">
               <el-input
                 v-if="!suggestions"
                 v-model="element.name"
@@ -143,7 +150,7 @@ const timeFunLists = [
                 show-word-limit
               />
             </el-col>
-            <el-col :span="3" v-if="activeName === 'table'">
+            <el-col :span="3">
               <el-select v-model="element.nameType" @change="changeNameType(element)">
                 <el-option
                   v-for="item in options"
@@ -164,28 +171,23 @@ const timeFunLists = [
               />
             </el-col>
 
-            <el-col :span="activeName === 'params' ? 7 : 6">
-              <el-input
-                v-if="!needMock && activeName === 'params'"
-                v-model="element.value"
-                :disabled="isReadOnly"
-                :placeholder="unShowSelect ? t('common.description') : valueText"
-                show-word-limit
-              />
+            <el-col :span="6">
               <el-select
                 v-model="element.value"
-                v-if="!needMock && activeName === 'table' && element.nameType === 'params'"
+                v-if="!needMock && element.nameType === 'params'"
+                style="width: 100%"
               >
                 <el-option
-                  v-for="item in valueList"
-                  :key="item.originName"
+                  v-for="(item, index) in valueList"
+                  :key="getApiParamFieldKey(item, index)"
                   :label="item.name"
-                  :value="item.originName"
+                  :value="getApiParamFieldValue(item)"
                 />
               </el-select>
               <el-select
                 v-model="element.value"
-                v-if="!needMock && activeName === 'table' && element.nameType === 'timeFun'"
+                v-if="!needMock && element.nameType === 'timeFun'"
+                style="width: 100%"
               >
                 <el-option
                   v-for="item in timeFunLists"
@@ -196,12 +198,7 @@ const timeFunLists = [
               </el-select>
 
               <el-input
-                v-if="
-                  !needMock &&
-                  activeName === 'table' &&
-                  element.nameType !== 'params' &&
-                  element.nameType !== 'timeFun'
-                "
+                v-if="!needMock && element.nameType !== 'params' && element.nameType !== 'timeFun'"
                 v-model="element.value"
                 :disabled="isReadOnly"
                 :placeholder="
@@ -223,7 +220,12 @@ const timeFunLists = [
             </el-col>
 
             <el-col :span="1">
-              <el-button text :disabled="isDisable()" @click="remove(index)">
+              <el-button
+                class="api-variable_del"
+                text
+                :disabled="isDisable()"
+                @click="remove(index)"
+              >
                 <template #icon>
                   <Icon name="icon_delete-trash_outlined"
                     ><icon_deleteTrash_outlined class="svg-icon"
@@ -236,7 +238,7 @@ const timeFunLists = [
       </template>
     </draggable>
 
-    <el-button @click="change" text>
+    <el-button style="margin-top: 14px" @click="change" text>
       <template #icon>
         <icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></icon>
       </template>
@@ -245,15 +247,37 @@ const timeFunLists = [
   </div>
 </template>
 
-<style lang="less">
+<style lang="less" scoped>
 .api-key-value {
+  padding-bottom: 14px;
+
   & > .ed-input,
   .ed-autocomplete {
     width: 100%;
   }
+  .api-variable_del {
+    color: #646a73;
+    :deep(.ed-icon) {
+      font-size: 16px;
+    }
+
+    &:hover {
+      background: rgba(31, 35, 41, 0.1) !important;
+    }
+    &:focus {
+      background: rgba(31, 35, 41, 0.1) !important;
+    }
+    &:active {
+      background: rgba(31, 35, 41, 0.2) !important;
+    }
+  }
   .drag {
     margin-top: 10px;
     cursor: pointer;
+  }
+
+  :deep(.draggable-content_api) > :last-child {
+    margin-bottom: 0 !important;
   }
 }
 </style>

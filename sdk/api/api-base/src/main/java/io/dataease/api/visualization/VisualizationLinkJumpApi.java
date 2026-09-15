@@ -23,7 +23,6 @@ import java.util.List;
 @ApiSupport(order = 995)
 public interface VisualizationLinkJumpApi {
 
-
     @GetMapping("/getTableFieldWithViewId/{viewId}")
     @Operation(summary = "查询可跳转字段信息")
     List<DatasetTableFieldDTO> getTableFieldWithViewId(@PathVariable Long viewId);
@@ -32,9 +31,9 @@ public interface VisualizationLinkJumpApi {
     @Operation(summary = "根据图表ID查询跳转信息")
     VisualizationLinkJumpDTO queryWithViewId(@PathVariable Long dvId, @PathVariable Long viewId);
 
-    @GetMapping("/queryVisualizationJumpInfo/{dvId}")
+    @GetMapping("/queryVisualizationJumpInfo/{dvId}/{resourceTable}")
     @Operation(summary = "根据可视化资源ID查询跳转信息")
-    VisualizationLinkJumpBaseResponse queryVisualizationJumpInfo(@PathVariable Long dvId);
+    VisualizationLinkJumpBaseResponse queryVisualizationJumpInfo(@PathVariable Long dvId, @PathVariable String resourceTable);
 
     @PostMapping("/updateJumpSet")
     @Operation(summary = "更新跳转信息")
@@ -55,5 +54,4 @@ public interface VisualizationLinkJumpApi {
     @PostMapping("/removeJumpSet")
     @Operation(summary = "删除跳转信息")
     void removeJumpSet(@RequestBody VisualizationLinkJumpDTO jumpDTO);
-
 }

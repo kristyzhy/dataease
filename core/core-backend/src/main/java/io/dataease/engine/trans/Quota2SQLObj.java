@@ -1,8 +1,9 @@
 package io.dataease.engine.trans;
 
-import io.dataease.engine.constant.DeTypeConstants;
+import io.dataease.constant.DeTypeConstants;
 import io.dataease.engine.constant.ExtFieldConstant;
-import io.dataease.engine.constant.SQLConstants;
+import io.dataease.constant.SQLConstants;
+import io.dataease.engine.func.FunctionConstant;
 import io.dataease.engine.utils.Utils;
 import io.dataease.extensions.datasource.api.PluginManageApi;
 import io.dataease.extensions.datasource.constant.SqlPlaceholderConstants;
@@ -46,7 +47,7 @@ public class Quota2SQLObj {
                 String originField;
                 if (ObjectUtils.isNotEmpty(y.getExtField()) && Objects.equals(y.getExtField(), ExtFieldConstant.EXT_CALC)) {
                     // 解析origin name中有关联的字段生成sql表达式
-                    String calcFieldExp = Utils.calcFieldRegex(y.getOriginName(), tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
+                    String calcFieldExp = Utils.calcFieldRegex(y, tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
                     // 给计算字段处加一个占位符，后续SQL方言转换后再替换
                     originField = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, y.getId());
                     fieldsDialect.put(originField, calcFieldExp);
@@ -58,6 +59,14 @@ public class Quota2SQLObj {
                         originField = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), y.getOriginName());
                     } else {
                         originField = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), y.getDataeaseName());
+                    }
+                } else if (ObjectUtils.isNotEmpty(y.getExtField()) && Objects.equals(y.getExtField(), ExtFieldConstant.EXT_GROUP)) {
+                    String groupFieldExp = Utils.transGroupFieldToSql(y, originFields, isCross, dsMap, pluginManage);
+                    // 给计算字段处加一个占位符，后续SQL方言转换后再替换
+                    originField = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, y.getId());
+                    fieldsDialect.put(originField, groupFieldExp);
+                    if (isCross) {
+                        originField = groupFieldExp;
                     }
                 } else {
                     if (StringUtils.equalsIgnoreCase(dsType, "es")) {
@@ -85,6 +94,7 @@ public class Quota2SQLObj {
                             .orderField(originField)
                             .orderAlias(fieldAlias)
                             .orderDirection(y.getSort())
+                            .id(y.getId())
                             .build());
                 }
             }
@@ -97,18 +107,19 @@ public class Quota2SQLObj {
 
     private static SQLObj getYFields(ChartViewFieldDTO y, String originField, String fieldAlias) {
         String fieldName = "";
+        String summary = FunctionConstant.resolveChartAggregation(y.getSummary());
         if (StringUtils.equalsIgnoreCase(y.getOriginName(), "*")) {
             fieldName = SQLConstants.AGG_COUNT;
         } else if (SQLConstants.DIMENSION_TYPE.contains(y.getDeType())) {
             if (StringUtils.equalsIgnoreCase(y.getSummary(), "count_distinct")) {
                 fieldName = String.format(SQLConstants.AGG_FIELD, "COUNT", "DISTINCT " + originField);
             } else {
-                fieldName = String.format(SQLConstants.AGG_FIELD, y.getSummary(), originField);
+                fieldName = String.format(SQLConstants.AGG_FIELD, summary, originField);
             }
         } else {
             if (StringUtils.equalsIgnoreCase(y.getSummary(), "avg") || StringUtils.containsIgnoreCase(y.getSummary(), "pop")) {
                 String cast = String.format(SQLConstants.CAST, originField, Objects.equals(y.getDeType(), DeTypeConstants.DE_INT) ? SQLConstants.DEFAULT_INT_FORMAT : SQLConstants.DEFAULT_FLOAT_FORMAT);
-                String agg = String.format(SQLConstants.AGG_FIELD, y.getSummary(), cast);
+                String agg = String.format(SQLConstants.AGG_FIELD, summary, cast);
                 String cast1 = String.format(SQLConstants.CAST, agg, SQLConstants.DEFAULT_FLOAT_FORMAT);
                 fieldName = String.format(SQLConstants.ROUND, cast1, "8");
             } else {
@@ -119,7 +130,7 @@ public class Quota2SQLObj {
                     // 透视表自定义汇总不用聚合
                     fieldName = cast;
                 } else {
-                    fieldName = String.format(SQLConstants.AGG_FIELD, y.getSummary(), cast);
+                    fieldName = String.format(SQLConstants.AGG_FIELD, summary, cast);
                 }
             }
         }
@@ -146,11 +157,11 @@ public class Quota2SQLObj {
                 } else if (StringUtils.equalsIgnoreCase(f.getTerm(), "not_empty")) {
                     whereValue = "''";
                 } else if (StringUtils.containsIgnoreCase(f.getTerm(), "in")) {
-                    whereValue = "('" + StringUtils.join(f.getValue(), "','") + "')";
+                    whereValue = "('" + StringUtils.join(sanitizeSqlLiteral(f.getValue()), "','") + "')";
                 } else if (StringUtils.containsIgnoreCase(f.getTerm(), "like")) {
-                    whereValue = "'%" + f.getValue() + "%'";
+                    whereValue = "'%" + sanitizeSqlLiteral(f.getValue()) + "%'";
                 } else {
-                    whereValue = String.format(SQLConstants.WHERE_VALUE_VALUE, f.getValue());
+                    whereValue = String.format(SQLConstants.WHERE_VALUE_VALUE, sanitizeSqlLiteral(f.getValue()));
                 }
                 list.add(SQLObj.builder()
                         .whereField(fieldAlias)
@@ -164,4 +175,8 @@ public class Quota2SQLObj {
         return !CollectionUtils.isEmpty(list) ? "(" + String.join(" " + Utils.getLogic(y.getLogic()) + " ", strList) + ")" : null;
     }
 
+    private static String sanitizeSqlLiteral(String value) {
+        String normalized = StringUtils.defaultString(value);
+        return Utils.transValue(normalized);
+    }
 }

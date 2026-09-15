@@ -1,6 +1,6 @@
 <script setup lang="tsx">
 import { iconChartMap } from '@/components/icon-group/chart-list'
-import { reactive, ref, toRefs } from 'vue'
+import { computed, reactive, ref, toRefs } from 'vue'
 import eventBus from '@/utils/eventBus'
 import { CHART_TYPE_CONFIGS } from '@/views/chart/components/editor/util/chart'
 import Icon from '@/components/icon-custom/src/Icon.vue'
@@ -62,6 +62,36 @@ const handleDragEnd = e => {
   commonHandleDragEnd(e, dvModel.value)
 }
 
+const chartGroupListScroll = computed(() => {
+  return state.chartGroupList.reduce(
+    (pre, next) => {
+      if (next.display !== 'hidden') {
+        const height = (Math.floor((next.details.length - 1) / 3) + 1) * 88 + 20
+        if (pre.top === 0) {
+          pre.top += height
+          pre[0] = next.category
+        } else {
+          pre[pre.top] = next.category
+          pre.top += height
+        }
+        return pre
+      }
+      return pre
+    },
+    { top: 0 }
+  )
+})
+
+const handleScroll = val => {
+  let scrollTop: string | number = 0
+  for (const key in chartGroupListScroll.value) {
+    if (val.scrollTop > key) {
+      scrollTop = key
+    }
+  }
+  state.curCategory = chartGroupListScroll.value[scrollTop]
+}
+
 const groupActiveChange = category => {
   state.curCategory = category
   anchorPosition('#' + category)
@@ -118,7 +148,7 @@ const loadPluginCategory = data => {
         </li>
       </ul>
     </div>
-    <el-scrollbar ref="userViewGroup" class="group-right" height="392px">
+    <el-scrollbar ref="userViewGroup" @scroll="handleScroll" class="group-right" height="392px">
       <el-row
         :id="chartGroupInfo.category"
         v-for="chartGroupInfo in state.chartGroupList"
@@ -138,6 +168,7 @@ const loadPluginCategory = data => {
               class="item-top"
               draggable="true"
               :data-id="'UserView&' + chartInfo.value"
+              :title="chartInfo.title"
             >
               <Icon
                 class-name="item-top-icon"
@@ -155,7 +186,7 @@ const loadPluginCategory = data => {
                 ></component
               ></Icon>
             </div>
-            <div class="item-bottom">
+            <div :title="chartInfo.title" class="item-bottom">
               <span>{{ chartInfo.title }}</span>
             </div>
           </el-col>
@@ -221,17 +252,13 @@ const loadPluginCategory = data => {
         white-space: nowrap;
         list-style-type: none;
         list-style-position: inside;
-        border-radius: 4px;
+        border-radius: 6px;
         color: #a6a6a6;
         padding-left: 8px;
         &:hover {
           background: rgba(255, 255, 255, 0.1);
           cursor: pointer;
         }
-      }
-
-      .li-custom a:hover {
-        //background: none;
       }
 
       .li-a {
@@ -269,7 +296,7 @@ const loadPluginCategory = data => {
     width: 88px;
     height: 64px;
     background: #1a1a1a;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -290,6 +317,10 @@ const loadPluginCategory = data => {
     font-size: 12px;
     text-align: center;
     margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 88px;
   }
 }
 

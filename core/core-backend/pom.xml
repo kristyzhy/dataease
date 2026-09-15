@@ -14,11 +14,20 @@
 
     <dependencies>
         <dependency>
+            <groupId>commons-net</groupId>
+            <artifactId>commons-net</artifactId>
+            <version>${commons-net.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>${gson.version}</version>
+        </dependency>
+        <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
             <version>${guava.version}</version>
         </dependency>
-
         <dependency>
             <groupId>io.dataease</groupId>
             <artifactId>api-base</artifactId>
@@ -35,8 +44,9 @@
             <version>${dataease.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.mysql</groupId>
-            <artifactId>mysql-connector-j</artifactId>
+            <groupId>org.mariadb.jdbc</groupId>
+            <artifactId>mariadb-java-client</artifactId>
+            <version>${mariadb.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -104,11 +114,7 @@
                     <groupId>com.h2database</groupId>
                     <artifactId>h2</artifactId>
                 </dependency>
-                <dependency>
-                    <groupId>org.seleniumhq.selenium</groupId>
-                    <artifactId>selenium-java</artifactId>
-                    <version>${selenium-java.version}</version>
-                </dependency>
+
                 <dependency>
                     <groupId>org.eclipse.angus</groupId>
                     <artifactId>angus-mail</artifactId>
@@ -121,10 +127,9 @@
                     </exclusions>
                 </dependency>
                 <dependency>
-                    <groupId>com.itextpdf</groupId>
-                    <artifactId>itext7-core</artifactId>
-                    <version>${itextpdf.version}</version>
-                    <type>pom</type>
+                    <groupId>com.github.librepdf</groupId>
+                    <artifactId>openpdf</artifactId>
+                    <version>${openpdf.version}</version>
                 </dependency>
                 <dependency>
                     <groupId>com.vladsch.flexmark</groupId>

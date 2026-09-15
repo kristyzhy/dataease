@@ -4,15 +4,34 @@ import {
 } from '@/views/chart/components/js/panel/types/impl/g2plot'
 import type { DualAxes, DualAxesOptions } from '@antv/g2plot/esm/plots/dual-axes'
 import {
+  configRoundAngle,
+  configPlotTooltipEvent,
   getAnalyse,
   getLabel,
   getPadding,
+  getTooltipContainer,
   getYAxis,
   getYAxisExt,
-  setGradientColor
+  setGradientColor,
+  TOOLTIP_TPL
 } from '../../common/common_antv'
-import { flow, hexColorToRGBA, parseJson } from '@/views/chart/components/js/util'
-import { cloneDeep, isEmpty, defaultTo, map, filter, union, defaultsDeep } from 'lodash-es'
+import {
+  convertToAlphaColor,
+  flow,
+  hexColorToRGBA,
+  isAlphaColor,
+  parseJson
+} from '@/views/chart/components/js/util'
+import {
+  cloneDeep,
+  isEmpty,
+  defaultTo,
+  map,
+  filter,
+  union,
+  defaultsDeep,
+  defaults
+} from 'lodash-es'
 import { valueFormatter } from '@/views/chart/components/js/formatter'
 import {
   CHART_MIX_AXIS_TYPE,
@@ -23,9 +42,15 @@ import {
 } from './chart-mix-common'
 import type { Datum } from '@antv/g2plot/esm/types/common'
 import { useI18n } from '@/hooks/web/useI18n'
-import { DEFAULT_LABEL } from '@/views/chart/components/editor/util/chart'
+import {
+  DEFAULT_BASIC_STYLE,
+  DEFAULT_LABEL,
+  DEFAULT_LEGEND_STYLE
+} from '@/views/chart/components/editor/util/chart'
 import type { Options } from '@antv/g2plot/esm'
 import { Group } from '@antv/g-canvas'
+import { extremumEvt } from '@/views/chart/components/js/extremumUitl'
+import { getMixTooltipFormatter } from './chart-mix-tooltip'
 
 const { t } = useI18n()
 const DEFAULT_DATA = []
@@ -40,7 +65,8 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
     'label-selector': ['vPosition', 'seriesLabelFormatter'],
     'tooltip-selector': [
       ...CHART_MIX_EDITOR_PROPERTY_INNER['tooltip-selector'],
-      'seriesTooltipFormatter'
+      'seriesTooltipFormatter',
+      'carousel'
     ]
   }
   axis: AxisType[] = [...CHART_MIX_AXIS_TYPE, 'xAxisExtRight', 'yAxisExt']
@@ -78,30 +104,29 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
 
   async drawChart(drawOptions: G2PlotDrawOptions<DualAxes>): Promise<DualAxes> {
     const { chart, action, container } = drawOptions
+    chart.container = container
     if (!chart.data?.left?.data?.length && !chart.data?.right?.data?.length) {
       return
     }
     const left = cloneDeep(chart.data?.left?.data)
     const right = cloneDeep(chart.data?.right?.data)
 
-    // const data1Type = (left[0]?.type === 'bar' ? 'column' : left[0]?.type) ?? 'column'
-    // const data2Type = (right[0]?.type === 'bar' ? 'column' : right[0]?.type) ?? 'column'
     const data1Type = this.getLeftType()
     const data2Type = this.getRightType()
 
     const isGroup = this.name === 'chart-mix-group' && chart.xAxisExt?.length > 0
     const isStack = this.name === 'chart-mix-stack' && chart.extStack?.length > 0
     const seriesField = 'category'
-    const seriesField2 = 'category'
+    const seriesField2 = 'rightCategory'
 
     const data1 = defaultTo(left[0]?.data, [])
     const data2 = map(defaultTo(right[0]?.data, []), d => {
       return {
         ...d,
+        rightCategory: d.category,
         valueExt: d.value
       }
     })
-
     // options
     const initOptions: DualAxesOptions = {
       data: [data1, data2],
@@ -111,6 +136,7 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
       geometryOptions: [
         {
           geometry: data1Type,
+          marginRatio: 0,
           color: [],
           isGroup: isGroup,
           isStack: isStack,
@@ -158,7 +184,8 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
 
     newChart.on('point:click', action)
     newChart.on('interval:click', action)
-
+    extremumEvt(newChart, chart, options, container)
+    configPlotTooltipEvent(chart, newChart)
     return newChart
   }
 
@@ -187,11 +214,12 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
         pre[next.id] = next
         return pre
       }, {})
+      const textBaseline =
+        this.getLeftType() === 'line' ? 'bottom' : axisType === 'yAxis' ? 'top' : 'bottom'
       tempLabel.style.fill = DEFAULT_LABEL.color
       const label = {
         fields: [],
         ...tempLabel,
-        offsetY: -8,
         formatter: (data: Datum) => {
           if (!labelAttr.seriesLabelFormatter?.length) {
             return data.value
@@ -212,8 +240,9 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
               y: 0,
               text: value,
               textAlign: 'start',
-              textBaseline: 'top',
+              textBaseline,
               fontSize: labelCfg.fontSize,
+              fontFamily: chart.fontFamily,
               fill: labelCfg.color
             }
           })
@@ -275,26 +304,38 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
       tempOption.geometryOptions[1].smooth = smooth
       tempOption.geometryOptions[1].point = point
       tempOption.geometryOptions[1].lineStyle = lineStyle
-
-      if (s.radiusColumnBar === 'roundAngle') {
-        const columnStyle = {
-          radius: [
-            s.columnBarRightAngleRadius,
-            s.columnBarRightAngleRadius,
-            s.columnBarRightAngleRadius,
-            s.columnBarRightAngleRadius
-          ]
-        }
-        tempOption.geometryOptions[0].columnStyle = columnStyle
-        tempOption.geometryOptions[1].columnStyle = columnStyle
+      tempOption.geometryOptions[0] = {
+        ...tempOption.geometryOptions[0],
+        ...configRoundAngle(chart, 'columnStyle')
       }
+      if (this.getLeftType() === 'column' && options.state) {
+        // 传入公共选中状态
+        Object.assign(tempOption.geometryOptions[0], { state: options.state })
+      }
+    }
+
+    let columnWidthRatio
+    const _v = s.columnWidthRatio ?? DEFAULT_BASIC_STYLE.columnWidthRatio
+    if (_v >= 1 && _v <= 100) {
+      columnWidthRatio = _v / 100.0
+    } else if (_v < 1) {
+      columnWidthRatio = 1 / 100.0
+    } else if (_v > 100) {
+      columnWidthRatio = 1
+    }
+    if (columnWidthRatio) {
+      tempOption.geometryOptions[0].columnWidthRatio = columnWidthRatio
+    }
+
+    if (super.name !== 'chart-mix-dual-line') {
+      tempOption.geometryOptions[0].appendPadding = getPadding(chart)
     }
 
     return tempOption
   }
 
   setupDefaultOptions(chart: ChartObj): ChartObj {
-    const { customAttr, senior } = chart
+    const { senior } = chart
     if (
       senior.functionCfg.emptyDataStrategy == undefined ||
       senior.functionCfg.emptyDataStrategy === 'ignoreData'
@@ -510,7 +551,7 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
     const formatterMap = tooltipAttr.seriesTooltipFormatter
       ?.filter(i => i.show)
       .reduce((pre, next) => {
-        pre[next.id] = next
+        pre[next.seriesId ?? next.id] = next
         return pre
       }, {}) as Record<string, SeriesFormatter>
     const tooltip: DualAxesOptions['tooltip'] = {
@@ -526,15 +567,16 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
           return originalItems
         }
         const result = []
-        originalItems
-          .filter(item => formatterMap[item.data.quotaList[0].id])
-          .forEach(item => {
-            const formatter = formatterMap[item.data.quotaList[0].id]
-            const value = valueFormatter(parseFloat(item.value as string), formatter.formatterCfg)
-            const name = item.data.category
+        originalItems.forEach(item => {
+          const formatter = getMixTooltipFormatter(formatterMap, item)
+          if (!formatter) {
+            return
+          }
+          const value = valueFormatter(parseFloat(item.value as string), formatter.formatterCfg)
+          const name = item.data.category
 
-            result.push({ ...item, name, value })
-          })
+          result.push({ ...item, name, value })
+        })
         head.data.dynamicTooltipValue?.forEach(item => {
           const formatter = formatterMap[item.fieldId]
           if (formatter) {
@@ -544,7 +586,10 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
           }
         })
         return result
-      }
+      },
+      container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+      itemTpl: TOOLTIP_TPL,
+      enterable: true
     }
     return {
       ...options,
@@ -558,27 +603,33 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
       const left = cloneDeep(chart.data?.left?.data)
       const right = cloneDeep(chart.data?.right?.data)
 
-      o.legend.itemName = {
-        formatter: (text: string, item: any, index: number) => {
-          let name = undefined
-          if (item.viewId === 'left-axes-view' && text === 'value') {
-            name = left[0]?.categories[0]
-          } else if (item.viewId === 'right-axes-view' && text === 'valueExt') {
-            name = right[0]?.categories[0]
-          }
-          item.id = item.id + '__' + index //防止重复的图例出现问题，但是左右轴如果有相同的怎么办
-          if (name === undefined) {
-            return text
-          } else {
-            return name
-          }
+      o.legend.itemName.formatter = (text: string, item: any, index: number) => {
+        let name = undefined
+        if (item.viewId === 'left-axes-view' && text === 'value') {
+          name = left[0]?.categories[0]
+        } else if (item.viewId === 'right-axes-view' && text === 'valueExt') {
+          name = right[0]?.categories[0]
+        }
+        item.id = item.id + '__' + index //防止重复的图例出现问题，但是左右轴如果有相同的怎么办
+        if (name === undefined) {
+          return text
+        } else {
+          return name
         }
       }
-      const size = Math.sqrt(o.legend.pageNavigator?.text?.style?.fontSize ?? 16)
+
+      const customStyle = parseJson(chart.customStyle)
+      let size
+      if (customStyle && customStyle.legend) {
+        size = defaults(JSON.parse(JSON.stringify(customStyle.legend)), DEFAULT_LEGEND_STYLE).size
+      } else {
+        size = DEFAULT_LEGEND_STYLE.size
+      }
+
       o.legend.marker.style = style => {
         const fill = style.fill ?? style.stroke
         return {
-          r: size < 4 ? 4 : size,
+          r: size,
           fill
         }
       }
@@ -612,7 +663,7 @@ export class ColumnLineMix extends G2PlotChartView<DualAxesOptions, DualAxes> {
       this.configYAxis,
       this.configAnalyse,
       this.configEmptyDataStrategy
-    )(chart, options)
+    )(chart, options, {}, this)
   }
 
   constructor(name = 'chart-mix') {
@@ -627,7 +678,8 @@ export class GroupColumnLineMix extends ColumnLineMix {
     'label-selector': ['vPosition', 'seriesLabelFormatter'],
     'tooltip-selector': [
       ...CHART_MIX_EDITOR_PROPERTY_INNER['tooltip-selector'],
-      'seriesTooltipFormatter'
+      'seriesTooltipFormatter',
+      'carousel'
     ]
   }
   axisConfig = {
@@ -739,7 +791,8 @@ export class StackColumnLineMix extends ColumnLineMix {
     'label-selector': ['vPosition', 'seriesLabelFormatter'],
     'tooltip-selector': [
       ...CHART_MIX_EDITOR_PROPERTY_INNER['tooltip-selector'],
-      'seriesTooltipFormatter'
+      'seriesTooltipFormatter',
+      'carousel'
     ]
   }
   axisConfig = {
@@ -770,6 +823,20 @@ export class StackColumnLineMix extends ColumnLineMix {
         const seriesSet = new Set()
         data[0]?.forEach(d => d.category !== null && seriesSet.add(d.category))
         const tmp = [...seriesSet]
+        const stackAxis = extStack[0]
+        if (stackAxis.sort !== 'none') {
+          if (stackAxis.sort === 'asc') {
+            tmp.sort((a: any, b: any) => `${a}`.localeCompare(`${b}`))
+          } else if (stackAxis.sort === 'desc') {
+            tmp.sort((a: any, b: any) => `${b}`.localeCompare(`${a}`))
+          } else if (stackAxis.customSort?.length) {
+            tmp.sort((a, b) => {
+              const aIndex = stackAxis.customSort.indexOf(a)
+              const bIndex = stackAxis.customSort.indexOf(b)
+              return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex)
+            })
+          }
+        }
         tmp.forEach((c, i) => {
           const curAxisColor = seriesMap[c as string]
           if (curAxisColor) {
@@ -818,10 +885,27 @@ export class StackColumnLineMix extends ColumnLineMix {
           return
         }
         seriesSet.add(d.category)
+      })
+      const cats = [...seriesSet]
+      const stackAxis = extStack[0]
+      if (stackAxis.sort !== 'none') {
+        if (stackAxis.sort === 'asc') {
+          cats.sort((a, b) => `${a}`.localeCompare(`${b}`))
+        } else if (stackAxis.sort === 'desc') {
+          cats.sort((a, b) => `${b}`.localeCompare(`${a}`))
+        } else if (stackAxis.customSort?.length) {
+          cats.sort((a, b) => {
+            const aIndex = stackAxis.customSort.indexOf(a)
+            const bIndex = stackAxis.customSort.indexOf(b)
+            return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex)
+          })
+        }
+      }
+      cats.forEach((c, i) => {
         result.push({
-          id: d.category,
-          name: d.category,
-          color: colors[(seriesSet.size - 1) % colors.length]
+          id: c,
+          name: c,
+          color: colors[i % colors.length]
         })
       })
     } else {
@@ -840,6 +924,77 @@ export class StackColumnLineMix extends ColumnLineMix {
     return result
   }
 
+  protected configCategoryMeta(chart: Chart, options: DualAxesOptions): DualAxesOptions {
+    const extStack = chart.extStack?.[0]
+    if (!extStack || extStack.sort === 'none') {
+      return options
+    }
+    const leftData = options.data?.[0] || []
+    const cats =
+      leftData.reduce((p, n) => {
+        if (n.category !== null && n.category !== undefined && !p.includes(n.category)) {
+          p.push(n.category)
+        }
+        return p
+      }, []) || []
+
+    let values: string[] = []
+
+    if (extStack.sort === 'asc') {
+      values = [...cats].sort((a, b) => `${a}`.localeCompare(`${b}`))
+    } else if (extStack.sort === 'desc') {
+      values = [...cats].sort((a, b) => `${b}`.localeCompare(`${a}`))
+    } else if (extStack.customSort?.length > 0) {
+      const sort = extStack.customSort
+      const tmpCats = [...cats]
+      values = sort.reduce((p, n) => {
+        if (tmpCats.includes(n)) {
+          const index = tmpCats.indexOf(n)
+          if (index !== -1) {
+            tmpCats.splice(index, 1)
+          }
+          p.push(n)
+        }
+        return p
+      }, [])
+      tmpCats.length > 0 && values.push(...tmpCats)
+    }
+
+    if (!values.length) {
+      return options
+    }
+
+    options.meta = {
+      ...options.meta,
+      category: {
+        type: 'cat',
+        values
+      }
+    }
+    return options
+  }
+
+  protected configData(chart: Chart, options: DualAxesOptions): DualAxesOptions {
+    if (chart.extStack?.[0]?.sort === 'none') {
+      return options
+    }
+    // 把右轴的主轴数据顺序和左轴保持一致
+    const leftData = options.data?.[0] ?? []
+    const rightData = options.data?.[1] ?? []
+    const leftOrder = leftData.map(d => d.field)
+    rightData.sort((a, b) => {
+      const aIndex = leftOrder.indexOf(a.field)
+      const bIndex = leftOrder.indexOf(b.field)
+      return aIndex - bIndex
+    })
+    return options
+  }
+
+  protected setupOptions(chart: Chart, options: DualAxesOptions): DualAxesOptions {
+    const tmpOptions = flow(this.configData, this.configCategoryMeta)(chart, options, {}, this)
+    return super.setupOptions(chart, tmpOptions)
+  }
+
   constructor(name = 'chart-mix-stack') {
     super(name)
   }
@@ -852,7 +1007,8 @@ export class DualLineMix extends ColumnLineMix {
     'label-selector': ['seriesLabelFormatter'],
     'tooltip-selector': [
       ...CHART_MIX_EDITOR_PROPERTY_INNER['tooltip-selector'],
-      'seriesTooltipFormatter'
+      'seriesTooltipFormatter',
+      'carousel'
     ]
   }
   axisConfig = {

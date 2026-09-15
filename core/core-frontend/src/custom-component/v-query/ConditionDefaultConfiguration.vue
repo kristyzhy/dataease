@@ -1,8 +1,9 @@
 <script lang="ts" setup>
 import icon_admin_outlined from '@/assets/svg/icon_admin_outlined.svg'
 import { ElSelect } from 'element-plus-secondary'
-import { computed, ref, toRefs } from 'vue'
+import { computed, nextTick, ref, toRefs, watch } from 'vue'
 import RangeFilterTime from '@/custom-component/v-query/RangeFilterTime.vue'
+import FilterTime from '@/custom-component/v-query/FilterTime.vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import DynamicTime from '@/custom-component/v-query/DynamicTime.vue'
 import DynamicTimeRange from '@/custom-component/v-query/DynamicTimeRange.vue'
@@ -55,9 +56,19 @@ const props = defineProps({
 })
 
 const showFlag = computed(() => props.showPosition === 'main')
-
 const { curComponent } = toRefs(props)
-
+const loadingDefault = ref(true)
+watch(
+  () => curComponent.value.id,
+  val => {
+    if (!val) return
+    loadingDefault.value = false
+    nextTick(() => {
+      loadingDefault.value = true
+    })
+  },
+  { immediate: true }
+)
 const relativeToCurrentTypeList = computed(() => {
   if (!curComponent.value) return []
   let index = ['year', 'month', 'date', 'datetime'].indexOf(curComponent.value.timeGranularity) + 1
@@ -69,15 +80,15 @@ const relativeToCurrentTypeList = computed(() => {
   }
   return [
     {
-      label: '年',
+      label: t('dynamic_time.year'),
       value: 'year'
     },
     {
-      label: '月',
+      label: t('dynamic_time.month'),
       value: 'month'
     },
     {
-      label: '日',
+      label: t('dynamic_time.date'),
       value: 'date'
     }
   ].slice(0, index)
@@ -90,11 +101,11 @@ const relativeToCurrentList = computed(() => {
     case 'year':
       list = [
         {
-          label: '今年',
+          label: t('dynamic_year.current'),
           value: 'thisYear'
         },
         {
-          label: '去年',
+          label: t('dynamic_year.last'),
           value: 'lastYear'
         }
       ]
@@ -102,11 +113,11 @@ const relativeToCurrentList = computed(() => {
     case 'month':
       list = [
         {
-          label: '本月',
+          label: t('cron.this_month'),
           value: 'thisMonth'
         },
         {
-          label: '上月',
+          label: t('dynamic_month.last'),
           value: 'lastMonth'
         }
       ]
@@ -114,19 +125,23 @@ const relativeToCurrentList = computed(() => {
     case 'date':
       list = [
         {
-          label: '今天',
+          label: t('dynamic_time.today'),
           value: 'today'
         },
         {
-          label: '昨天',
+          label: t('dynamic_time.yesterday'),
           value: 'yesterday'
         },
         {
-          label: '月初',
+          label: t('dynamic_time.firstOfMonth'),
           value: 'monthBeginning'
         },
         {
-          label: '年初',
+          label: t('dynamic_time.endOfMonth'),
+          value: 'monthEnd'
+        },
+        {
+          label: t('dynamic_time.firstOfYear'),
           value: 'yearBeginning'
         }
       ]
@@ -134,19 +149,23 @@ const relativeToCurrentList = computed(() => {
     case 'datetime':
       list = [
         {
-          label: '今天',
+          label: t('dynamic_time.today'),
           value: 'today'
         },
         {
-          label: '昨天',
+          label: t('dynamic_time.yesterday'),
           value: 'yesterday'
         },
         {
-          label: '月初',
+          label: t('dynamic_time.firstOfMonth'),
           value: 'monthBeginning'
         },
         {
-          label: '年初',
+          label: t('dynamic_time.endOfMonth'),
+          value: 'monthEnd'
+        },
+        {
+          label: t('dynamic_time.firstOfYear'),
           value: 'yearBeginning'
         }
       ]
@@ -159,7 +178,7 @@ const relativeToCurrentList = computed(() => {
   return [
     ...list,
     {
-      label: '自定义',
+      label: t('dynamic_time.custom'),
       value: 'custom'
     }
   ]
@@ -172,11 +191,11 @@ const relativeToCurrentListRange = computed(() => {
     case 'yearrange':
       list = [
         {
-          label: '今年',
+          label: t('dynamic_year.current'),
           value: 'thisYear'
         },
         {
-          label: '去年',
+          label: t('dynamic_year.last'),
           value: 'lastYear'
         }
       ]
@@ -184,24 +203,36 @@ const relativeToCurrentListRange = computed(() => {
     case 'monthrange':
       list = [
         {
-          label: '本月',
+          label: t('cron.this_month'),
           value: 'thisMonth'
         },
         {
-          label: '上月',
+          label: t('dynamic_month.last'),
           value: 'lastMonth'
         },
         {
-          label: '最近 3 个 月',
+          label: t('dynamic_time.tquarter'),
+          value: 'thisQuarter'
+        },
+        {
+          label: t('v_query.last_3_months'),
           value: 'LastThreeMonths'
         },
         {
-          label: '最近 6 个 月',
+          label: t('v_query.last_6_months'),
           value: 'LastSixMonths'
         },
         {
-          label: '最近 12 个 月',
+          label: t('v_query.last_12_months'),
           value: 'LastTwelveMonths'
+        },
+        {
+          label: t('common.to_this_month'),
+          value: 'YearToThisMonth'
+        },
+        {
+          label: t('v_query.year_to_last_month_end'),
+          value: 'YearToLastMonthEnd'
         }
       ]
       break
@@ -209,24 +240,44 @@ const relativeToCurrentListRange = computed(() => {
     case 'datetimerange':
       list = [
         {
-          label: '今天',
+          label: t('dynamic_time.today'),
           value: 'today'
         },
         {
-          label: '昨天',
+          label: t('dynamic_time.yesterday'),
           value: 'yesterday'
         },
         {
-          label: '最近 3 天',
+          label: t('dynamic_time.cweek'),
+          value: 'thisWeek'
+        },
+        {
+          label: t('cron.this_month'),
+          value: 'thisMonth'
+        },
+        {
+          label: t('v_query.last_3_days'),
           value: 'LastThreeDays'
         },
         {
-          label: '月初至今',
+          label: t('v_query.month_to_date'),
           value: 'monthBeginning'
         },
         {
-          label: '年初至今',
+          label: t('v_query.year_to_date'),
           value: 'yearBeginning'
+        },
+        {
+          label: t('v_query.year_to_last_month_end'),
+          value: 'YearToLastMonthEnd'
+        },
+        {
+          label: t('common.month_to_yesterday'),
+          value: 'monthToYesterday'
+        },
+        {
+          label: t('v_query.last_month_full'),
+          value: 'LastMonthFull'
         }
       ]
       break
@@ -238,19 +289,24 @@ const relativeToCurrentListRange = computed(() => {
   return [
     ...list,
     {
-      label: '自定义',
+      label: t('dynamic_time.custom'),
       value: 'custom'
     }
   ]
 })
 
+const defaultValueFirstItemShow = computed(() => {
+  const { displayType, optionValueSource } = curComponent.value
+  return +displayType === 0 && optionValueSource === 1
+})
+
 const aroundList = [
   {
-    label: '前',
+    label: t('dynamic_time.before'),
     value: 'f'
   },
   {
-    label: '后',
+    label: t('dynamic_time.after'),
     value: 'b'
   }
 ]
@@ -262,11 +318,11 @@ const dynamicTime = computed(() => {
 
 const operators = [
   {
-    label: '精确匹配',
+    label: t('v_query.exact_match'),
     value: 'eq'
   },
   {
-    label: '模糊匹配',
+    label: t('v_query.fuzzy_match'),
     value: 'like'
   }
 ]
@@ -320,18 +376,11 @@ defineExpose({
   mult,
   single
 })
-const handleInputStart = value => {
-  curComponent.value.defaultNumValueStart = value.replace(/[^\d.]/g, '')
-}
-
-const handleInputEnd = value => {
-  curComponent.value.defaultNumValueEnd = value.replace(/[^\d.]/g, '')
-}
 </script>
 
 <template>
   <div class="list-item top-item" v-if="curComponent.displayType === '8'" @click.stop>
-    <div class="label">设置默认值</div>
+    <div class="label">{{ t('dynamic_time.set_default') }}</div>
     <div class="value" :class="curComponent.hideConditionSwitching && 'hide-condition_switching'">
       <div class="condition-type">
         <el-select
@@ -352,7 +401,9 @@ const handleInputEnd = value => {
         <div class="bottom-line"></div>
       </div>
       <div class="condition-type" v-if="[1, 2].includes(curComponent.conditionType)">
-        <sapn class="condition-type-tip">{{ curComponent.conditionType === 1 ? '与' : '或' }}</sapn>
+        <span class="condition-type-tip">{{
+          curComponent.conditionType === 1 ? t('chart.and') : t('chart.or')
+        }}</span>
         <el-select
           v-if="!curComponent.hideConditionSwitching"
           class="condition-value-select"
@@ -374,19 +425,22 @@ const handleInputEnd = value => {
   </div>
   <div class="list-item top-item" v-if="curComponent.displayType === '22'" @click.stop>
     <div class="label">
-      <el-checkbox v-model="curComponent.defaultValueCheck" label="设置默认值" />
+      <el-checkbox
+        v-model="curComponent.defaultValueCheck"
+        :label="t('dynamic_time.set_default')"
+      />
     </div>
     <div class="setting-content" style="display: flex; align-items: center">
       <el-input-number
         :disabled="!curComponent.defaultValueCheck"
-        placeholder="请输入最小值"
+        :placeholder="t('system.the_minimum_value')"
         style="width: 192.5px"
         controls-position="right"
         v-model="curComponent.defaultNumValueStart"
       />
       <div class="num-value_line"></div>
       <el-input-number
-        placeholder="请输入最大值"
+        :placeholder="t('system.the_maximum_value')"
         style="width: 192.5px"
         controls-position="right"
         :disabled="!curComponent.defaultValueCheck"
@@ -398,7 +452,7 @@ const handleInputEnd = value => {
     v-if="!['1', '7', '8', '22'].includes(curComponent.displayType) && showFlag"
     class="list-item"
   >
-    <div class="label">选项类型</div>
+    <div class="label">{{ t('v_query.option_type') }}</div>
     <div class="value">
       <el-radio-group
         class="larger-radio"
@@ -410,9 +464,9 @@ const handleInputEnd = value => {
       </el-radio-group>
     </div>
   </div>
-  <div v-if="curComponent.displayType === '7' && showFlag" class="list-item">
+  <div v-if="['7', '1'].includes(curComponent.displayType) && showFlag" class="list-item">
     <div class="label">
-      <el-checkbox v-model="curComponent.setTimeRange" label="设置时间筛选范围" />
+      <el-checkbox v-model="curComponent.setTimeRange" :label="t('v_query.time_filter_range')" />
     </div>
     <div class="setting-content">
       <el-popover
@@ -433,20 +487,27 @@ const handleInputEnd = value => {
             <template #icon>
               <Icon name="icon_admin_outlined"><icon_admin_outlined class="svg-icon" /></Icon>
             </template>
-            设置
+            {{ t('dynamic_time.set') }}
           </el-button>
         </template>
         <RangeFilterTime
+          v-if="curComponent.displayType === '7'"
           :timeRange="curComponent.timeRange"
           :timeGranularityMultiple="curComponent.timeGranularityMultiple"
+        />
+        <FilterTime
+          v-else
+          :timeRange="curComponent.timeRange"
+          :timeGranularity="curComponent.timeGranularity"
         />
       </el-popover>
       <span
         v-if="
-          curComponent.timeRange.intervalType !== 'none' || curComponent.timeRange.dynamicWindow
+          curComponent.timeRange &&
+          (curComponent.timeRange.intervalType !== 'none' || curComponent.timeRange.dynamicWindow)
         "
         class="config-flag range-filter-time-flag"
-        >已配置</span
+        >{{ t('v_query.configured') }}</span
       >
     </div>
   </div>
@@ -457,21 +518,24 @@ const handleInputEnd = value => {
     <div class="label">
       <el-tooltip
         effect="dark"
-        content="绑定参数后，不支持传空数据"
+        :content="t('v_query.is_not_supported')"
         :disabled="!curComponent.parametersCheck"
         placement="top"
       >
         <el-checkbox
           :disabled="curComponent.parametersCheck"
           v-model="curComponent.showEmpty"
-          label="选项值包含空数据"
+          :label="t('v_query.contains_empty_data')"
         />
       </el-tooltip>
     </div>
   </div>
   <div v-if="!['8', '22'].includes(curComponent.displayType)" class="list-item">
     <div class="label">
-      <el-checkbox v-model="curComponent.defaultValueCheck" label="设置默认值" />
+      <el-checkbox
+        v-model="curComponent.defaultValueCheck"
+        :label="t('dynamic_time.set_default')"
+      />
     </div>
     <div
       class="setting-content"
@@ -479,13 +543,15 @@ const handleInputEnd = value => {
     >
       <div class="setting">
         <el-radio-group @change="handleTimeTypeChange" v-model="curComponent.timeType">
-          <el-radio label="fixed">固定时间</el-radio>
-          <el-radio label="dynamic">动态时间</el-radio>
+          <el-radio value="fixed">{{ t('dynamic_time.fix') }}</el-radio>
+          <el-radio value="dynamic">{{ t('dynamic_time.dynamic') }}</el-radio>
         </el-radio-group>
       </div>
       <template v-if="dynamicTime && curComponent.displayType === '1'">
         <div class="setting">
-          <div class="setting-label">相对当前</div>
+          <div :title="t('dynamic_time.relative')" class="setting-label ellipsis">
+            {{ t('dynamic_time.relative') }}
+          </div>
           <div class="setting-value select">
             <el-select @focus="handleDialogClick" v-model="curComponent.relativeToCurrent">
               <el-option
@@ -533,7 +599,7 @@ const handleInputEnd = value => {
       </template>
       <template v-else-if="dynamicTime && curComponent.displayType === '7'">
         <div class="setting">
-          <div class="setting-label">相对当前</div>
+          <div class="setting-label">{{ t('dynamic_time.relative') }}</div>
           <div class="setting-value select">
             <el-select @focus="handleDialogClick" v-model="curComponent.relativeToCurrentRange">
               <el-option
@@ -554,7 +620,7 @@ const handleInputEnd = value => {
             ) && 'is-year-month-range'
           "
         >
-          <div class="setting-label">开始时间</div>
+          <div class="setting-label">{{ t('datasource.start_time') }}</div>
           <div class="setting-input with-date range">
             <el-input-number
               step-strictly
@@ -590,7 +656,7 @@ const handleInputEnd = value => {
             ) && 'is-year-month-range'
           "
         >
-          <div class="setting-label">结束时间</div>
+          <div class="setting-label">{{ t('datasource.end_time') }}</div>
           <div class="setting-input with-date range">
             <el-input-number
               v-model="curComponent.timeNumRange"
@@ -619,8 +685,17 @@ const handleInputEnd = value => {
         </div>
       </template>
     </div>
-    <div v-if="curComponent.defaultValueCheck" class="parameters" :class="dynamicTime && 'setting'">
-      <div class="setting-label" v-if="dynamicTime">预览</div>
+    <div
+      v-if="curComponent.defaultValueCheck && loadingDefault"
+      class="parameters"
+      :class="dynamicTime && 'setting'"
+    >
+      <div class="setting-label" v-if="dynamicTime">{{ t('template_manage.preview') }}</div>
+      <div v-if="defaultValueFirstItemShow" class="first-item" style="margin-bottom: 8px">
+        <el-checkbox v-model="curComponent.defaultValueFirstItem">{{
+          $t('common.first_item')
+        }}</el-checkbox>
+      </div>
       <div :class="dynamicTime ? 'setting-value' : 'w100'">
         <component :config="curComponent" isConfig ref="inputCom" :is="filterTypeCom"></component>
       </div>
@@ -655,7 +730,7 @@ const handleInputEnd = value => {
     }
   }
   .label {
-    width: 100px;
+    width: 105px;
     color: #1f2329;
   }
 
@@ -730,6 +805,7 @@ const handleInputEnd = value => {
         color: #646a73;
         line-height: 26px;
         margin-right: 8px;
+        width: 35px;
       }
 
       .bottom-line {
@@ -855,6 +931,11 @@ const handleInputEnd = value => {
       padding-left: 86px;
       justify-content: flex-end;
       align-items: center;
+      width: 100%;
+      .ed-select {
+        --ed-select-width: 100px;
+      }
+
       &.range {
         padding-left: 0px;
       }

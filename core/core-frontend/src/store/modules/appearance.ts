@@ -5,8 +5,10 @@ import { uiLoadApi } from '@/api/login'
 import { useCache } from '@/hooks/web/useCache'
 import colorFunctions from 'less/lib/less/functions/color.js'
 import colorTree from 'less/lib/less/tree/color.js'
+import { useEmbedded } from '@/store/modules/embedded'
 import { setTitle } from '@/utils/utils'
 
+const embeddedStore = useEmbedded()
 const basePath = import.meta.env.VITE_API_BASEPATH
 const baseUrl = basePath + '/appearance/image/'
 import { isBtnShow } from '@/utils/utils'
@@ -24,6 +26,7 @@ interface AppearanceState {
   showAbout?: string
   bg?: string
   login?: string
+  showSlogan?: string
   slogan?: string
   web?: string
   name?: string
@@ -52,6 +55,7 @@ export const useAppearanceStore = defineStore('appearanceStore', {
       showAbout: '0',
       bg: '',
       login: '',
+      showSlogan: 'true',
       slogan: '',
       web: '',
       name: '',
@@ -107,6 +111,9 @@ export const useAppearanceStore = defineStore('appearanceStore', {
       }
       return null
     },
+    getShowSlogan(): string {
+      return this.showSlogan
+    },
     getSlogan(): string {
       return this.slogan
     },
@@ -140,9 +147,6 @@ export const useAppearanceStore = defineStore('appearanceStore', {
     getShowAi(): boolean {
       return isBtnShow(this.showAi)
     },
-    getShowCopilot(): boolean {
-      return isBtnShow(this.showCopilot)
-    },
     getShowDoc(): boolean {
       return isBtnShow(this.showDoc)
     },
@@ -164,7 +168,7 @@ export const useAppearanceStore = defineStore('appearanceStore', {
     setCurrentFont(name) {
       const currentFont = this.fontList.find(ele => ele.name === name)
       if (currentFont) {
-        let fontStyleElement = document.querySelector(`#de-custom_font${name}`)
+        let fontStyleElement = document.querySelector(`[id="de-custom_font${name}"]`)
         if (!fontStyleElement) {
           fontStyleElement = document.createElement('style')
           fontStyleElement.setAttribute('id', `de-custom_font${name}`)
@@ -172,7 +176,11 @@ export const useAppearanceStore = defineStore('appearanceStore', {
         }
         fontStyleElement.innerHTML = `@font-face {
             font-family: '${name}';
-            src: url(${basePath}/typeface/download/${currentFont.fileTransName});
+            src: url(${
+              embeddedStore.baseUrl
+                ? (embeddedStore.baseUrl + basePath).replace('/./', '/')
+                : basePath
+            }/typeface/download/${currentFont.fileTransName});
             font-weight: normal;
             font-style: normal;
             }`
@@ -208,7 +216,11 @@ export const useAppearanceStore = defineStore('appearanceStore', {
       defaultFont().then(res => {
         const [font] = res || []
         setDefaultFont(
-          `${basePath}/typeface/download/${font?.fileTransName}`,
+          `${
+            embeddedStore.baseUrl
+              ? (embeddedStore.baseUrl + basePath).replace('/./', '/')
+              : basePath
+          }/typeface/download/${font?.fileTransName}`,
           font?.name,
           font?.fileTransName
         )
@@ -277,6 +289,12 @@ export const useAppearanceStore = defineStore('appearanceStore', {
         document.documentElement.style.setProperty('--ed-color-primary', this.customColor)
         document.documentElement.style.setProperty('--van-blue', this.customColor)
         document.documentElement.style.setProperty(
+          '--ed-color-primary_b50',
+          colorFunctions
+            .mix(new colorTree('ffffff'), new colorTree(this.customColor.substr(1)), { value: 90 })
+            .toRGB()
+        )
+        document.documentElement.style.setProperty(
           '--ed-color-primary-light-5',
           colorFunctions
             .mix(new colorTree('ffffff'), new colorTree(this.customColor.substr(1)), { value: 40 })
@@ -286,6 +304,12 @@ export const useAppearanceStore = defineStore('appearanceStore', {
           '--ed-color-primary-light-3',
           colorFunctions
             .mix(new colorTree('ffffff'), new colorTree(this.customColor.substr(1)), { value: 15 })
+            .toRGB()
+        )
+        document.documentElement.style.setProperty(
+          '--ed-color-primary-dark-20',
+          colorFunctions
+            .mix(new colorTree('000000'), new colorTree(this.customColor.substr(1)), { value: 20 })
             .toRGB()
         )
         document.documentElement.style.setProperty('--ed-color-primary-1a', `${this.customColor}1a`)
@@ -301,13 +325,16 @@ export const useAppearanceStore = defineStore('appearanceStore', {
         document.documentElement.style.setProperty('--ed-color-primary', '#3370FF')
         document.documentElement.style.removeProperty('--ed-color-primary-light-3')
         document.documentElement.style.removeProperty('--ed-color-primary-light-5')
+        document.documentElement.style.removeProperty('--ed-color-primary_b50')
         document.documentElement.style.removeProperty('--ed-color-primary-1a')
         document.documentElement.style.removeProperty('--ed-color-primary-33')
         document.documentElement.style.removeProperty('--ed-color-primary-99')
         document.documentElement.style.removeProperty('--ed-color-primary-dark-2')
+        document.documentElement.style.removeProperty('--ed-color-primary-dark-20')
       }
       this.bg = data.bg
       this.login = data.login
+      this.showSlogan = data.showSlogan
       this.slogan = data.slogan
       this.web = data.web
       this.name = data.name

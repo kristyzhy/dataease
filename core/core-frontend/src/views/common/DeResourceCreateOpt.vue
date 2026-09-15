@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     class="create-dialog"
-    title="从模板新建"
+    :title="t('visualization.new_from_template')"
     v-model="state.dialogShow"
     width="700"
     :before-close="close"
@@ -32,7 +32,7 @@
         </el-col>
       </el-row>
       <el-row style="margin-top: 5px">
-        <el-col :span="4" class="name-area">名称</el-col>
+        <el-col :span="4" class="name-area">{{ t('visualization.name') }}</el-col>
         <el-col :span="20">
           <el-input v-model="state.dvCreateInfo.name" clearable size="small" />
         </el-col>

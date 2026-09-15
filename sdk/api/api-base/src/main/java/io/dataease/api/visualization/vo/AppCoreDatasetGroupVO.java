@@ -84,4 +84,14 @@ public class AppCoreDatasetGroupVO implements Serializable {
      * 关联sql
      */
     private String unionSql;
+
+    /**
+     * 是否跨源
+     */
+    private Boolean isCross;
+
+    /**
+     * 映射系统数据集ID
+     */
+    private Long systemDatasetId;
 }

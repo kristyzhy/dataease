@@ -35,4 +35,6 @@ public class VisualizationStoreVO implements Serializable {
     private int weight;
 
     private Integer extFlag;
+
+    private Integer extFlag1;
 }

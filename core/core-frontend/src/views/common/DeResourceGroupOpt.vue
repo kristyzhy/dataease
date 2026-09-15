@@ -3,6 +3,7 @@ import dvFolder from '@/assets/svg/dv-folder.svg'
 import icon_searchOutline_outlined from '@/assets/svg/icon_search-outline_outlined.svg'
 import { ref, reactive, computed, watch, toRefs, nextTick } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
+import { useCache } from '@/hooks/web/useCache'
 import nothingTree from '@/assets/img/nothing-tree.png'
 import { BusiTreeNode } from '@/models/tree/TreeNode'
 import {
@@ -15,7 +16,7 @@ import {
   saveCanvas
 } from '@/api/visualization/dataVisualization'
 import { ElMessage } from 'element-plus-secondary'
-import { cutTargetTree } from '@/utils/utils'
+import { cutTargetTree, filterFreeFolder, nameTrim } from '@/utils/utils'
 const props = defineProps({
   curCanvasType: {
     type: String,
@@ -24,12 +25,14 @@ const props = defineProps({
 })
 
 const { curCanvasType } = toRefs(props)
-
+const { wsCache } = useCache('localStorage')
 const { t } = useI18n()
 
 const state = reactive({
   tData: [],
-  nameList: []
+  nameList: [],
+  targetInfo: null,
+  attachParams: null
 })
 
 const showParentSelected = ref(false)
@@ -46,7 +49,9 @@ const resourceForm = reactive({
   pName: null,
   name: '新建'
 })
-const sourceLabel = computed(() => (curCanvasType.value === 'dataV' ? '数据大屏' : '仪表板'))
+const sourceLabel = computed(() =>
+  curCanvasType.value === 'dataV' ? t('work_branch.big_data_screen') : t('work_branch.dashboard')
+)
 
 const methodMap = {
   move: moveResource,
@@ -75,7 +80,7 @@ const nameRepeat = value => {
 }
 const nameValidator = (_, value, callback) => {
   if (nameRepeat(value)) {
-    callback(new Error('名称重复'))
+    callback(new Error(t('visualization.name_repeat')))
   } else {
     callback()
   }
@@ -102,7 +107,7 @@ const filterMethod = value => {
 const resetForm = () => {
   dialogTitle.value = null
   resourceFormNameLabel.value = ''
-  resourceForm.name = '新建'
+  resourceForm.name = t('visualization.new')
   resourceForm.pid = ''
   resourceDialogShow.value = false
 }
@@ -118,30 +123,36 @@ const dfs = (arr: BusiTreeNode[]) => {
 
 const getDialogTitle = exec => {
   return {
-    newFolder: '新建文件夹',
-    newLeaf: props.curCanvasType === 'dataV' ? '新建数据大屏' : '新建仪表板',
-    move: '移动到',
-    copy: '复制' + sourceLabel.value,
-    rename: '重命名',
-    newLeafAfter: '所属文件夹'
+    newFolder: t('visualization.new_folder'),
+    newLeaf:
+      props.curCanvasType === 'dataV'
+        ? t('visualization.new_screen')
+        : t('visualization.new_dashboard'),
+    move: t('visualization.move_to'),
+    copy: t('visualization.copy') + sourceLabel.value,
+    rename: t('visualization.rename'),
+    newLeafAfter: t('visualization.belong_folder')
   }[exec]
 }
 const placeholder = ref('')
 
-const optInit = (type, data: BusiTreeNode, exec, parentSelect = false) => {
+const optInit = (type, data: BusiTreeNode, exec, parentSelect = false, attachParams?) => {
   showParentSelected.value = parentSelect
+  state.targetInfo = data
+  state.attachParams = attachParams
   nodeType.value = type
-  const optSource = data.leaf || type === 'leaf' ? sourceLabel.value : '文件夹'
-  placeholder.value =
+  const optSource = data.leaf || type === 'leaf' ? sourceLabel.value : t('visualization.folder')
+  const placeholderLabel =
     data.leaf || type === 'leaf'
       ? props.curCanvasType === 'dataV'
-        ? '请输入数据大屏名称'
-        : '请输入仪表板名称'
-      : '请输入文件夹名称'
+        ? t('work_branch.big_data_screen')
+        : t('work_branch.dashboard')
+      : t('visualization.folder')
+  placeholder.value = t('visualization.input_name_tips', [placeholderLabel])
   filterText.value = ''
   dialogTitle.value = getDialogTitle(exec) + ('rename' === exec ? optSource : '')
-  resourceFormNameLabel.value = (exec === 'move' ? '' : optSource) + '名称'
-  const request = { busiFlag: curCanvasType.value, leaf: false, weight: 7 }
+  resourceFormNameLabel.value = (exec === 'move' ? '' : optSource) + t('visualization.name')
+  const request = { busiFlag: curCanvasType.value, leaf: false, resourceTable: 'core', weight: 7 }
   if (['newFolder'].includes(exec)) {
     resourceForm.name = ''
   } else if ('copy' === exec) {
@@ -150,11 +161,15 @@ const optInit = (type, data: BusiTreeNode, exec, parentSelect = false) => {
     resourceForm.name = data.name
   }
   queryTreeApi(request).then(res => {
+    filterFreeFolder(res, curCanvasType.value)
     const resultTree = res || []
     dfs(resultTree as unknown as BusiTreeNode[])
     state.tData = (resultTree as unknown as BusiTreeNode[]) || []
     if (state.tData.length && state.tData[0].name === 'root' && state.tData[0].id === '0') {
-      state.tData[0].name = curCanvasType.value === 'dataV' ? '数据大屏' : '仪表板'
+      state.tData[0].name =
+        curCanvasType.value === 'dataV'
+          ? t('work_branch.big_data_screen')
+          : t('work_branch.dashboard')
     }
     tData = [...state.tData]
     if ('move' === exec) {
@@ -220,17 +235,17 @@ const nodeClick = (data: BusiTreeNode) => {
 
 const checkParent = params => {
   if (params.pid !== 0 && !params.pid) {
-    ElMessage.error('请选择目标文件夹')
+    ElMessage.error(t('visualization.select_target_folder'))
     return false
   }
   // 如果有搜索需要校验当前pName 是否包含关键字（解决先点击再搜索后，未点击搜索结果也可以移动的问题）
   if (filterText.value && !resourceForm.pName.includes(filterText.value)) {
-    ElMessage.error('请选择目标文件夹')
+    ElMessage.error(t('visualization.select_target_folder'))
     return false
   }
   // 点击后不能选择自身作为父ID
   if (params.pid === params.id) {
-    ElMessage.warning('不能选择自身，请选择其他文件夹')
+    ElMessage.warning(t('visualization.select_target_tips'))
     return
   }
   return true
@@ -242,7 +257,9 @@ const saveResource = () => {
       const params: ResourceOrFolder = {
         nodeType: nodeType.value as 'folder' | 'leaf',
         name: resourceForm.name,
-        type: curCanvasType.value
+        type: curCanvasType.value,
+        mobileLayout: state.targetInfo?.extraFlag,
+        status: state.targetInfo?.extraFlag1
       }
 
       switch (cmd.value) {
@@ -262,6 +279,7 @@ const saveResource = () => {
           params.pid = resourceForm.pid || pid.value || '0'
           break
       }
+      nameTrim(params, t('components.length_1_64_characters'))
       if (cmd.value === 'move' && !checkParent(params)) {
         return
       }
@@ -270,7 +288,7 @@ const saveResource = () => {
       }
       if (cmd.value === 'newLeaf') {
         resourceDialogShow.value = false
-        emits('finish', { opt: 'newLeaf', ...params })
+        emits('finish', { opt: 'newLeaf', ...params, ...state.attachParams })
       } else {
         loading.value = true
         const method = methodMap[cmd.value] ? methodMap[cmd.value] : updateBase
@@ -279,13 +297,14 @@ const saveResource = () => {
             loading.value = false
             resourceDialogShow.value = false
             emits('finish')
-            ElMessage.success('保存成功')
+            ElMessage.success(t('visualization.save_success'))
             if (cmd.value === 'copy') {
+              const openType = wsCache.get('open-backend') === '1' ? '_self' : '_blank'
               const baseUrl =
                 curCanvasType.value === 'dataV'
                   ? '#/dvCanvas?opt=copy&dvId='
                   : '#/dashboard?opt=copy&resourceId='
-              window.open(baseUrl + data.data, '_blank')
+              window.open(baseUrl + data.data, openType)
             }
           })
           .finally(() => {
@@ -329,7 +348,7 @@ const emits = defineEmits(['finish'])
           v-model="resourceForm.name"
         />
       </el-form-item>
-      <el-form-item v-if="showPid" :label="'所属文件夹'" prop="pid">
+      <el-form-item v-if="showPid" :label="t('visualization.belong_folder')" prop="pid">
         <el-tree-select
           style="width: 100%"
           @keydown.stop
@@ -385,14 +404,16 @@ const emits = defineEmits(['finish'])
           </el-tree>
           <div v-if="searchEmpty" class="empty-search">
             <img :src="nothingTree" />
-            <span>没有找到相关内容</span>
+            <span>{{ t('visualization.no_content') }}</span>
           </div>
         </div>
       </div>
     </el-form>
     <template #footer>
-      <el-button secondary @click="resetForm()">取消 </el-button>
-      <el-button type="primary" @click="saveResource()">确认 </el-button>
+      <el-button secondary @click="resetForm()">{{ t('visualization.cancel') }} </el-button>
+      <el-button type="primary" @click="saveResource()"
+        >{{ t('visualization.confirm') }}
+      </el-button>
     </template>
   </el-dialog>
 </template>
@@ -402,7 +423,7 @@ const emits = defineEmits(['finish'])
   width: 552px;
   height: 380px;
   border: 1px solid #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 8px;
   overflow-y: auto;
   .empty-search {

@@ -1,11 +1,22 @@
 <script lang="ts" setup>
-import { shallowRef, defineAsyncComponent, ref, onBeforeUnmount, onBeforeMount } from 'vue'
+import {
+  shallowRef,
+  defineAsyncComponent,
+  ref,
+  onBeforeUnmount,
+  onBeforeMount,
+  onMounted,
+  nextTick
+} from 'vue'
 import { debounce } from 'lodash-es'
 import { XpackComponent } from '@/components/plugin'
 import { useEmitt } from '@/hooks/web/useEmitt'
+import { useLoading } from '@/hooks/web/useLoading'
+import ExportCenterWindow from '@/pages/panel/ExportCenterWindow.vue'
 
+const { close } = useLoading()
 const currentComponent = shallowRef()
-
+const Preview = defineAsyncComponent(() => import('@/views/data-visualization/PreviewCanvas.vue'))
 const VisualizationEditor = defineAsyncComponent(
   () => import('@/views/data-visualization/index.vue')
 )
@@ -17,20 +28,30 @@ const Dataset = defineAsyncComponent(() => import('@/views/visualized/data/datas
 const Datasource = defineAsyncComponent(
   () => import('@/views/visualized/data/datasource/index.vue')
 )
+
+const ExportExcel = defineAsyncComponent(
+  () => import('@/views/visualized/data/dataset/ExportExcel.vue')
+)
 const ScreenPanel = defineAsyncComponent(() => import('@/views/data-visualization/PreviewShow.vue'))
 const DashboardPanel = defineAsyncComponent(
   () => import('@/views/dashboard/DashboardPreviewShow.vue')
 )
+const TemplateManage = defineAsyncComponent(() => import('@/views/template/indexInject.vue'))
+
+const AsyncXpackComponent = defineAsyncComponent(() => import('@/components/plugin/src/index.vue'))
 
 const componentMap = {
   DashboardEditor,
   VisualizationEditor,
   ViewWrapper,
+  Preview,
   Dashboard,
   Dataset,
   Datasource,
   ScreenPanel,
-  DashboardPanel
+  DashboardPanel,
+  TemplateManage,
+  ExportExcel
 }
 const iframeStyle = ref(null)
 const setStyle = debounce(() => {
@@ -43,12 +64,36 @@ onBeforeMount(() => {
   window.addEventListener('resize', setStyle)
   setStyle()
 })
-
+onMounted(() => {
+  close()
+})
 onBeforeUnmount(() => {
   window.removeEventListener('resize', setStyle)
 })
+
+const showComponent = ref(false)
+const dataFillingPath = ref('')
+
 const initIframe = (name: string) => {
-  currentComponent.value = componentMap[name || 'ViewWrapper']
+  showComponent.value = false
+  if (name && name.includes('DataFilling')) {
+    if (name === 'DataFilling') {
+      dataFillingPath.value = 'L21lbnUvZGF0YS9kYXRhLWZpbGxpbmcvbWFuYWdlL2luZGV4'
+    } else if (name === 'DataFillingEditor') {
+      dataFillingPath.value = 'L21lbnUvZGF0YS9kYXRhLWZpbGxpbmcvbWFuYWdlL2Zvcm0vaW5kZXg='
+    } else if (name === 'DataFillingHandler') {
+      dataFillingPath.value = 'L21lbnUvZGF0YS9kYXRhLWZpbGxpbmcvZmlsbC9UYWJQYW5lVGFibGU='
+    }
+    nextTick(() => {
+      currentComponent.value = AsyncXpackComponent
+      showComponent.value = true
+    })
+  } else {
+    nextTick(() => {
+      currentComponent.value = componentMap[name || 'ViewWrapper']
+      showComponent.value = true
+    })
+  }
 }
 
 useEmitt({
@@ -63,6 +108,7 @@ useEmitt({
     @init-iframe="initIframe"
   />
   <div :style="iframeStyle">
-    <component :is="currentComponent"></component>
+    <component :is="currentComponent" :jsname="dataFillingPath" v-if="showComponent"></component>
   </div>
+  <ExportCenterWindow></ExportCenterWindow>
 </template>

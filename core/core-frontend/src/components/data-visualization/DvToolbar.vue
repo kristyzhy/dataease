@@ -11,9 +11,11 @@ import icon_copy_filled from '@/assets/svg/icon_copy_filled.svg'
 import icon_left_outlined from '@/assets/svg/icon_left_outlined.svg'
 import icon_undo_outlined from '@/assets/svg/icon_undo_outlined.svg'
 import icon_redo_outlined from '@/assets/svg/icon_redo_outlined.svg'
-import { ElMessage, ElMessageBox } from 'element-plus-secondary'
+import dvRecoverOutlined from '@/assets/svg/dv-recover_outlined.svg'
+import dvCancelPublish from '@/assets/svg/icon_undo_outlined.svg'
+import { ElIcon, ElMessage, ElMessageBox } from 'element-plus-secondary'
 import eventBus from '@/utils/eventBus'
-import { ref, nextTick, computed, toRefs } from 'vue'
+import { ref, nextTick, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useEmbedded } from '@/store/modules/embedded'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
@@ -26,7 +28,13 @@ import MediaGroup from '@/custom-component/component-group/MediaGroup.vue'
 import TextGroup from '@/custom-component/component-group/TextGroup.vue'
 import CommonGroup from '@/custom-component/component-group/CommonGroup.vue'
 import DeResourceGroupOpt from '@/views/common/DeResourceGroupOpt.vue'
-import { canvasSave, initCanvasData } from '@/utils/canvasUtils'
+import {
+  canvasSave,
+  canvasSaveWithParams,
+  checkCanvasChangePre,
+  findAllViewsId,
+  initCanvasData
+} from '@/utils/canvasUtils'
 import { changeSizeWithScale } from '@/utils/changeComponentsSizeWithScale'
 import MoreComGroup from '@/custom-component/component-group/MoreComGroup.vue'
 import { XpackComponent } from '@/components/plugin'
@@ -41,6 +49,9 @@ import DeAppApply from '@/views/common/DeAppApply.vue'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import { useUserStoreWithOut } from '@/store/modules/user'
 import TabsGroup from '@/custom-component/component-group/TabsGroup.vue'
+import { useI18n } from '@/hooks/web/useI18n'
+import { updatePublishStatus } from '@/api/visualization/dataVisualization'
+
 let nameEdit = ref(false)
 let inputName = ref('')
 let nameInput = ref(null)
@@ -58,16 +69,15 @@ const dvModel = 'dataV'
 const outerParamsSetRef = ref(null)
 const fullScreeRef = ref(null)
 const userStore = useUserStoreWithOut()
+const { t } = useI18n()
+const emits = defineEmits(['recoverToPublished'])
 
-const props = defineProps({
+defineProps({
   createType: {
     type: String,
     default: 'create'
   }
 })
-
-const { createType } = toRefs(props)
-
 const closeEditCanvasName = () => {
   nameEdit.value = false
   if (!inputName.value || !inputName.value.trim()) {
@@ -83,6 +93,10 @@ const closeEditCanvasName = () => {
   }
   dvInfo.value.name = inputName.value
   inputName.value = ''
+}
+
+const recoverToPublished = () => {
+  emits('recoverToPublished')
 }
 
 const undo = () => {
@@ -113,11 +127,11 @@ const resourceOptFinish = param => {
     dvInfo.value.dataState = 'ready'
     dvInfo.value.pid = param.pid
     dvInfo.value.name = param.name
-    saveCanvasWithCheck()
+    saveCanvasWithCheck(param.withPublish, param.status)
   }
 }
 
-const saveCanvasWithCheck = () => {
+const saveCanvasWithCheck = (withPublish = false, status?) => {
   if (userStore.getOid && wsCache.get('user.oid') && userStore.getOid !== wsCache.get('user.oid')) {
     ElMessageBox.confirm('已切换至新组织，无权保存其他组织的资源', {
       confirmButtonType: 'primary',
@@ -139,39 +153,60 @@ const saveCanvasWithCheck = () => {
           pid: '',
           name: dvInfo.value.name,
           datasetFolderPid: null,
-          datasetFolderName: dvInfo.value.name
+          datasetFolderName: dvInfo.value.name,
+          dataType: dvInfo.value['dataType']
         },
         appData: appData.value
       }
-      resourceAppOpt.value.init(params)
+      nextTick(() => {
+        resourceAppOpt.value.init(params)
+      })
     } else {
-      const params = { name: dvInfo.value.name, leaf: true, id: dvInfo.value.pid }
-      resourceGroupOpt.value.optInit('leaf', params, 'newLeaf', true)
+      const params = {
+        name: dvInfo.value.name,
+        leaf: true,
+        id: dvInfo.value.pid || '0'
+      }
+      resourceGroupOpt.value.optInit('leaf', params, 'newLeaf', true, { withPublish, status })
     }
     return
   }
-  saveResource()
+  checkCanvasChangePre(() => {
+    saveResource({ withPublish, status })
+  })
 }
 
-const saveResource = () => {
-  if (styleChangeTimes.value > 0) {
+const saveResource = (checkParams?) => {
+  if (styleChangeTimes.value > 0 || checkParams.withPublish) {
     eventBus.emit('hideArea-canvas-main')
     nextTick(() => {
-      canvasSave(() => {
+      canvasSaveWithParams(checkParams, () => {
         snapshotStore.resetStyleChangeTimes()
         wsCache.delete('DE-DV-CATCH-' + dvInfo.value.id)
-        ElMessage.success('保存成功')
         let url = window.location.href
-        url = url.replace(/\?opt=create/, `?dvId=${dvInfo.value.id}`)
-        window.history.replaceState(null, '', url)
+        url = url.replace(/(#\/[^?]*)(?:\?[^#]*)?/, `$1?dvId=${dvInfo.value.id}`)
+        if (!embeddedStore.baseUrl) {
+          window.history.replaceState(
+            {
+              path: url
+            },
+            '',
+            url
+          )
+        }
         if (appData.value) {
-          initCanvasData(dvInfo.value.id, 'dataV', () => {
+          initCanvasData(dvInfo.value.id, { busiFlag: 'dataV', resourceTable: 'snapshot' }, () => {
             useEmitt().emitter.emit('refresh-dataset-selector')
             resourceAppOpt.value.close()
             dvMainStore.setAppDataInfo(null)
             useEmitt().emitter.emit('calcData-all')
             snapshotStore.resetSnapshot()
           })
+        }
+        if (checkParams.withPublish) {
+          publishStatusChange(checkParams.status)
+        } else {
+          ElMessage.success(t('commons.save_success'))
         }
       })
     })
@@ -198,7 +233,7 @@ const backToMain = () => {
     url = url + '?dvId=' + dvInfo.value.id
   }
   if (styleChangeTimes.value > 0) {
-    ElMessageBox.confirm('当前的更改尚未保存，确定退出吗？', {
+    ElMessageBox.confirm(t('visualization.change_save_tips'), {
       confirmButtonType: 'primary',
       type: 'warning',
       autofocus: false,
@@ -215,6 +250,7 @@ const isEmbedded = computed(() => appStore.getIsDataEaseBi || appStore.getIsIfra
 
 const backHandler = (url: string) => {
   if (isEmbedded.value) {
+    wsCache.set(`dv-info-id`, dvInfo.value.id)
     embeddedStore.clearState()
     useEmitt().emitter.emit('changeCurrentComponent', 'ScreenPanel')
     return
@@ -232,12 +268,17 @@ const backHandler = (url: string) => {
   }
   dvMainStore.canvasStateChange({ key: 'curPointArea', value: 'base' })
   wsCache.delete('DE-DV-CATCH-' + dvInfo.value.id)
-  window.open(url, '_self')
+  wsCache.set('dv-info-id', dvInfo.value.id)
+  if (!!history.state.back) {
+    history.back()
+  } else {
+    window.open(url, '_self')
+  }
 }
 const openHandler = ref(null)
 
 const onDvNameChange = () => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('onDvNameChange')
 }
 
 const getFullScale = () => {
@@ -245,20 +286,28 @@ const getFullScale = () => {
   return (curWidth * 100) / canvasStyleData.value.width
 }
 const appStore = useAppStoreWithOut()
-const isDataEaseBi = computed(() => appStore.getIsDataEaseBi)
 const multiplexingRef = ref(null)
 
-eventBus.on('preview', preview)
-eventBus.on('save', saveCanvasWithCheck)
-eventBus.on('clearCanvas', clearCanvas)
+onMounted(() => {
+  eventBus.on('preview', preview)
+  eventBus.on('save', saveCanvasWithCheck)
+  eventBus.on('clearCanvas', clearCanvas)
+})
+
+onBeforeUnmount(() => {
+  eventBus.off('preview', preview)
+  eventBus.off('save', saveCanvasWithCheck)
+  eventBus.off('clearCanvas', clearCanvas)
+  dvMainStore.setAppDataInfo(null)
+})
 
 const openOuterParamsSet = () => {
   if (componentData.value.length === 0) {
-    ElMessage.warning('当前仪表板为空，请先添加组件')
+    ElMessage.warning(t('components.add_components_first'))
     return
   }
-  if (!dvInfo.value.id) {
-    ElMessage.warning('请先保存当前页面')
+  if (!dvInfo.value.id || dvInfo.value.dataState === 'prepare') {
+    ElMessage.warning(t('components.current_page_first'))
     return
   }
   //设置需要先触发保存
@@ -271,6 +320,29 @@ const multiplexingCanvasOpen = () => {
   multiplexingRef.value.dialogInit('dataV')
 }
 
+const publishStatusChange = status => {
+  const targetViewIds = []
+  findAllViewsId(componentData.value, targetViewIds)
+  // do update
+  updatePublishStatus({
+    id: dvInfo.value.id,
+    name: dvInfo.value.name,
+    mobileLayout: dvInfo.value.mobileLayout,
+    status,
+    activeViewIds: targetViewIds,
+    type: 'dataV'
+  }).then(() => {
+    dvMainStore.updateDvInfoCall(status)
+    if (status) {
+      ElMessage.success(t('visualization.published_success'))
+      snapshotStore.initSnapShot()
+    } else {
+      ElMessage.success(t('visualization.cancel_publish_tips'))
+    }
+  })
+}
+
+const isIframe = computed(() => appStore.getIsIframe)
 const fullScreenPreview = () => {
   dvMainStore.canvasStateChange({ key: 'curPointArea', value: 'base' })
   fullScreeRef.value.toggleFullscreen()
@@ -290,25 +362,27 @@ const fullScreenPreview = () => {
       </template>
       <template v-else>
         <el-icon class="custom-el-icon back-icon" @click="backToMain()">
-          <Icon name="icon_left_outlined"
-            ><icon_left_outlined class="svg-icon toolbar-icon"
-          /></Icon>
+          <Icon name="icon_left_outlined">
+            <icon_left_outlined class="svg-icon toolbar-icon" />
+          </Icon>
         </el-icon>
         <div class="left-area">
           <span id="dv-canvas-name" class="name-area" @dblclick="editCanvasName">
             {{ dvInfo.name }}
           </span>
           <div class="opt-area">
-            <el-tooltip effect="ndark" :content="$t('visualization.undo')" placement="bottom">
+            <el-tooltip effect="light" :content="$t('visualization.undo')" placement="bottom">
               <el-icon
                 class="toolbar-hover-icon"
                 :class="{ 'toolbar-icon-disabled': snapshotIndex < 1 }"
                 @click="undo()"
               >
-                <Icon name="icon_undo_outlined"><icon_undo_outlined class="svg-icon" /></Icon>
+                <Icon name="icon_undo_outlined">
+                  <icon_undo_outlined class="svg-icon" />
+                </Icon>
               </el-icon>
             </el-tooltip>
-            <el-tooltip effect="ndark" :content="$t('commons.reduction')" placement="bottom">
+            <el-tooltip effect="light" :content="$t('commons.reduction')" placement="bottom">
               <el-icon
                 class="toolbar-hover-icon opt-icon-redo"
                 :class="{
@@ -316,7 +390,9 @@ const fullScreenPreview = () => {
                 }"
                 @click="redo()"
               >
-                <Icon name="icon_redo_outlined"><icon_redo_outlined class="svg-icon" /></Icon>
+                <Icon name="icon_redo_outlined">
+                  <icon_redo_outlined class="svg-icon" />
+                </Icon>
               </el-icon>
             </el-tooltip>
           </div>
@@ -327,7 +403,7 @@ const fullScreenPreview = () => {
             is-label
             :base-width="410"
             :icon-name="dvView"
-            title="图表"
+            :title="t('visualization.view')"
           >
             <user-view-group></user-view-group>
           </component-group>
@@ -336,11 +412,16 @@ const fullScreenPreview = () => {
             :show-split-line="true"
             is-label
             :icon-name="dvFilter"
-            title="查询组件"
+            :title="t('visualization.query_component')"
           >
             <query-group :dv-model="dvModel"></query-group>
           </component-group>
-          <component-group is-label :base-width="215" :icon-name="dvText" title="文本">
+          <component-group
+            is-label
+            :base-width="215"
+            :icon-name="dvText"
+            :title="t('visualization.text_html')"
+          >
             <text-group></text-group>
           </component-group>
           <component-group
@@ -348,14 +429,19 @@ const fullScreenPreview = () => {
             placement="bottom"
             :base-width="328"
             :icon-name="dvMedia"
-            title="媒体"
+            :title="t('visualization.media')"
           >
             <media-group></media-group>
           </component-group>
           <component-group is-label :base-width="115" :icon-name="dvTab" title="Tab">
             <tabs-group :dv-model="dvModel"></tabs-group>
           </component-group>
-          <component-group is-label :base-width="215" :icon-name="dvMoreCom" title="更多">
+          <component-group
+            is-label
+            :base-width="215"
+            :icon-name="dvMoreCom"
+            :title="t('visualization.more')"
+          >
             <more-com-group></more-com-group>
           </component-group>
           <component-group
@@ -363,23 +449,28 @@ const fullScreenPreview = () => {
             :base-width="410"
             :icon-name="dvMaterial"
             :show-split-line="true"
-            title="素材"
+            :title="t('visualization.source_material')"
           >
             <common-group></common-group>
           </component-group>
           <component-button-label
             :icon-name="icon_copy_filled"
-            title="复用"
+            :title="t('visualization.multiplexing')"
             is-label
             @customClick="multiplexingCanvasOpen"
           ></component-button-label>
         </div>
       </template>
       <div class="right-area">
-        <el-tooltip effect="dark" content="外部参数设置" placement="bottom">
+        <el-tooltip
+          effect="dark"
+          :offset="14"
+          :content="t('visualization.external_parameter_settings')"
+          placement="bottom"
+        >
           <component-button
             v-show="editMode === 'edit'"
-            tips="外部参数设置"
+            :tips="t('visualization.external_parameter_settings')"
             @custom-click="openOuterParamsSet"
             :icon-name="icon_params_setting"
           />
@@ -392,10 +483,15 @@ const fullScreenPreview = () => {
           class="preview-button"
           type="primary"
         >
-          编辑
+          {{ t('visualization.edit') }}
         </el-button>
-        <el-button v-else class="preview-button" @click="fullScreenPreview" style="float: right">
-          预览
+        <el-button
+          v-else-if="!isIframe"
+          class="preview-button"
+          @click="fullScreenPreview"
+          style="float: right"
+        >
+          {{ t('visualization.preview') }}
         </el-button>
         <el-button
           @click="saveCanvasWithCheck()"
@@ -403,8 +499,44 @@ const fullScreenPreview = () => {
           style="float: right; margin-right: 12px"
           type="primary"
         >
-          保存
+          {{ t('visualization.save') }}
         </el-button>
+        <el-dropdown
+          :disabled="dvInfo.status === 0"
+          popper-class="menu-outer-dv_popper-toolbar"
+          trigger="hover"
+        >
+          <el-button
+            @click="saveCanvasWithCheck(true, 1)"
+            style="float: right; margin: 0 12px 0 0"
+            type="primary"
+          >
+            {{ t('visualization.publish') }}
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="recoverToPublished" v-if="dvInfo.status === 2">
+                <el-icon class="handle-icon">
+                  <Icon name="icon_left_outlined">
+                    <dv-recover-outlined class="svg-icon toolbar-icon" />
+                  </Icon>
+                </el-icon>
+                {{ t('visualization.publish_recover') }}
+              </el-dropdown-item>
+              <el-dropdown-item
+                @click.stop="publishStatusChange(0)"
+                v-if="[1, 2].includes(dvInfo.status)"
+              >
+                <el-icon class="handle-icon">
+                  <Icon name="icon_left_outlined">
+                    <dv-cancel-publish class="svg-icon toolbar-icon" />
+                  </Icon>
+                </el-icon>
+                {{ t('visualization.cancel_publish') }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </div>
     <Teleport v-if="nameEdit" :to="'#dv-canvas-name'">
@@ -436,7 +568,7 @@ const fullScreenPreview = () => {
   </div>
   <de-fullscreen ref="fullScreeRef" show-position="dvEdit"></de-fullscreen>
   <multiplexing-canvas ref="multiplexingRef"></multiplexing-canvas>
-  <outer-params-set ref="outerParamsSetRef"> </outer-params-set>
+  <outer-params-set ref="outerParamsSetRef"></outer-params-set>
   <XpackComponent ref="openHandler" jsname="L2NvbXBvbmVudC9lbWJlZGRlZC1pZnJhbWUvT3BlbkhhbmRsZXI=" />
 </template>
 
@@ -444,18 +576,21 @@ const fullScreenPreview = () => {
 .toolbar-main {
   position: relative;
 }
+
 .preview-state-head {
   height: 0px !important;
   overflow: hidden;
   padding: 0;
   margin: 0;
 }
+
 .edit-button {
   right: 10px;
   top: 10px;
   position: absolute;
   z-index: 10;
 }
+
 .toolbar {
   height: @top-bar-height;
   white-space: nowrap;
@@ -465,17 +600,20 @@ const fullScreenPreview = () => {
   box-shadow: 0px 2px 4px 0px rgba(31, 35, 41, 0.12);
   display: flex;
   transition: 0.5s;
+
   .back-icon {
     margin-left: 20px;
     margin-top: 22px;
     font-size: 20px;
   }
+
   .left-area {
     margin-top: 8px;
     margin-left: 14px;
     width: 300px;
     display: flex;
     flex-direction: column;
+
     .name-area {
       position: relative;
       line-height: 24px;
@@ -485,6 +623,7 @@ const fullScreenPreview = () => {
       overflow: hidden;
       cursor: pointer;
       color: @dv-canvas-main-font-color;
+
       input {
         position: absolute;
         left: 0;
@@ -493,11 +632,12 @@ const fullScreenPreview = () => {
         background-color: #050e21;
         outline: none;
         border: 1px solid #295acc;
-        border-radius: 4px;
+        border-radius: 6px;
         padding: 0 4px;
         height: 100%;
       }
     }
+
     .opt-area {
       width: 300px;
       text-align: left;
@@ -508,24 +648,28 @@ const fullScreenPreview = () => {
       }
     }
   }
+
   .middle-area {
     flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
   }
+
   .right-area {
     width: 400px;
     display: flex;
     align-items: center;
     justify-content: right;
   }
+
   .custom-el-icon {
     margin-left: 15px;
     color: #ffffff;
     cursor: pointer;
     vertical-align: -0.2em;
   }
+
   .toolbar-icon {
     width: 20px;
     height: 20px;
@@ -536,6 +680,7 @@ const fullScreenPreview = () => {
   border-color: rgba(255, 255, 255, 0.3);
   color: #ffffff;
   background-color: transparent;
+
   &:hover,
   &:focus {
     background-color: #121a2c;
@@ -554,5 +699,26 @@ const fullScreenPreview = () => {
   height: 18px;
   margin-right: 20px;
   margin-left: 10px;
+}
+</style>
+
+<style lang="less">
+.menu-outer-dv_popper-toolbar {
+  border: 1px solid rgba(67, 67, 67, 1) !important;
+  background-color: rgba(41, 41, 41, 1) !important;
+  .ed-dropdown-menu {
+    background-color: rgba(41, 41, 41, 1) !important;
+  }
+  .ed-dropdown-menu__item {
+    color: rgba(235, 235, 235, 1) !important;
+  }
+  .handle-icon {
+    color: rgba(166, 166, 166, 1) !important;
+  }
+
+  .ed-dropdown-menu__item:not(.is-disabled):focus,
+  .ed-dropdown-menu__item:not(.is-disabled):hover {
+    background-color: #444141cc !important;
+  }
 }
 </style>

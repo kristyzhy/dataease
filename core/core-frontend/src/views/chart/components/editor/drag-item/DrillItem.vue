@@ -52,7 +52,8 @@ const emit = defineEmits([
   'onDimensionItemRemove',
   'onCustomSort',
   'onDimensionItemChange',
-  'onNameEdit'
+  'onNameEdit',
+  'editSortPriority'
 ])
 
 const { item } = toRefs(props)
@@ -75,6 +76,9 @@ const clickItem = param => {
       break
     case 'remove':
       removeItem()
+      break
+    case 'sortPriority':
+      emit('editSortPriority')
       break
     default:
       break
@@ -160,13 +164,29 @@ onMounted(() => {
             ></Icon>
           </el-icon>
         </span>
-        <el-tooltip
-          :effect="themes === 'dark' ? 'ndark' : 'dark'"
-          placement="top"
-          :content="item.chartShowName ? item.chartShowName : item.name"
-        >
-          <span class="item-span-style">
+        <el-tooltip :effect="themes || 'dark'" placement="top">
+          <template #content>
+            <table>
+              <tbody>
+                <tr>
+                  <td>{{ t('dataset.field_origin_name') }}</td>
+                  <td>:</td>
+                  <td>{{ item.name }}</td>
+                </tr>
+                <tr>
+                  <td>{{ t('chart.show_name') }}</td>
+                  <td>:</td>
+                  <td>{{ item.chartShowName ? item.chartShowName : item.name }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+          <span
+            class="item-span-style"
+            :class="{ 'sort-status': index !== 0 && item.sort !== 'none' }"
+          >
             <span class="item-name">{{ item.chartShowName ? item.chartShowName : item.name }}</span>
+            <span :data-id="item.id" class="node-id_private"></span>
           </span>
         </el-tooltip>
         <el-icon class="child remove-icon" size="14px">
@@ -269,6 +289,14 @@ onMounted(() => {
               </template>
             </el-dropdown>
           </el-dropdown-item>
+          <!-- <el-dropdown-item
+            v-if="index !== 0"
+            :command="beforeClickItem('sortPriority')"
+            class="menu-item-padding"
+          >
+            <el-icon />
+            <span>{{ t('chart.sort_priority') }}</span>
+          </el-dropdown-item> -->
           <el-dropdown-item class="menu-item-padding" :command="beforeClickItem('rename')">
             <el-icon>
               <icon name="icon_edit_outlined"><icon_edit_outlined class="svg-icon" /></icon>
@@ -304,6 +332,7 @@ onMounted(() => {
   position: relative;
   width: 100%;
   display: block;
+  overflow: hidden;
   .ed-dropdown {
     display: flex;
   }
@@ -316,18 +345,18 @@ onMounted(() => {
 
 .item-axis {
   padding: 1px 8px;
-  margin: 0 3px 2px 3px;
+  margin-bottom: 3px;
   height: 28px;
   line-height: 28px;
   display: flex;
-  border-radius: 4px;
+  border-radius: 6px;
   box-sizing: border-box;
   white-space: nowrap;
   width: 100%;
   justify-content: space-between;
   align-items: center;
   background-color: #3370ff0a;
-  border: 1px solid var(--ed-color-primary);
+  border: 1px solid var(--ed-color-primary) !important;
 }
 
 .item-axis:hover {
@@ -380,9 +409,13 @@ span {
 
 .item-span-style {
   display: flex;
-  max-width: 180px;
+  max-width: 170px;
   color: #1f2329;
   margin-left: 4px;
+
+  &.sort-status {
+    max-width: 150px;
+  }
 
   .item-name {
     flex: 1;
@@ -417,9 +450,18 @@ span {
     background-color: rgba(31, 35, 41, 0.1);
   }
   &.dark-dimension-quota {
+    background-color: #292929;
+    border: 1px solid #434343;
+    :deep(.ed-dropdown-menu__item--divided) {
+      border-color: #ebebeb26;
+    }
     .inner-dropdown-menu {
       color: rgba(235, 235, 235, 1);
     }
+    :deep(.ed-dropdown-menu__item:not(.is-disabled):hover) {
+      background-color: #ebebeb1a;
+    }
+
     :deep(.ed-dropdown-menu__item) {
       color: rgba(235, 235, 235, 1);
     }
@@ -434,7 +476,7 @@ span {
 .remove-icon {
   position: absolute;
   top: 7px;
-  right: 26px;
+  right: 24px;
   cursor: pointer;
   .inner-class {
     font-size: 14px;
@@ -464,7 +506,10 @@ span {
 }
 
 .father:hover .item-span-style {
-  max-width: 150px;
+  max-width: 140px;
+  &.sort-status {
+    max-width: 120px;
+  }
 }
 </style>
 <style lang="less">
@@ -495,6 +540,7 @@ span {
   }
 }
 .dark-dimension-quota {
+  background-color: #292929;
   span {
     color: #ebebeb;
   }

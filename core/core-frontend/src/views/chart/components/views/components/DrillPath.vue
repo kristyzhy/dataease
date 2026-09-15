@@ -1,7 +1,6 @@
 <script lang="tsx" setup>
-import { computed, reactive, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
-import { reverseColor } from '../util/util'
 import { ArrowRight } from '@element-plus/icons-vue'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 const dvMainStore = dvMainStoreWithOut()
@@ -17,60 +16,36 @@ const props = defineProps({
     type: Object,
     required: false,
     default: null
+  },
+  disabled: {
+    type: Boolean,
+    required: false,
+    default: false
   }
 })
 
 const emit = defineEmits(['onDrillJump'])
 
-const state = reactive({
-  textColor: '#bbbfc4'
-})
-
 const textColor = computed(
   () => dvMainStore.canvasStyleData.component.seniorStyleSetting.drillLayerColor
 )
-
-// watch(
-//   [() => props.themeStyle?.backgroundColorSelect, () => props.themeStyle?.color],
-//   () => {
-//     loadThemeStyle()
-//   },
-//   { deep: true }
-// )
 
 const drillJump = index => {
   if (index < props.drillFilters.length) {
     emit('onDrillJump', index)
   }
 }
-const loadThemeStyle = () => {
-  let themeStyle = null
-  if (props.themeStyle) {
-    themeStyle = JSON.parse(JSON.stringify(props.themeStyle))
-    if (themeStyle && themeStyle.commonBackground) {
-      const viewBGColor = themeStyle.commonBackground.color
-      if (viewBGColor !== '#FFFFFF') {
-        const reverseValue = reverseColor(viewBGColor)
-        state.textColor = reverseValue
-      } else {
-        state.textColor = null
-      }
-    }
-    if (themeStyle && themeStyle.backgroundColorSelect) {
-      const panelColor = themeStyle.color
-      if (panelColor !== '#FFFFFF') {
-        const reverseValue = reverseColor(panelColor)
-        state.textColor = reverseValue
-      } else {
-        state.textColor = null
-      }
-    }
-  }
-}
+
+const drillPathVar = computed(() => [{ '--drill-color': textColor.value }])
 </script>
 
 <template>
-  <div v-if="props.drillFilters && props.drillFilters.length > 0" class="drill">
+  <div
+    v-if="props.drillFilters && props.drillFilters.length > 0"
+    class="drill"
+    :style="drillPathVar"
+    :class="{ noClick: disabled }"
+  >
     <el-breadcrumb :separator-icon="ArrowRight" class="drill-style">
       <el-breadcrumb-item class="drill-item" @click="drillJump(0)">
         <span :style="{ color: textColor }">{{ t('commons.all') }}</span>
@@ -110,5 +85,11 @@ const loadThemeStyle = () => {
   z-index: 1;
   height: 20px;
   padding: 0 16px;
+  ::v-deep(.ed-icon) {
+    color: var(--drill-color) !important;
+  }
+}
+.noClick {
+  pointer-events: none; /* 禁止鼠标点击 */
 }
 </style>

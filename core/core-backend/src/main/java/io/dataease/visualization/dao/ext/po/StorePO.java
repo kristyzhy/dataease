@@ -26,4 +26,5 @@ public class StorePO implements Serializable {
 
     private Integer extFlag;
 
+    private Integer extFlag1;
 }

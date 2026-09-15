@@ -2,7 +2,6 @@
   <el-dialog
     ref="enlargeDialog"
     :append-to-body="true"
-    :title="t('visualization.linkage_setting')"
     v-model="dialogShow"
     width="70vw"
     top="10vh"
@@ -12,20 +11,30 @@
       v-if="curComponent && curComponent.actionSelection"
       :action-selection="customLinkageActive"
     ></linkage-set-option>
-    <div v-loading="loading" @keydown.stop @keyup.stop v-if="state.initState" style="height: 550px">
+    <div
+      v-loading="loading"
+      @keydown.stop
+      @keyup.stop
+      v-if="state.initState"
+      style="height: 550px; margin-top: 22px"
+    >
       <el-row style="flex-direction: row">
         <div class="top-area">
-          <span class="top-area-text" style="margin-left: 0">已选图表：</span>
-          <span class="top-area-value">
+          <span class="top-area-text" style="margin-left: 0"
+            >{{ t('visualization.selected_view') }}：</span
+          >
+          <span class="top-area-value view-title-value">
             <Icon class-name="view-type-icon"
               ><component
                 class="svg-icon view-type-icon"
                 :is="iconChartMap[state.curLinkageViewInfo.type]"
               ></component
             ></Icon>
-            {{ state.curLinkageViewInfo.title }}</span
-          >
-          <span class="top-area-text">所用数据集：</span>
+            <span class="top-area-title" :title="state.curLinkageViewInfo.title">
+              {{ state.curLinkageViewInfo.title }}
+            </span>
+          </span>
+          <span class="top-area-text">{{ t('visualization.used_dataset') }}：</span>
           <span class="top-area-value">
             <Icon class-name="view-type-icon" name="dataset-outline"
               ><datasetOutline style="vertical-align: -0.2em" class="svg-icon view-type-icon"
@@ -38,9 +47,10 @@
         <el-row class="preview">
           <el-col :span="8" style="height: 100%; overflow-y: auto">
             <el-row class="tree-head">
-              <span class="head-text">选择图表</span>
+              <span class="head-text">{{ t('visualization.to_select_field') }}</span>
               <span class="head-filter"
-                >仅看已选 <el-switch size="small" v-model="state.showSelected" />
+                >{{ t('visualization.show_selected_only') }}
+                <el-switch size="small" v-model="state.showSelected" />
               </span>
             </el-row>
             <el-row class="tree-dataset-head" v-show="sameDsShow"
@@ -48,13 +58,13 @@
                 ><el-icon class="toggle-icon" @click="() => (toggleSameDs = !toggleSameDs)">
                   <CaretBottom v-show="toggleSameDs" />
                   <CaretRight v-show="!toggleSameDs" /> </el-icon
-                ><span>同数据集</span></span
+                ><span>{{ t('visualization.same_dataset') }}</span></span
               >
               <el-checkbox
                 v-model="sameDatasetComponentCheckAll"
                 :indeterminate="checkAllIsIndeterminate"
                 @change="batchSelectChange"
-                >全选</el-checkbox
+                >{{ t('visualization.select_all') }}</el-checkbox
               ></el-row
             >
             <el-tree
@@ -62,7 +72,7 @@
               class="custom-tree"
               menu
               ref="linkageInfoTree"
-              :empty-text="'暂无可用图表'"
+              :empty-text="t('visualization.no_available_view')"
               :filter-node-method="filterNodeMethod"
               :data="curLinkageTargetViewsInfoSameDs"
               node-key="targetViewId"
@@ -103,7 +113,7 @@
                 ><el-icon class="toggle-icon" @click="() => (toggleDiffDs = !toggleDiffDs)">
                   <CaretBottom v-show="toggleDiffDs" />
                   <CaretRight v-show="!toggleDiffDs" /> </el-icon
-                ><span>不同数据集</span></span
+                ><span>{{ t('visualization.diff_dataset') }}</span></span
               >
             </el-row>
             <el-tree
@@ -111,7 +121,7 @@
               class="custom-tree"
               menu
               ref="linkageInfoTreeDiffDs"
-              :empty-text="'暂无可用图表'"
+              :empty-text="t('visualization.no_available_view')"
               :filter-node-method="filterNodeMethod"
               :data="curLinkageTargetViewsInfoDiffDs"
               node-key="targetViewId"
@@ -147,13 +157,32 @@
                 </span>
               </template>
             </el-tree>
+            <el-row v-show="!sameDsShow && !diffDsShow" class="no-available-chart">
+              {{ t('visualization.no_available_chart') }}
+            </el-row>
           </el-col>
           <el-col :span="16" class="preview-show">
-            <el-row class="content-head">配置图表间的字段关联关系</el-row>
-            <el-row v-if="state.linkageInfo && state.linkageInfo.linkageActive">
+            <el-row class="content-head">{{ t('visualization.linkage_setting_tips1') }}</el-row>
+            <el-row
+              v-if="
+                state.linkageInfo &&
+                state.linkageInfo.linkageActive &&
+                curComponent?.innerType === 'indicator'
+              "
+              style="height: 100%"
+              class="custom-position"
+            >
+              <Icon name="dv-empty"
+                ><dvEmpty style="width: 125px; height: 125px" class="svg-icon"
+              /></Icon>
+              <span style="margin-top: 8px; font-size: 14px">
+                {{ t('visualization.indicator_linkage') }}</span
+              >
+            </el-row>
+            <el-row v-else-if="state.linkageInfo && state.linkageInfo.linkageActive">
               <el-row style="margin-top: 5px">
                 <div style="display: flex" class="inner-content">
-                  <div style="flex: 1">当前图表源字段</div>
+                  <div style="flex: 1">{{ t('visualization.current_chart_source_field') }}</div>
                   <div style="width: 36px"></div>
                   <div style="flex: 1">
                     {{ t('visualization.link_view_field') }}
@@ -170,7 +199,7 @@
                       <div class="select-filed">
                         <el-select
                           v-model="itemLinkage.sourceField"
-                          :placeholder="'请选择字段'"
+                          :placeholder="t('chart.pls_select_field')"
                           style="width: 100%"
                         >
                           <el-option
@@ -205,7 +234,7 @@
                       <div class="select-filed">
                         <el-select
                           v-model="itemLinkage.targetField"
-                          :placeholder="'请选择'"
+                          :placeholder="t('common.selectText')"
                           style="width: 100%"
                         >
                           <el-option
@@ -233,7 +262,7 @@
                     </div>
 
                     <el-button class="m-del-icon-btn" text @click="deleteLinkageField(index)">
-                      <el-icon size="20px">
+                      <el-icon size="16px">
                         <Icon name="icon_delete-trash_outlined"
                           ><icon_deleteTrash_outlined class="svg-icon"
                         /></Icon>
@@ -243,7 +272,7 @@
                 </div>
                 <el-row style="width: 100%; padding-left: 16px">
                   <el-button type="primary" icon="Plus" text @click="addLinkageField('', '')">
-                    追加联动依赖字段
+                    {{ t('visualization.add_linkage_dependency_fields') }}
                   </el-button>
                 </el-row>
               </el-row>
@@ -252,7 +281,9 @@
               <Icon name="dv-empty"
                 ><dvEmpty style="width: 125px; height: 125px" class="svg-icon"
               /></Icon>
-              <span style="margin-top: 8px; font-size: 14px">请先勾选需要联动的图表</span>
+              <span style="margin-top: 8px; font-size: 14px">
+                {{ t('visualization.select_linkage_tips') }}</span
+              >
             </el-row>
           </el-col>
         </el-row>
@@ -357,7 +388,10 @@ const sameDsShow = computed(
 )
 
 const diffDsShow = computed(
-  () => curLinkageTargetViewsInfoDiffDs.value && curLinkageTargetViewsInfoDiffDs.value.length > 0
+  () =>
+    curLinkageTargetViewsInfoDiffDs.value &&
+    curLinkageTargetViewsInfoDiffDs.value.length > 0 &&
+    curComponent.value.innerType !== 'indicator'
 )
 
 const dialogInit = viewItem => {
@@ -377,7 +411,8 @@ const linkageSetting = curViewId => {
     dvId: dvInfo.value.id,
     sourceViewId: curViewId,
     targetViewIds: targetViewIds,
-    linkageInfo: null
+    linkageInfo: null,
+    resourceTable: 'snapshot'
   }
   getViewLinkageGatherArray(requestInfo).then(rsp => {
     // 获取当前仪表板的图表(去掉当前图表)
@@ -476,7 +511,7 @@ const saveLinkageSetting = () => {
   saveLinkage(request)
     .then(() => {
       curComponent.value.actionSelection.linkageActive = customLinkageActive.value.linkageActive
-      snapshotStore.recordSnapshotCache()
+      snapshotStore.recordSnapshotCache('saveLinkageSetting')
       ElMessage.success('保存成功')
       // 刷新联动信息
       getPanelAllLinkageInfo(dvInfo.value.id).then(rsp => {
@@ -541,17 +576,36 @@ const linkageFieldAdaptor = async data => {
       if (state.curLinkageViewInfo.tableId === targetChartDetails.tableId) {
         // 只匹配联动字段为0的 避免已经匹配过的重新匹配
         if (data.linkageFields && data.linkageFields.length === 0) {
+          const isMultiScatter = state.curLinkageViewInfo.type === 'multi-scatter'
           const curCheckAllAxisStr =
             JSON.stringify(state.curLinkageViewInfo.xAxis) +
             JSON.stringify(state.curLinkageViewInfo.xAxisExt) +
+            JSON.stringify(state.curLinkageViewInfo.extStack) +
             (state.curLinkageViewInfo.type.includes('chart-mix')
               ? JSON.stringify(state.curLinkageViewInfo.extBubble)
+              : '') +
+            (['indicator', 'multi-scatter'].includes(state.curLinkageViewInfo.type)
+              ? JSON.stringify(state.curLinkageViewInfo.yAxis)
+              : '') +
+            (isMultiScatter
+              ? JSON.stringify(state.curLinkageViewInfo.extColor || []) +
+                JSON.stringify(state.curLinkageViewInfo.extBubble || []) +
+                JSON.stringify(state.curLinkageViewInfo.yAxisExt || [])
               : '')
           const targetCheckAllAxisStr =
             JSON.stringify(targetChartDetails.xAxis) +
             JSON.stringify(targetChartDetails.xAxisExt) +
+            JSON.stringify(targetChartDetails.extStack) +
             (targetChartDetails.type.includes('chart-mix')
               ? JSON.stringify(targetChartDetails.extBubble)
+              : '') +
+            (['indicator', 'multi-scatter'].includes(state.curLinkageViewInfo.type)
+              ? JSON.stringify(state.curLinkageViewInfo.yAxis)
+              : '') +
+            (isMultiScatter
+              ? JSON.stringify(state.curLinkageViewInfo.extColor || []) +
+                JSON.stringify(state.curLinkageViewInfo.extBubble || []) +
+                JSON.stringify(state.curLinkageViewInfo.yAxisExt || [])
               : '')
           state.sourceLinkageInfo.targetViewFields.forEach(item => {
             if (
@@ -572,15 +626,22 @@ const linkageFieldAdaptor = async data => {
 
 const sourceLinkageInfoFilter = computed(() => {
   if (state.sourceLinkageInfo.targetViewFields) {
+    const isMultiScatter = state.curLinkageViewInfo.type === 'multi-scatter'
     const curCheckAllAxisStr =
       JSON.stringify(state.curLinkageViewInfo.xAxis) +
       JSON.stringify(state.curLinkageViewInfo.drillFields) +
       JSON.stringify(state.curLinkageViewInfo.xAxisExt) +
+      JSON.stringify(state.curLinkageViewInfo.extStack) +
       (state.curLinkageViewInfo.type.includes('chart-mix')
         ? JSON.stringify(state.curLinkageViewInfo.extBubble)
         : '') +
-      (state.curLinkageViewInfo.type.includes('table-normal')
+      (['table-normal', 'indicator', 'multi-scatter'].includes(state.curLinkageViewInfo.type)
         ? JSON.stringify(state.curLinkageViewInfo.yAxis)
+        : '') +
+      (isMultiScatter
+        ? JSON.stringify(state.curLinkageViewInfo.extColor || []) +
+          JSON.stringify(state.curLinkageViewInfo.extBubble || []) +
+          JSON.stringify(state.curLinkageViewInfo.yAxisExt || [])
         : '')
     return state.sourceLinkageInfo.targetViewFields.filter(item =>
       curCheckAllAxisStr.includes(item.id)
@@ -635,7 +696,7 @@ defineExpose({
 .preview {
   margin-top: 5px;
   border: 1px solid #e6e6e6;
-  border-radius: 4px;
+  border-radius: 6px;
   height: 470px !important;
   overflow: hidden;
   background-size: 100% 100% !important;
@@ -832,6 +893,8 @@ span {
   display: flex;
   flex-direction: row;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .top-area-text {
@@ -848,6 +911,19 @@ span {
   display: flex;
   flex-direction: row;
   align-items: center;
+}
+
+/* 长标题单行省略，避免撑高弹窗 */
+.view-title-value {
+  flex: 1;
+  min-width: 0;
+}
+
+.top-area-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .view-type-icon {
   color: var(--ed-color-primary);
@@ -878,13 +954,13 @@ span {
 
 .outer-content {
   height: 340px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .padding-lr {
   height: 500px;
   border: 1px solid var(--deCardStrokeColor, #dee0e3);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 12px;
   box-sizing: border-box;
   margin-left: 12px;
@@ -915,8 +991,8 @@ span {
   color: var(--deTextDisable);
 }
 .outer-content-mirror {
-  border: 1px solid #bbbfc4;
-  border-radius: 4px;
+  border: 1px solid #d9dcdf;
+  border-radius: 6px;
   height: 100%;
   overflow: hidden;
 }
@@ -933,7 +1009,6 @@ span {
 }
 
 .custom-tree {
-  max-height: 100%;
   overflow-y: auto;
 }
 .m-del-icon-btn {
@@ -974,6 +1049,14 @@ span {
 
 .tree-dataset-head-top {
   border-top: 1px solid rgba(31, 35, 41, 0.15);
+}
+
+.no-available-chart {
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #8f959e;
 }
 
 .toggle-icon {

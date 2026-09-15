@@ -1,7 +1,7 @@
 import type { FunnelOptions, Funnel as G2Funnel } from '@antv/g2plot/esm/plots/funnel'
 import { G2PlotChartView, G2PlotDrawOptions } from '../../types/impl/g2plot'
 import { flow, parseJson, setUpSingleDimensionSeriesColor } from '@/views/chart/components/js/util'
-import { getPadding } from '../../common/common_antv'
+import { configPlotTooltipEvent, getPadding } from '../../common/common_antv'
 import { useI18n } from '@/hooks/web/useI18n'
 import { Datum } from '@antv/g2plot/esm/types/common'
 import { valueFormatter } from '@/views/chart/components/js/formatter'
@@ -95,8 +95,8 @@ export class Funnel extends G2PlotChartView<FunnelOptions, G2Funnel> {
         {
           type: 'tooltip',
           cfg: {
-            start: [{ trigger: 'interval:mousemove', action: 'tooltip:show' }],
-            end: [{ trigger: 'interval:mouseleave', action: 'tooltip:hide' }]
+            start: [{ trigger: 'plot:mousemove', action: 'tooltip:show' }],
+            end: [{ trigger: 'plot:mouseleave', action: 'tooltip:hide' }]
           }
         }
       ],
@@ -110,6 +110,7 @@ export class Funnel extends G2PlotChartView<FunnelOptions, G2Funnel> {
     const { Funnel: G2Funnel } = await import('@antv/g2plot/esm/plots/funnel')
     const newChart = new G2Funnel(container, options)
     newChart.on('interval:click', action)
+    configPlotTooltipEvent(chart, newChart)
     return newChart
   }
 
@@ -136,6 +137,10 @@ export class Funnel extends G2PlotChartView<FunnelOptions, G2Funnel> {
               fontSize: l.fontSize
             },
             formatter: function (param: Datum) {
+              // G2Plot 不渲染 null 标签，显式保留空值文本
+              if (param.value === null) {
+                return 'null'
+              }
               return valueFormatter(param.value, l.quotaLabelFormatter)
             }
           }
@@ -175,6 +180,21 @@ export class Funnel extends G2PlotChartView<FunnelOptions, G2Funnel> {
     return options
   }
 
+  protected configMultiSeriesTooltip(chart: Chart, options: FunnelOptions): FunnelOptions {
+    const result = super.configMultiSeriesTooltip(chart, options)
+    if (result.tooltip && result.tooltip.customItems) {
+      // 按维度区域查找数据，使零宽漏斗也能触发 tooltip
+      result.tooltip.shared = true
+      const customItems = result.tooltip.customItems
+      result.tooltip.customItems = originalItems => {
+        return customItems(originalItems).map(item =>
+          item.data?.value === null ? { ...item, value: 'null' } : item
+        )
+      }
+    }
+    return result
+  }
+
   public setupSeriesColor(chart: ChartObj, data?: any[]): ChartBasicStyle['seriesColor'] {
     return setUpSingleDimensionSeriesColor(chart, data)
   }
@@ -200,7 +220,7 @@ export class Funnel extends G2PlotChartView<FunnelOptions, G2Funnel> {
       conversionTag: {
         show: false,
         precision: 2,
-        text: '转化率'
+        text: t('chart.conversion_rate')
       }
     }
     const { legend } = customStyle

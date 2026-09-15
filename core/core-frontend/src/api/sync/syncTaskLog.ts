@@ -8,7 +8,7 @@ export const getTaskLogListApi = (current: number, size: number, data: any) => {
 }
 
 export const removeApi = (logId: string) => {
-  return request.delete({ url: `/sync/task/log/delete/${logId}` })
+  return request.post({ url: `/sync/task/log/delete/${logId}` })
 }
 
 export const getTaskLogDetailApi = (logId: string, fromLineNum: number) => {

@@ -14,18 +14,18 @@ public class MybatisPlusGenerator {
      * 第一 我嫌麻烦
      * 第二 后面配置会放到nacos读起来更麻烦了
      */
-    private static final String url = "jdbc:mysql://localhost:3306/dataease?autoReconnect=false&useUnicode=true&characterEncoding=UTF-8&characterSetResults=UTF-8&zeroDateTimeBehavior=convertToNull&useSSL=false";
+    private static final String url = "jdbc:mariadb://localhost:3306/dataease?autoReconnect=false&useUnicode=true&characterEncoding=UTF-8&characterSetResults=UTF-8&zeroDateTimeBehavior=convertToNull&useSSL=false";
     private static final String username = "root";
     private static final String password = "123456";
 
     /**
      * 业务模块例如datasource,dataset,panel等
      */
-    private static final String busi = "chart";
+    private static final String busi = "visualization";
     /**
      * 这是要生成代码的表名称
      */
-    private static final String TABLE_NAME = "core_chart_view";
+    private static final String TABLE_NAME = "snapshot_visualization_outer_params";
 
     /**
      * 下面两个配置基本上不用动
@@ -33,7 +33,6 @@ public class MybatisPlusGenerator {
     private static final String codeDir = "src/main/java/";
 
     private static final String AUTO_DAO = ".dao.auto";
-
 
     public static void main(String[] args) throws Exception{
 

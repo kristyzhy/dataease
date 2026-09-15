@@ -48,8 +48,19 @@ INSERT INTO `core_copilot_config` VALUES (1, 'https://copilot.dataease.cn', 'xla
 
 UPDATE `core_sys_setting` SET `pkey` = 'ai.baseUrl', `pval` = 'https://maxkb.fit2cloud.com/ui/chat/2ddd8b594ce09dbb?mode=embed', `type` = 'text', `sort` = 0 WHERE `id` = 3;
 
+DROP TABLE IF EXISTS `core_api_traffic`;
+CREATE TABLE `core_api_traffic`
+(
+    `id`        bigint       NOT NULL COMMENT 'ID',
+    `api`       varchar(255) NOT NULL COMMENT 'api',
+    `threshold` int          NOT NULL DEFAULT '2' COMMENT '阈值',
+    `alive`     int          NOT NULL DEFAULT '0' COMMENT '活动并发',
+    PRIMARY KEY (`id`)
+);
+
 ALTER TABLE `visualization_template`
-    MODIFY COLUMN `node_type` varchar(255) NULL DEFAULT NULL COMMENT '节点类型  app or template 应用 或者 模板' AFTER `dv_type`,
+    MODIFY COLUMN `node_type` varchar(255) NULL DEFAULT NULL COMMENT '节点类型  app or template 应用 或者 模板';
+ALTER TABLE `visualization_template`
     ADD COLUMN `app_data` longtext NULL COMMENT 'app数据' AFTER `dynamic_data`;
 
 INSERT INTO `core_sys_setting` (`id`, `pkey`, `pval`, `type`, `sort`) VALUES (10, 'basic.exportFileLiveTime', '30', 'text', 2);

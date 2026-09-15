@@ -14,6 +14,7 @@ import {
   onBeforeUnmount,
   nextTick
 } from 'vue'
+import { fieldType as fieldTypeLowercase } from '@/utils/attr'
 import { ElMessage, ElMessageBox } from 'element-plus-secondary'
 import { save, update } from '@/api/datasource'
 import type { Action } from 'element-plus-secondary'
@@ -24,6 +25,7 @@ import { cloneDeep, debounce } from 'lodash-es'
 import { uploadFile } from '@/api/datasource'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import { iconFieldMap } from '@/components/icon-group/field-list'
+import { boolean } from 'mathjs'
 
 export interface Param {
   editType: number
@@ -34,6 +36,7 @@ export interface Param {
   creator?: string
   isPlugin?: boolean
   staticMap?: any
+  configuration?: {}
 }
 
 export interface Field {
@@ -42,6 +45,10 @@ export interface Field {
   fieldSize: number
   fieldType: string
   name: string
+  deExtractType: number
+  checked: boolean
+  primaryKey: boolean
+  length: number
 }
 const props = defineProps({
   param: {
@@ -62,16 +69,22 @@ const props = defineProps({
       })
     },
     type: Object
+  },
+  isSupportSetKey: {
+    type: boolean,
+    required: true
   }
 })
 
-const { param } = toRefs(props)
+const { param, isSupportSetKey } = toRefs(props)
 
 const { t } = useI18n()
 const { emitter } = useEmitt()
 
 const loading = ref(false)
 const columns = shallowRef([])
+const multipleSelection = shallowRef([])
+const multipleTable = ref()
 
 const defaultSheetObj = {
   tableName: ' ',
@@ -108,12 +121,22 @@ const fieldType = {
   DOUBLE: 'value'
 }
 
+const fieldTypeToStr = {
+  0: 'TEXT',
+  2: 'LONG',
+  3: 'DOUBLE'
+}
+
 const generateColumns = (arr: Field[]) =>
   arr.map(ele => ({
     key: ele.originName,
     fieldType: ele.fieldType,
+    deExtractType: ele.deExtractType,
     dataKey: ele.originName,
     title: ele.name,
+    checked: ele.checked,
+    primaryKey: ele.primaryKey,
+    length: ele.length,
     width: 150,
     headerCellRenderer: ({ column }) => (
       <div class="flex-align-center icon">
@@ -135,6 +158,8 @@ const handleNodeClick = data => {
   if (data.sheet) {
     Object.assign(sheetObj, data)
     columns.value = generateColumns(data.fields)
+    multipleSelection.value = columns.value.filter(item => item.checked)
+    currentMode.value = 'preview'
   }
 }
 
@@ -167,6 +192,9 @@ const handleExcelDel = () => {
 }
 
 const uploadSuccess = response => {
+  if (!response) {
+    return
+  }
   if (response?.code !== 0) {
     state.excelData = []
     activeTab.value = ''
@@ -175,15 +203,19 @@ const uploadSuccess = response => {
     ElMessage.warning(response.msg)
     return
   }
+  columns.value = []
+  Object.assign(sheetObj, cloneDeep(defaultSheetObj))
+  multipleSelection.value = []
   uploading.value = false
   if (!param.value.name) {
     param.value.name = response.data.excelLabel
   }
   tabList.value = response.data.sheets.map(ele => {
-    const { sheetId, tableName } = ele
+    const { sheetId, tableName, newSheet } = ele
     return {
       value: sheetId,
-      label: tableName
+      label: tableName,
+      newSheet: newSheet
     }
   })
   state.excelData = [response.data]
@@ -206,6 +238,33 @@ const saveExcelDs = (params, successCb, finallyCb) => {
       if (selectNode[i].changeFiled) {
         changeFiled = true
       }
+      if (selectNode[i].fields.filter(field => field.checked).length == 0) {
+        ElMessage({
+          message: selectNode[i].excelLabel + t('datasource.api_field_not_empty'),
+          type: 'error'
+        })
+        finallyCb?.()
+        return
+      }
+      for (let j = 0; j < selectNode[i].fields.length; j++) {
+        if (
+          selectNode[i].fields[j].checked &&
+          selectNode[i].fields[j].primaryKey &&
+          !selectNode[i].fields[j].length &&
+          selectNode[i].fields[j].deExtractType === 0
+        ) {
+          ElMessage({
+            message:
+              t('datasource.primary_key_length') +
+              selectNode[i].excelLabel +
+              ': ' +
+              selectNode[i].fields[j].name,
+            type: 'error'
+          })
+          finallyCb?.()
+          return
+        }
+      }
       selectedSheet.push(selectNode[i])
       sheetFileMd5.push(selectNode[i].fieldsMd5)
     }
@@ -215,9 +274,11 @@ const saveExcelDs = (params, successCb, finallyCb) => {
       message: t('dataset.ple_select_excel'),
       type: 'error'
     })
+    finallyCb?.()
     return
   }
   if (!validate) {
+    finallyCb?.()
     return
   }
 
@@ -276,68 +337,21 @@ const saveExcelData = (sheetFileMd5, table, params, successCb, finallyCb) => {
   } else {
     method = update
   }
-  if (new Set(sheetFileMd5).size !== sheetFileMd5.length && !props.param.id) {
-    ElMessageBox.confirm(t('dataset.merge_title'), {
-      confirmButtonText: t('dataset.merge'),
-      tip: t('dataset.task.excel_replace_msg'),
-      cancelButtonText: t('dataset.no_merge'),
-      confirmButtonType: 'primary',
-      type: 'warning',
-      autofocus: false,
-      callback: (action: Action) => {
-        if (action === 'close') return
-        loading.value = true
-        table.mergeSheet = action === 'confirm'
-        if (action === 'confirm') {
-          method(table)
-            .then(res => {
-              emitter.emit('showFinishPage', res)
-              successCb?.()
-              ElMessage({
-                message: t('commons.save_success'),
-                type: 'success'
-              })
-            })
-            .finally(() => {
-              finallyCb?.()
-              loading.value = false
-            })
-        }
-
-        if (action === 'cancel') {
-          method(table)
-            .then(res => {
-              emitter.emit('showFinishPage', res)
-              successCb?.()
-              ElMessage({
-                message: t('commons.save_success'),
-                type: 'success'
-              })
-            })
-            .finally(() => {
-              finallyCb?.()
-              loading.value = false
-            })
-        }
-      }
+  if (loading.value) return
+  loading.value = true
+  method(table)
+    .then(res => {
+      emitter.emit('showFinishPage', res)
+      successCb?.()
+      ElMessage({
+        message: t('commons.save_success'),
+        type: 'success'
+      })
     })
-  } else {
-    if (loading.value) return
-    loading.value = true
-    method(table)
-      .then(res => {
-        emitter.emit('showFinishPage', res)
-        successCb?.()
-        ElMessage({
-          message: t('commons.save_success'),
-          type: 'success'
-        })
-      })
-      .finally(() => {
-        finallyCb?.()
-        loading.value = false
-      })
-  }
+    .finally(() => {
+      finallyCb?.()
+      loading.value = false
+    })
 }
 
 const onChange = file => {
@@ -349,6 +363,17 @@ const handleResize = debounce(() => {
   isResize.value = false
   nextTick(() => {
     isResize.value = true
+    if (currentMode.value === 'select') {
+      nextTick(() => {
+        initMultipleTable.value = true
+        for (let i = 0; i < columns.value.length; i++) {
+          if (columns.value[i].checked) {
+            multipleTable?.value?.toggleRowSelection(columns.value[i], true)
+          }
+        }
+        initMultipleTable.value = false
+      })
+    }
   })
 }, 500)
 onMounted(() => {
@@ -404,6 +429,110 @@ const appendReplaceExcel = response => {
 }
 
 const status = ref(false)
+const initMultipleTable = ref(false)
+const currentMode = ref('preview')
+
+const deExtractTypeChange = item => {
+  item.deType = item.deExtractType
+  const sheet = state.excelData[0]?.sheets.find(ele => ele.sheetId === activeTab.value)
+  sheet.fields.forEach(row => {
+    if (row.originName === item.dataKey) {
+      row.deExtractType = item.deExtractType
+      row.deType = item.deExtractType
+      row.fieldType = fieldTypeToStr[item.deExtractType]
+    }
+  })
+}
+
+const lengthChange = val => {
+  const sheet = state.excelData[0]?.sheets.find(ele => ele.sheetId === activeTab.value)
+  sheet.fields.forEach(row => {
+    if (row.originName === val.dataKey) {
+      row.length = val.length
+    }
+  })
+}
+const primaryKeyChange = val => {
+  const sheet = state.excelData[0]?.sheets.find(ele => ele.sheetId === activeTab.value)
+  sheet.fields.forEach(row => {
+    if (row.originName === val.dataKey) {
+      row.primaryKey = val.primaryKey
+    }
+  })
+}
+
+const fieldOptions = [
+  { label: t('dataset.text'), value: 0 },
+  { label: t('dataset.value'), value: 2 },
+  {
+    label: t('dataset.value') + '(' + t('dataset.float') + ')',
+    value: 3
+  }
+]
+
+const handleSelectionChange = val => {
+  if (!initMultipleTable.value) {
+    multipleSelection.value = val
+    multipleSelection.value.forEach(row => {
+      row.checked = true
+    })
+    columns.value.forEach(row => {
+      let item
+      for (let i = 0; i < multipleSelection.value.length; i++) {
+        if (row.dataKey === multipleSelection.value[i].dataKey) {
+          item = multipleSelection.value[i]
+        }
+      }
+      if (item) {
+        row.checked = item.checked
+      } else {
+        row.checked = false
+      }
+    })
+
+    const sheet = state.excelData[0]?.sheets.find(ele => ele.sheetId === activeTab.value)
+    sheet.fields.forEach(row => {
+      let item
+      for (let i = 0; i < multipleSelection.value.length; i++) {
+        if (row.originName === multipleSelection.value[i].dataKey) {
+          item = multipleSelection.value[i]
+        }
+      }
+      if (item) {
+        row.checked = item.checked
+      } else {
+        row.checked = false
+      }
+    })
+  }
+}
+
+const disabledFieldLength = item => {
+  if (!item.checked) {
+    return true
+  }
+  if (item.deExtractType !== 0) {
+    return true
+  }
+}
+
+const changeCurrentMode = val => {
+  currentMode.value = val
+  if (val === 'select') {
+    nextTick(() => {
+      initMultipleTable.value = true
+      for (let i = 0; i < columns.value.length; i++) {
+        if (columns.value[i].checked) {
+          multipleTable?.value?.toggleRowSelection(columns.value[i], true)
+        }
+      }
+      initMultipleTable.value = false
+    })
+  } else {
+    const sheet = state.excelData[0]?.sheets.find(ele => ele.sheetId === activeTab.value)
+    handleNodeClick(sheet)
+  }
+}
 
 const uploadStatus = val => {
   status.value = val
@@ -506,14 +635,31 @@ defineExpose({
           :rules="[
             {
               required: true,
-              message: t('common.please_input') + t('datasource.datasource') + t('common.name')
+              message:
+                t('common.please_input') +
+                t('common.empty') +
+                t('datasource.datasource') +
+                t('common.empty') +
+                t('common.name')
             }
           ]"
-          :label="t('visualization.custom') + t('datasource.datasource') + t('common.name')"
+          :label="
+            t('visualization.custom') +
+            t('common.empty') +
+            t('datasource.datasource') +
+            t('common.empty') +
+            t('common.name')
+          "
         >
           <el-input
             v-model="param.name"
-            :placeholder="t('common.please_input') + t('datasource.datasource') + t('common.name')"
+            :placeholder="
+              t('common.please_input') +
+              t('common.empty') +
+              t('datasource.datasource') +
+              t('common.empty') +
+              t('common.name')
+            "
           />
         </el-form-item>
       </el-form>
@@ -527,11 +673,33 @@ defineExpose({
           :tab-list="tabList"
         ></SheetTabs>
 
-        <div class="info-table" v-if="isResize">
-          <el-auto-resizer>
+        <div class="table-select_mode" v-if="param.editType === 0">
+          <div class="btn-select">
+            <el-button
+              @click="changeCurrentMode('preview')"
+              :class="[currentMode === 'preview' && 'is-active']"
+              text
+            >
+              {{ t('chart.data_preview') }}
+            </el-button>
+            <el-button
+              @click="changeCurrentMode('select')"
+              :class="[currentMode === 'select' && 'is-active']"
+              text
+            >
+              {{ t('data_set.field_selection') }}
+            </el-button>
+          </div>
+        </div>
+        <div
+          class="info-table"
+          :class="param.editType === 0 && 'info-table_height'"
+          v-if="isResize"
+        >
+          <el-auto-resizer v-if="currentMode === 'preview'">
             <template #default="{ height, width }">
               <el-table-v2
-                :columns="columns"
+                :columns="multipleSelection"
                 header-class="excel-header-cell"
                 :data="sheetObj.jsonArray"
                 :width="width"
@@ -540,6 +708,101 @@ defineExpose({
               />
             </template>
           </el-auto-resizer>
+          <el-table
+            header-class="header-cell"
+            v-else
+            ref="multipleTable"
+            :data="columns"
+            style="width: 100%"
+            @selection-change="handleSelectionChange"
+          >
+            <el-table-column type="selection" width="55" />
+            <el-table-column :label="t('data_set.field_name')">
+              <template #default="scope">{{ scope.row.title }}</template>
+            </el-table-column>
+
+            <el-table-column prop="deExtractType" :label="t('datasource.field_type')">
+              <template #default="scope">
+                <el-select
+                  v-model="scope.row.deExtractType"
+                  class="select-type"
+                  style="display: inline-block; width: 120px"
+                  @change="deExtractTypeChange(scope.row)"
+                >
+                  <template #prefix>
+                    <el-icon>
+                      <Icon :className="`field-icon-${fieldTypeLowercase[scope.row.deExtractType]}`"
+                        ><component
+                          class="svg-icon"
+                          :class="`field-icon-${fieldTypeLowercase[scope.row.deExtractType]}`"
+                          :is="iconFieldMap[fieldTypeLowercase[scope.row.deExtractType]]"
+                        ></component
+                      ></Icon>
+                    </el-icon>
+                  </template>
+                  <el-option
+                    v-for="item in fieldOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  >
+                    <span style="float: left">
+                      <el-icon>
+                        <Icon :className="`field-icon-${fieldTypeLowercase[item.value]}`"
+                          ><component
+                            class="svg-icon"
+                            :class="`field-icon-${fieldTypeLowercase[item.value]}`"
+                            :is="iconFieldMap[fieldTypeLowercase[item.value]]"
+                          ></component
+                        ></Icon>
+                      </el-icon>
+                    </span>
+                    <span style="float: left; font-size: 12px; color: #8492a6">{{
+                      item.label
+                    }}</span>
+                  </el-option>
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="length"
+              :label="t('datasource.length')"
+              v-if="param.editType === 0"
+            >
+              <template #default="scope">
+                <el-input-number
+                  :disabled="disabledFieldLength(scope.row)"
+                  v-model="scope.row.length"
+                  autocomplete="off"
+                  step-strictly
+                  class="text-left edit-all-line"
+                  :min="1"
+                  :max="512"
+                  :placeholder="t('common.inputText')"
+                  controls-position="right"
+                  type="number"
+                  @change="lengthChange(scope.row)"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="primaryKey"
+              class-name="checkbox-table"
+              :label="t('datasource.set_key')"
+              width="100"
+              v-if="param.editType === 0 && isSupportSetKey"
+            >
+              <template #default="scope">
+                <el-checkbox
+                  :key="scope.row.dataKey"
+                  v-model="scope.row.primaryKey"
+                  :disabled="!scope.row.checked"
+                  @change="primaryKeyChange(scope.row)"
+                >
+                </el-checkbox>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
       </template>
     </div>
@@ -556,6 +819,41 @@ defineExpose({
     margin-bottom: 16px;
   }
 
+  .table-select_mode {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f5f6f7;
+    padding: 16px;
+    .btn-select {
+      min-width: 164px;
+      padding: 0 6px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      border: 1px solid #d9dcdf;
+      border-radius: 6px;
+
+      .is-active {
+        background: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
+      }
+
+      .ed-button:not(.is-active) {
+        color: #1f2329;
+      }
+      .ed-button.is-text {
+        height: 24px;
+        min-width: 74px;
+        line-height: 24px;
+      }
+      .ed-button + .ed-button {
+        margin-left: 4px;
+      }
+    }
+  }
+
   .detail-operate {
     height: 56px;
     padding: 16px 24px;
@@ -568,6 +866,7 @@ defineExpose({
     width: 800px;
     padding-top: 16px;
     height: calc(100vh - 280px);
+    min-height: 700px;
 
     .dropdown-icon {
       .down-outlined {
@@ -601,7 +900,13 @@ defineExpose({
 
     .info-table {
       width: 100%;
-      height: calc(100% - 315px);
+      height: calc(100% - 200px);
+      .ed-select--light .ed-select__prefix:after {
+        display: none;
+      }
+      &.info-table_height {
+        height: calc(100% - 379px);
+      }
     }
   }
 }

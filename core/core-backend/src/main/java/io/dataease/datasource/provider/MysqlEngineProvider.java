@@ -1,23 +1,19 @@
 package io.dataease.datasource.provider;
 
-
 import io.dataease.dataset.utils.TableUtils;
 import io.dataease.datasource.dao.auto.entity.CoreDeEngine;
-import io.dataease.datasource.request.EngineRequest;
-import io.dataease.datasource.type.Mysql;
-import io.dataease.extensions.datasource.dto.ConnectionObj;
-import io.dataease.extensions.datasource.dto.DatasourceDTO;
+import io.dataease.datasource.server.DatasourceServer;
+import io.dataease.engine.utils.Utils;
 import io.dataease.extensions.datasource.dto.TableField;
 import io.dataease.extensions.datasource.vo.DatasourceConfiguration;
-import io.dataease.utils.BeanUtils;
-import io.dataease.utils.JsonUtil;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
-import java.sql.PreparedStatement;
-import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * @Author gin
@@ -30,33 +26,61 @@ public class MysqlEngineProvider extends EngineProvider {
             "CREATE TABLE IF NOT EXISTS `TABLE_NAME`" +
                     "Column_Fields;";
 
-
     @Override
     public String createView(String name, String viewSQL) {
+        validateSqlInjectionRisk(name);
         return "CREATE or replace view " + name + " AS (" + viewSQL + ")";
     }
 
     @Override
-    public String insertSql(String name, List<String[]> dataList, int page, int pageNumber) {
-        String insertSql = "INSERT INTO `TABLE_NAME` VALUES ".replace("TABLE_NAME", name);
+    public String insertSql(String dsType, String tableName, DatasourceServer.UpdateType extractType, List<String[]> dataList, int page, int pageNumber, List<TableField> tableFields) {
+        String engineTableName;
+        switch (extractType) {
+            case all_scope:
+                engineTableName = TableUtils.tmpName(TableUtils.tableName(tableName));
+                break;
+            default:
+                engineTableName = TableUtils.tableName(tableName);
+                break;
+        }
+
+        String insertSql = "INSERT INTO `TABLE_NAME` VALUES ".replace("TABLE_NAME", engineTableName);
         StringBuffer values = new StringBuffer();
 
         Integer realSize = page * pageNumber < dataList.size() ? page * pageNumber : dataList.size();
         for (String[] strings : dataList.subList((page - 1) * pageNumber, realSize)) {
-            String[] strings1 = new String[strings.length];
+            int length = 0;
+            String[] strings1 = new String[tableFields.stream().filter(TableField::isChecked).toList().size()];
             for (int i = 0; i < strings.length; i++) {
-                if (StringUtils.isEmpty(strings[i])) {
-                    strings1[i] = null;
-                } else {
-                    strings1[i] = strings[i].replace("\\", "\\\\").replace("'", "\\'");
+                if (tableFields.get(i).isChecked()) {
+                    if (StringUtils.isEmpty(strings[i])) {
+                        String type = tableFields.get(i).getType() == null ? tableFields.get(i).getFieldType() : tableFields.get(i).getType();
+                        strings1[length] = null;
+                    } else {
+                        strings1[length] = strings[i].replace("\\", "\\\\").replace("'", "\\'");
+                    }
+                    length++;
                 }
             }
             values.append("('").append(String.join("','", Arrays.asList(strings1)))
                     .append("'),");
         }
-        return (insertSql + values.substring(0, values.length() - 1)).replaceAll("'null'", "null");
-    }
+        String insetSql = (insertSql + values.substring(0, values.length() - 1)).replaceAll("'null'", "null");
+        if (dsType.contains(DatasourceConfiguration.DatasourceType.API.name())) {
+            List<TableField> keys = tableFields.stream().filter(tableField -> tableField.isPrimaryKey() && tableField.isChecked()).toList();
+            List<TableField> notKeys = tableFields.stream().filter(tableField -> tableField.isChecked() && !tableField.isPrimaryKey()).toList();
+            if (CollectionUtils.isNotEmpty(keys) && extractType.equals(DatasourceServer.UpdateType.add_scope)) {
+                insetSql = insetSql + " ON DUPLICATE KEY UPDATE ";
+                List<String> updateColumes = new ArrayList<>();
+                for (TableField notKey : notKeys) {
+                    updateColumes.add("column = VALUES(column)".replace("column", notKey.getName()));
+                }
+                insetSql = insetSql + updateColumes.stream().collect(Collectors.joining(","));
+            }
+        }
 
+        return insetSql;
+    }
 
     @Override
     public String dropTable(String name) {
@@ -78,39 +102,57 @@ public class MysqlEngineProvider extends EngineProvider {
 
     @Override
     public String createTableSql(String tableName, List<TableField> tableFields, CoreDeEngine engine) {
+        validateSqlInjectionRisk(tableName);
         String dorisTableColumnSql = createTableSql(tableFields);
         return creatTableSql.replace("TABLE_NAME", tableName).replace("Column_Fields", dorisTableColumnSql);
     }
 
     private String createTableSql(final List<TableField> tableFields) {
-        StringBuilder Column_Fields = new StringBuilder("`");
+        StringBuilder columnFields = new StringBuilder("`");
+        StringBuilder key = new StringBuilder();
         for (TableField tableField : tableFields) {
-            Column_Fields.append(tableField.getName()).append("` ");
+            if (!tableField.isChecked()) {
+                continue;
+            }
+            if (tableField.isPrimaryKey()) {
+                key.append("`").append(tableField.getName()).append("`, ");
+            }
+            columnFields.append(tableField.getName()).append("` ");
             int size = tableField.getPrecision() * 4;
             switch (tableField.getDeExtractType()) {
                 case 0:
-                    Column_Fields.append("longtext").append(",`");
+                    if (StringUtils.isNotEmpty(tableField.getLength())) {
+                        columnFields.append("varchar(length)".replace("length", tableField.getLength())).append(",`");
+                    } else {
+                        columnFields.append("longtext").append(",`");
+                    }
                     break;
                 case 1:
-                    Column_Fields.append("datetime").append(",`");
+                    columnFields.append("datetime").append(",`");
                     break;
                 case 2:
-                    Column_Fields.append("bigint(20)").append(",`");
+                    columnFields.append("bigint(20)").append(",`");
                     break;
                 case 3:
-                    Column_Fields.append("decimal(27,8)").append(",`");
+                    columnFields.append("decimal(27,8)").append(",`");
                     break;
                 case 4:
-                    Column_Fields.append("TINYINT(length)".replace("length", String.valueOf(tableField.getPrecision()))).append(",`");
+                    columnFields.append("TINYINT(length)".replace("length", String.valueOf(tableField.getPrecision()))).append(",`");
                     break;
                 default:
-                    Column_Fields.append("longtext").append(",`");
+                    columnFields.append("longtext").append(",`");
                     break;
             }
         }
+        if (StringUtils.isEmpty(key.toString())) {
+            columnFields = new StringBuilder(columnFields.substring(0, columnFields.length() - 2));
+        } else {
+            key = new StringBuilder(key.substring(0, key.length() - 2));
+            columnFields = new StringBuilder(columnFields.substring(0, columnFields.length() - 1));
+            columnFields.append("PRIMARY KEY (PRIMARYKEY)".replace("PRIMARYKEY", key.toString()));
+        }
 
-        Column_Fields = new StringBuilder(Column_Fields.substring(0, Column_Fields.length() - 2));
-        Column_Fields = new StringBuilder("(" + Column_Fields + ")\n");
-        return Column_Fields.toString();
+        columnFields = new StringBuilder("(" + columnFields + ")");
+        return columnFields.toString();
     }
 }

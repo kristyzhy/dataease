@@ -7,7 +7,8 @@ import { toRefs } from 'vue'
 import eventBus from '@/utils/eventBus'
 import DragComponent from '@/custom-component/component-group/DragComponent.vue'
 import { commonHandleDragEnd, commonHandleDragStart } from '@/utils/canvasUtils'
-
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 const props = defineProps({
   propValue: {
     type: Array,
@@ -51,7 +52,7 @@ const handleDragEnd = e => {
       class="media-component"
       :themes="themes"
       :icon="dvPictureShow"
-      label="图片"
+      :label="t('visualization.picture')"
       drag-info="Picture&Picture"
       v-on:click="newComponent('Picture', 'Picture')"
     ></drag-component>
@@ -59,7 +60,7 @@ const handleDragEnd = e => {
       class="media-component"
       :themes="themes"
       :icon="iconVideo"
-      label="视频"
+      :label="t('visualization.video')"
       drag-info="DeVideo&DeVideo"
       v-on:click="newComponent('DeVideo', 'DeVideo')"
     ></drag-component>
@@ -67,7 +68,7 @@ const handleDragEnd = e => {
       class="media-component"
       :themes="themes"
       :icon="iconStream"
-      label="流媒体"
+      :label="t('visualization.stream_media')"
       drag-info="DeStreamMedia&DeStreamMedia"
       v-on:click="newComponent('DeStreamMedia', 'DeStreamMedia')"
     ></drag-component>
@@ -75,7 +76,7 @@ const handleDragEnd = e => {
       class="media-component"
       :themes="themes"
       :icon="pictureGroupOrigin"
-      label="图片组"
+      :label="t('visualization.pic_group')"
       drag-info="UserView&picture-group"
       v-on:click="newComponent('UserView', 'picture-group')"
     ></drag-component>

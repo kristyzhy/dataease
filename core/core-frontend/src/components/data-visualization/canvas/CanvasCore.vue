@@ -9,7 +9,7 @@ import {
   syncShapeItemStyle
 } from '@/utils/style'
 import $ from 'jquery'
-import { _$, isPreventDrop } from '@/utils/utils'
+import { _$ } from '@/utils/utils'
 import ContextMenu from './ContextMenu.vue'
 import MarkLine from './MarkLine.vue'
 import Area from './Area.vue'
@@ -21,17 +21,19 @@ import { composeStoreWithOut } from '@/store/modules/data-visualization/compose'
 import { contextmenuStoreWithOut } from '@/store/modules/data-visualization/contextmenu'
 import { storeToRefs } from 'pinia'
 import findComponent from '@/utils/components'
-import _ from 'lodash'
+import { findIndex, forEach, get, isEmpty, sortBy, values } from 'lodash-es'
 import DragShadow from '@/components/data-visualization/canvas/DragShadow.vue'
 import {
   canvasSave,
   componentPreSort,
   findDragComponent,
   findNewComponent,
+  getTabMobileMinSize,
   isDashboard,
   isGroupOrTabCanvas,
   isMainCanvas,
-  isSameCanvas
+  isSameCanvas,
+  isTabCanvas
 } from '@/utils/canvasUtils'
 import { guid } from '@/views/visualized/data/dataset/form/util'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
@@ -45,17 +47,31 @@ import DragInfo from '@/components/visualization/common/DragInfo.vue'
 import { activeWatermarkCheckUser } from '@/components/watermark/watermark'
 import PopArea from '@/custom-component/pop-area/Component.vue'
 import DatasetParamsComponent from '@/components/visualization/DatasetParamsComponent.vue'
+import DeGrid from '@/components/data-visualization/DeGrid.vue'
+import DeGridScreen from '@/components/data-visualization/DeGridScreen.vue'
+import GroupAreaShadow from '@/custom-component/group-area/ComponentShadow.vue'
 
 const snapshotStore = snapshotStoreWithOut()
 const dvMainStore = dvMainStoreWithOut()
 const composeStore = composeStoreWithOut()
 const contextmenuStore = contextmenuStoreWithOut()
 
-const { curComponent, dvInfo, editMode, tabMoveOutComponentId, canvasState } =
-  storeToRefs(dvMainStore)
-const { editorMap, areaData } = storeToRefs(composeStore)
-const emits = defineEmits(['scrollCanvasToTop'])
+const {
+  curComponent,
+  dvInfo,
+  editMode,
+  tabMoveOutComponentId,
+  canvasState,
+  mainScrollTop,
+  // 标识当前是否处于 PC 页面中的移动端编辑器，用于限制规则生效范围
+  mobileInPc
+} = storeToRefs(dvMainStore)
+const { editorMap, areaData, isCtrlOrCmdDown } = storeToRefs(composeStore)
 const props = defineProps({
+  themes: {
+    type: String,
+    default: 'dark'
+  },
   isEdit: {
     type: Boolean,
     default: true
@@ -166,9 +182,13 @@ const props = defineProps({
     type: Boolean,
     required: false,
     default: true
+  },
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
   }
 })
-const userInfo = ref(null)
 
 const {
   baseWidth,
@@ -187,9 +207,11 @@ const {
   canvasId,
   canvasStyleData,
   componentData,
-  canvasViewInfo
+  canvasViewInfo,
+  themes
 } = toRefs(props)
 
+const mainCanvasFlag = isMainCanvas(canvasId.value)
 const editorX = ref(0)
 const editorY = ref(0)
 const start = ref({
@@ -239,7 +261,7 @@ watch(
 )
 
 watch(
-  () => canvasStyleData.value,
+  [() => componentData.value.length, () => canvasStyleData.value],
   () => {
     nextTick(() => {
       initWatermark()
@@ -250,7 +272,7 @@ watch(
 
 watch(
   () => areaData.value.components.length,
-  (val, oldVal) => {
+  () => {
     groupAreaClickChange()
   }
 )
@@ -274,6 +296,13 @@ const initWatermark = (waterDomId = 'editor-canvas-main') => {
     console.warn('Watermarks are not supported!')
   }
 }
+
+const matrixStyle = computed(() => {
+  return {
+    width: baseWidth.value,
+    height: baseHeight.value
+  }
+})
 
 const dragInfoShow = computed(() => {
   return (
@@ -323,7 +352,7 @@ const curGap = computed(() => {
 const baseCellInfo = computed(() => {
   return {
     baseWidth: baseWidth.value,
-    baseHeight: baseHeight.value,
+    baseHeight: dashboardScaleWithWidth.value ? baseWidth.value * 1.6 : baseHeight.value,
     curGap: curGap.value
   }
 })
@@ -349,7 +378,7 @@ const coordinates = ref([]) //坐标点集合
 
 let lastTask = undefined
 let isOverlay = false //是否正在交换位置
-let moveTime = 200 //移动动画时间
+let moveTime = 100 //移动动画时间
 
 const itemMaxY = ref(0)
 let itemMaxX = 0
@@ -364,10 +393,6 @@ const handleMouseDown = e => {
   // 右键返回
   if (e.buttons === 2) {
     return
-  }
-  // 如果没有选中组件 在画布上点击时需要调用 e.preventDefault() 防止触发 drop 事件
-  if (!curComponent.value || isPreventDrop(curComponent.value.component)) {
-    // e.preventDefault()
   }
   hideArea()
   const rectInfo = editorMap.value[canvasId.value].getBoundingClientRect()
@@ -510,32 +535,35 @@ const getSelectArea = () => {
   return result
 }
 
-const handleContextMenu = e => {
+const handleContextMenu = event => {
   // 仪表板和预览状态不显示菜单和组创建
   if (dashboardActive.value || editMode.value === 'preview') {
     return
   }
-  e.stopPropagation()
-  e.preventDefault()
+  event.stopPropagation()
+  event.preventDefault()
+  // 获取鼠标的全局坐标
+  const mouseX = event.clientX
+  const mouseY = event.clientY
 
-  // 计算菜单相对于编辑器的位移
-  let target = e.target
-  let top = e.offsetY
-  let left = e.offsetX
-  while (target instanceof SVGElement) {
-    target = target.parentNode
-  }
+  // 右键菜单始终渲染在主画布的 editor 容器内(position:absolute)
+  // 因此坐标需要相对于主画布 editor 计算。主画布右键时该容器即当前容器,
+  // tab 内部画布右键时当前容器是 tab 的 editor,需改用主画布 editor 作为原点
+  const mainEditor = editorMap.value['canvas-main'] || container.value
+  const rect = mainEditor.getBoundingClientRect()
+  const offsetX = rect.left
+  const offsetY = rect.top
 
-  while (!target.className.includes('editor-main')) {
-    left += target.offsetLeft
-    top += target.offsetTop
-    target = target.parentNode
-  }
-
+  // 计算鼠标相对于主画布 editor 的坐标
+  let left = mouseX - offsetX
+  let top = mouseY - offsetY
   // 组件处于编辑状态的时候 如富文本 不弹出右键菜单
   if (!curComponent.value || (curComponent.value && !curComponent.value.editing)) {
-    if (curComponent.value && ['VQuery'].includes(curComponent.value.component)) {
-      left = left * curBaseScale.value + 150
+    if (
+      curComponent.value &&
+      ['VQuery'].includes(curComponent.value.component) &&
+      curComponent?.value['category'] === 'base'
+    ) {
       top = top * curBaseScale.value + curComponent.value.style.top * (1 - curBaseScale.value)
     }
     contextmenuStore.showContextMenu({ top, left, position: 'canvasCore' })
@@ -718,7 +746,7 @@ function addItemToPositionBox(item) {
           pb[j][i].el = item
         }
       } catch (e) {
-        console.error(e)
+        console.warn('addItemToPositionBox-warn:', e)
       }
     }
   }
@@ -754,7 +782,7 @@ function removeItemFromPositionBox(item) {
           pb[j][i].el = false
         }
       } catch (e) {
-        console.error(e)
+        console.warn(e)
       }
     }
   }
@@ -774,7 +802,7 @@ function reCalcCellWidth() {
 function resizePlayer(item, newSize) {
   removeItemFromPositionBox(item)
   let belowItems = findBelowItems(item)
-  _.forEach(belowItems, function (upItem) {
+  forEach(belowItems, function (upItem) {
     let canGoUpRows = canItemGoUp(upItem)
 
     if (canGoUpRows > 0) {
@@ -849,7 +877,7 @@ function checkItemPosition(item, position) {
 function movePlayer(item, position) {
   removeItemFromPositionBox(item)
   let belowItems = findBelowItems(item)
-  _.forEach(belowItems, function (upItem) {
+  forEach(belowItems, function (upItem) {
     let canGoUpRows = canItemGoUp(upItem)
     if (canGoUpRows > 0) {
       moveItemUp(upItem, canGoUpRows)
@@ -874,16 +902,20 @@ function removeItemById(componentId) {
         removeItem(index)
       }
     })
+    if (!isMainCanvas(canvasId.value)) {
+      nextTick(() => {
+        canvasInit()
+      })
+    }
   }
 }
 
-function removeItem(index) {
-  let item = componentData.value[index]
+function removeItemComponent(item) {
   if (item && isSameCanvas(item, canvasId.value)) {
     if (isDashboard()) {
       removeItemFromPositionBox(item)
       let belowItems = findBelowItems(item)
-      _.forEach(belowItems, function (upItem) {
+      forEach(belowItems, function (upItem) {
         let canGoUpRows = canItemGoUp(upItem)
         if (canGoUpRows > 0) {
           moveItemUp(upItem, canGoUpRows)
@@ -896,14 +928,28 @@ function removeItem(index) {
         checkedFields = [...ele.checkedFields, ...checkedFields]
       })
     }
-    componentData.value.splice(index, 1)
-    dvMainStore.removeLinkageInfo(item['id'])
     if (!!checkedFields.length) {
-      Array.from(new Set(checkedFields)).forEach(ele => {
-        emitter.emit(`query-data-${ele}`)
-      })
+      setTimeout(() => {
+        Array.from(new Set(checkedFields)).forEach(ele => {
+          emitter.emit(`query-data-${ele}`)
+        })
+      }, 300)
     }
     snapshotStore.recordSnapshotCache('removeItem')
+  }
+}
+
+function removeItem(index) {
+  let item = componentData.value[index]
+  if (item && isSameCanvas(item, canvasId.value)) {
+    removeItemComponent(item)
+    dvMainStore.removeLinkageInfo(item['id'])
+    if (isMainCanvas(canvasId.value)) {
+      // 主画布中存在隐藏组件 直接从原始componentData中进行删除
+      dvMainStore.deleteComponentById(item.id, undefined, false)
+    } else {
+      componentData.value.splice(index, 1)
+    }
   }
 }
 
@@ -939,7 +985,7 @@ function changeItemCoordinate(item) {
     c2: top + height / 2,
     el: item
   }
-  let index = _.findIndex(coordinates.value, function (o) {
+  let index = findIndex(coordinates.value, function (o) {
     return o.el._dragId == item._dragId
   })
   if (index != -1) {
@@ -953,7 +999,7 @@ function changeItemCoordinate(item) {
  */
 function emptyTargetCell(item) {
   let belowItems = findBelowItems(item)
-  _.forEach(belowItems, function (downItem) {
+  forEach(belowItems, function (downItem) {
     if (downItem['_dragId'] == item['_dragId']) return
     let moveSize = item.y + item.sizeY - downItem['y']
     if (moveSize > 0) {
@@ -984,7 +1030,7 @@ function canItemGoUp(item) {
 function moveItemDown(item, size) {
   removeItemFromPositionBox(item)
   let belowItems = findBelowItems(item)
-  _.forEach(belowItems, function (downItem) {
+  forEach(belowItems, function (downItem) {
     if (downItem['_dragId'] == item['_dragId']) return
     let moveSize = calcDiff(item, downItem, size)
     if (moveSize > 0) {
@@ -1033,13 +1079,12 @@ function calcDiff(parent, son, size) {
 function moveItemUp(item, size) {
   removeItemFromPositionBox(item)
   let belowItems = findBelowItems(item)
-  // item.y -= size;
   setPlayerPosition(item, {
     y: item.y - size
   })
   addItemToPositionBox(item)
   changeItemCoordinate(item)
-  _.forEach(belowItems, function (upItem) {
+  forEach(belowItems, function (upItem) {
     let moveSize = canItemGoUp(upItem)
     if (moveSize > 0) {
       moveItemUp(upItem, moveSize)
@@ -1057,7 +1102,7 @@ function findBelowItems(item) {
       }
     }
   }
-  return _.sortBy(_.values(belowItems), 'y')
+  return sortBy(values(belowItems), 'y')
 }
 
 const endItemMove = (_, item, index) => {
@@ -1072,7 +1117,7 @@ const handleMouseUp = (e, item, index) => {
 }
 
 const clearInfoBox = e => {
-  if (_.isEmpty(infoBox.value)) return
+  if (isEmpty(infoBox.value)) return
   if (infoBox.value.cloneItem) {
     infoBox.value.cloneItem.remove()
   }
@@ -1089,11 +1134,18 @@ const clearInfoBox = e => {
   infoBox.value = {}
 }
 
+const dashboardScaleWithWidth = computed(() => {
+  return isDashboard() && canvasStyleData.value?.dashboardAdaptor === 'withWidth'
+})
 const cellInit = () => {
   // 此处向下取整 保留1位小数,why: 矩阵模式计算 x,y时 会使用 style.left/cellWidth style.top/cellWidth
   // 当初始状态细微的差距(主要是减少)都会导致 x，y 减少一个矩阵大小造成偏移,
   cellWidth.value = Math.floor((baseWidth.value + baseMarginLeft.value) * 1000) / 1000
-  cellHeight.value = Math.floor((baseHeight.value + baseMarginTop.value) * 1000) / 1000
+  if (dashboardScaleWithWidth.value) {
+    cellHeight.value = cellWidth.value * 1.6
+  } else {
+    cellHeight.value = Math.floor((baseHeight.value + baseMarginTop.value) * 1000) / 1000
+  }
 }
 
 const canvasSizeInit = () => {
@@ -1222,7 +1274,7 @@ const onStartMove = (e, item, index) => {
 const onDragging = (e, item) => {
   // item 中的 style 为当前实时的位置
   const infoBoxTemp = infoBox.value
-  let moveItem = _.get(infoBoxTemp, 'moveItem')
+  let moveItem = get(infoBoxTemp, 'moveItem')
   scrollScreen(e)
   if (!draggable.value) return
   dragging.value(e, moveItem, moveItem._dragId)
@@ -1258,7 +1310,7 @@ const onResizing = (e, item) => {
   const { width, height } = item.style
   // item 中的 style 为当前实时的位置
   const infoBoxTemp = infoBox.value
-  let resizeItem = _.get(infoBoxTemp, 'resizeItem')
+  let resizeItem = get(infoBoxTemp, 'resizeItem')
   //调整大小时
   resizing.value(e, resizeItem, resizeItem._dragId)
   resizeItem['isPlayer'] = true
@@ -1270,6 +1322,14 @@ const onResizing = (e, item) => {
     height % cellHeight.value > (cellHeight.value / 4) * 3
       ? Math.floor(height / cellHeight.value + 1)
       : Math.floor(height / cellHeight.value)
+
+  if (mobileInPc.value && isTabCanvas(canvasId.value)) {
+    // 移动端允许自由缩放后可能再次出现文字裁剪,现仅约束 Tab 子画布中的最小可读尺寸
+    // sizeX、sizeY 分别表示 Matrix 的最小列宽和最小行高
+    const minSize = getTabMobileMinSize(item)
+    nowSizeX = Math.max(nowSizeX, minSize.sizeX)
+    nowSizeY = Math.max(nowSizeY, minSize.sizeY)
+  }
 
   // 增加5px偏移量 防止resize时向下取整 组件向右偏移
   let newX = Math.floor((item.style.left + 5) / cellWidth.value + 1)
@@ -1304,7 +1364,7 @@ const onResizing = (e, item) => {
 
 const onMouseUp = e => {
   // startMove 中组织冒泡会导致移动事件无法传播，在这里设置（鼠标抬起）效果一致
-  if (_.isEmpty(infoBox.value)) return
+  if (isEmpty(infoBox.value)) return
   if (infoBox.value.cloneItem) {
     infoBox.value.cloneItem.remove()
   }
@@ -1334,7 +1394,8 @@ const handleDragStartMoveIn = componentInfo => {
     adaptCurThemeCommonStyle(moveInItemInfo)
   }
   addItemBox(moveInItemInfo)
-  emits('scrollCanvasToTop')
+  // 直接定位到当前画布位置
+  // emits('scrollCanvasAdjust', 1)
   if (!infoBox.value) {
     infoBox.value = {}
   }
@@ -1357,7 +1418,7 @@ const handleDragOver = e => {
     return
   }
   infoBox.value.moveItem.style.left = e.pageX
-  infoBox.value.moveItem.style.top = e.pageY
+  infoBox.value.moveItem.style.top = e.pageY + mainScrollTop.value
   onDragging(e, infoBox.value.moveItem, 0)
 }
 
@@ -1404,6 +1465,22 @@ const contextMenuShow = computed(() => {
 
 const markLineShow = computed(() => isMainCanvas(canvasId.value))
 
+const showGrid = computed(() => {
+  return (
+    Boolean(canvasStyleData.value.dashboard.showGrid) &&
+    isMainCanvas(canvasId.value) &&
+    isDashboard()
+  )
+})
+
+const showGridScreen = computed(() => {
+  return (
+    Boolean(canvasStyleData.value.dashboard.showGrid) &&
+    isMainCanvas(canvasId.value) &&
+    !isDashboard()
+  )
+})
+
 // 批量设置
 
 const dataVBatchOptAdaptor = () => {
@@ -1413,6 +1490,19 @@ const dataVBatchOptAdaptor = () => {
   })
 }
 
+const itemShow = item => {
+  return (
+    item.isShow &&
+    (item.component !== 'GroupArea' || (item.component === 'GroupArea' && !isCtrlOrCmdDown.value))
+  )
+}
+
+const groupAreaShadowShow = computed(
+  () =>
+    componentData.value.length > 0 &&
+    componentData.value[componentData.value.length - 1].component === 'GroupArea' &&
+    isCtrlOrCmdDown.value
+)
 // 点击事件导致选择区域变更
 const groupAreaClickChange = async () => {
   let groupAreaCom
@@ -1466,6 +1556,7 @@ onMounted(() => {
   eventBus.on('handleDragEnd-' + canvasId.value, handleDragEnd)
   eventBus.on('hideArea-' + canvasId.value, hideArea)
   eventBus.on('removeMatrixItem-' + canvasId.value, removeItem)
+  eventBus.on('removeMatrixItemPosition-' + canvasId.value, removeItemComponent)
   eventBus.on('removeMatrixItemById-' + canvasId.value, removeItemById)
   eventBus.on('addDashboardItem-' + canvasId.value, addItemBox)
   eventBus.on('snapshotChange-' + canvasId.value, canvasInit)
@@ -1481,6 +1572,7 @@ onBeforeUnmount(() => {
   eventBus.off('handleDragEnd-' + canvasId.value, handleDragEnd)
   eventBus.off('hideArea-' + canvasId.value, hideArea)
   eventBus.off('removeMatrixItem-' + canvasId.value, removeItem)
+  eventBus.off('removeMatrixItemPosition-' + canvasId.value, removeItemComponent)
   eventBus.off('removeMatrixItemById-' + canvasId.value, removeItemById)
   eventBus.off('addDashboardItem-' + canvasId.value, addItemBox)
   eventBus.off('snapshotChange-' + canvasId.value, canvasInit)
@@ -1514,6 +1606,7 @@ defineExpose({
     :style="editStyle"
     @contextmenu="handleContextMenu"
   >
+    <slot name="canvasDragTips" />
     <drag-info v-if="dragInfoShow"></drag-info>
     <canvas-opt-bar
       v-if="dvInfo.type === 'dataV'"
@@ -1534,9 +1627,15 @@ defineExpose({
       :show-position="'popEdit'"
     ></PopArea>
     <!-- 网格线 -->
+    <de-grid v-if="showGrid" :matrix-style="matrixStyle" :themes="themes"></de-grid>
+    <de-grid-screen
+      v-if="showGridScreen"
+      :matrix-style="matrixStyle"
+      :themes="themes"
+    ></de-grid-screen>
     <drag-shadow
       v-if="infoBox && infoBox.moveItem && editMode !== 'preview'"
-      :base-height="baseHeight"
+      :base-height="dashboardScaleWithWidth ? baseWidth * 1.6 : baseHeight"
       :base-width="baseWidth"
       :cur-gap="curGap"
       :element="infoBox.moveItem"
@@ -1544,11 +1643,15 @@ defineExpose({
 
     <!--切换canvas 拖拽阴影部分-->
     <point-shadow v-if="pointShadowShow" :canvas-id="canvasId" />
+    <GroupAreaShadow
+      v-if="groupAreaShadowShow"
+      :style="getShapeItemShowStyle(componentData[componentData.length - 1])"
+    ></GroupAreaShadow>
 
     <!--页面组件列表展示-->
     <Shape
       v-for="(item, index) in componentData"
-      v-show="item.isShow"
+      v-show="itemShow(item)"
       :canvas-id="canvasId"
       :scale="curScale"
       :key="item.id"
@@ -1559,11 +1662,12 @@ defineExpose({
       :class="{ lock: item.isLock && editMode === 'edit' }"
       :base-cell-info="baseCellInfo"
       :canvas-active="canvasActive"
+      :is-tab-move-check="mainCanvasFlag"
       @onStartResize="onStartResize($event, item, index)"
       @onStartMove="onStartMove($event, item, index)"
-      @onMouseUp="onMouseUp($event, item, index)"
-      @onDragging="onDragging($event, item, index)"
-      @onResizing="onResizing($event, item, index)"
+      @onMouseUp="onMouseUp($event)"
+      @onDragging="onDragging($event, item)"
+      @onResizing="onResizing($event, item)"
       @userViewEnlargeOpen="userViewEnlargeOpen($event, item)"
       @datasetParamsInit="datasetParamsInit(item)"
       @linkJumpSetOpen="linkJumpSetOpen(item)"
@@ -1587,6 +1691,7 @@ defineExpose({
         :dv-info="dvInfo"
         :canvas-active="canvasActive"
         :show-position="'canvas'"
+        :font-family="fontFamily"
       />
       <component
         v-else-if="item.component.includes('Svg')"
@@ -1605,6 +1710,7 @@ defineExpose({
         :active="item.id === curComponentId"
         :canvas-active="canvasActive"
         :show-position="'edit'"
+        :font-family="fontFamily"
       />
       <component
         v-else
@@ -1614,6 +1720,7 @@ defineExpose({
         class="component"
         :is-edit="true"
         :style="getComponentStyle(item.style)"
+        :curStyle="getShapeItemShowStyle(item)"
         :prop-value="item.propValue"
         :element="item"
         :request="item.request"
@@ -1623,6 +1730,7 @@ defineExpose({
         :active="item.id === curComponentId"
         :canvas-active="canvasActive"
         :show-position="'edit'"
+        :font-family="fontFamily"
       />
     </Shape>
     <!-- 右击菜单 -->

@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import type { ManipulateType } from 'dayjs'
 import { toRefs, PropType, ref, onBeforeMount, watch, computed } from 'vue'
 import { Calendar } from '@element-plus/icons-vue'
 import { type DatePickType } from 'element-plus-secondary'
@@ -10,6 +11,7 @@ import {
   getToday,
   getYesterday,
   getMonthBeginning,
+  getMonthEnd,
   getYearBeginning,
   getCustomTime
 } from './time-format'
@@ -21,7 +23,7 @@ interface SelectConfig {
   defaultValueCheck: boolean
   id: string
   timeNum: number
-  relativeToCurrentType: string
+  relativeToCurrentType: ManipulateType
   around: string
   arbitraryTime: Date
   timeGranularity: DatePickType
@@ -141,6 +143,9 @@ const init = () => {
       case 'monthBeginning':
         selectValue.value = getMonthBeginning()
         break
+      case 'monthEnd':
+        selectValue.value = getMonthEnd()
+        break
       case 'yearBeginning':
         selectValue.value = getYearBeginning()
         break
@@ -163,6 +168,13 @@ onBeforeMount(() => {
     v-model="selectValue"
     :type="config.timeGranularity"
     :prefix-icon="Calendar"
+    :popper-class="'custom-dynamic-time-popper_class'"
     :placeholder="$t('commons.date.select_date_time')"
   />
 </template>
+
+<style lang="less">
+.custom-dynamic-time-popper_class {
+  font-family: var(--de-canvas_custom_font);
+}
+</style>

@@ -122,6 +122,22 @@ declare interface ChartLegendStyle {
    * 字体大小
    */
   fontSize: number
+  /**
+   * 图例大小
+   */
+  size: number
+  /**
+   * 子弹图显示区间背景
+   */
+  showRange: true
+  /**
+   * 排序方式
+   */
+  sort: 'none' | 'asc' | 'desc' | 'custom'
+  /**
+   * 自定义排序
+   */
+  customSort: string[]
 }
 
 /**
@@ -136,6 +152,10 @@ declare interface ChartAxisStyle {
    * 轴线位置
    */
   position: string
+  /**
+   * 是否显示轴线标题名称
+   */
+  nameShow: boolean
   /**
    * 轴线标题名称
    */
@@ -193,6 +213,10 @@ declare interface AxisLabel {
    * 格式化设置
    */
   formatter: string
+  /**
+   * 长度限制
+   */
+  lengthLimit: number
 }
 /**
  * 轴线条设置

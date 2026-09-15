@@ -12,7 +12,7 @@
         <el-button type="primary" @click="edit">{{ t('commons.edit') }}</el-button>
       </div>
     </div>
-    <div class="info-template-content">
+    <div class="info-template-content clearfix">
       <div class="info-content-item" v-for="item in settingList" :key="item.pkey">
         <div class="info-item-label">
           <span>{{ t(item.pkey) }}</span>
@@ -68,8 +68,8 @@
           <span v-else-if="item.pkey.includes('basic.dsIntervalTime')">
             <span>{{ item.pval + ' ' + executeTime + t('common.every_exec') }}</span>
           </span>
-          <span v-else>
-            <span>{{ item.pval }}</span>
+          <template v-else>
+            <span style="word-break: break-all">{{ item.pval }}</span>
             <el-tooltip
               v-if="props.copyList.includes(item.pkey)"
               effect="dark"
@@ -82,7 +82,7 @@
                 </template>
               </el-button>
             </el-tooltip>
-          </span>
+          </template>
         </div>
       </div>
     </div>
@@ -222,7 +222,9 @@ formatLabel()
   }
 }
 .info-template-container {
-  padding: 24px;
+  padding: 24px 24px 8px 24px;
+  background: var(--ContentBG, #ffffff);
+  border-radius: 12px;
   .info-template-header {
     display: flex;
     margin-top: -4px;
@@ -238,12 +240,12 @@ formatLabel()
   }
   .info-template-content {
     width: 100%;
-    margin: 8px 0;
+    margin-top: 12px;
     .info-content-item {
       width: 50%;
-      height: 48px;
       float: left;
       margin-bottom: 16px;
+      min-height: 46px;
       .info-item-label {
         height: 22px;
         line-height: 22px;
@@ -260,7 +262,6 @@ formatLabel()
       }
       .info-item-content {
         line-height: 22px;
-        height: 22px;
         span {
           font-size: 14px;
           color: #1f2329;
@@ -285,6 +286,11 @@ formatLabel()
         }
       }
     }
+  }
+  .clearfix::after {
+    content: '';
+    display: table;
+    clear: both;
   }
 }
 </style>

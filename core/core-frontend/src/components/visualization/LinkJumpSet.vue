@@ -12,17 +12,19 @@
     <div @keydown.stop @keyup.stop v-if="state.initState" style="height: 550px">
       <el-row style="flex-direction: row">
         <div class="top-area">
-          <span class="top-area-text">已选图表：</span>
-          <span class="top-area-value">
+          <span class="top-area-text">{{ t('visualization.selected_view') }}：</span>
+          <span class="top-area-value view-title-value">
             <Icon class-name="view-type-icon"
               ><component
                 class="svg-icon view-type-icon"
                 :is="iconChartMap[state.curJumpViewInfo.type]"
               ></component
             ></Icon>
-            {{ state.curJumpViewInfo.title }}</span
-          >
-          <span class="top-area-text margin-left">所用数据集：</span>
+            <span class="top-area-title" :title="state.curJumpViewInfo.title">
+              {{ state.curJumpViewInfo.title }}
+            </span>
+          </span>
+          <span class="top-area-text margin-left">{{ t('visualization.used_dataset') }}：</span>
           <span class="top-area-value">
             <Icon name="dataset-outline"
               ><datasetOutline style="vertical-align: -0.2em" class="svg-icon view-type-icon"
@@ -35,9 +37,9 @@
         <el-row class="preview">
           <el-col :span="8" style="height: 100%; overflow-y: auto">
             <el-row class="tree-head">
-              <span class="head-text">选择字段</span>
+              <span class="head-text">{{ t('visualization.to_select_field') }}</span>
               <span class="head-filter">
-                仅看已选
+                {{ t('visualization.show_selected_only') }}
                 <el-switch size="small" v-model="state.showSelected" />
               </span>
             </el-row>
@@ -63,7 +65,7 @@
                       </span>
                     </div>
                   </span>
-                  <span>
+                  <span :title="data.sourceFieldName">
                     <span class="tree-select-field">
                       <el-icon style="margin-right: 4px">
                         <Icon
@@ -93,12 +95,12 @@
                     v-if="state.linkJumpInfo"
                     v-model="state.linkJumpInfo.linkType"
                   >
-                    <el-radio label="outer">{{ t('visualization.link_outer') }}</el-radio>
-                    <el-radio label="inner">{{ resourceType }}</el-radio>
+                    <el-radio value="outer">{{ t('visualization.link_outer') }}</el-radio>
+                    <el-radio value="inner">{{ t('visualization.dashboard_dataV') }}</el-radio>
                   </el-radio-group>
                   <el-radio-group class="larger-radio" v-if="!state.linkJumpInfo" disabled>
-                    <el-radio label="outer">{{ t('visualization.link_outer') }}</el-radio>
-                    <el-radio label="inner">{{ resourceType }}</el-radio>
+                    <el-radio value="outer">{{ t('visualization.link_outer') }}</el-radio>
+                    <el-radio value="inner">{{ resourceType }}</el-radio>
                   </el-radio-group>
                 </el-form-item>
                 <el-form-item class="radio-group-box">
@@ -110,14 +112,14 @@
                     v-if="state.linkJumpInfo"
                     v-model="state.linkJumpInfo.jumpType"
                   >
-                    <el-radio label="_self">{{ t('visualization.now_window') }}</el-radio>
-                    <el-radio label="_blank">{{ t('visualization.new_window') }}</el-radio>
-                    <el-radio label="newPop">{{ t('visualization.pop_window') }}</el-radio>
+                    <el-radio value="_self">{{ t('visualization.now_window') }}</el-radio>
+                    <el-radio value="_blank">{{ t('visualization.new_window') }}</el-radio>
+                    <el-radio value="newPop">{{ t('visualization.pop_window') }}</el-radio>
                   </el-radio-group>
                   <el-radio-group class="larger-radio" v-if="!state.linkJumpInfo" disabled>
-                    <el-radio label="_self">{{ t('visualization.now_window') }}</el-radio>
-                    <el-radio label="_blank">{{ t('visualization.new_window') }}</el-radio>
-                    <el-radio label="newPop">{{ t('visualization.pop_window') }}</el-radio>
+                    <el-radio value="_self">{{ t('visualization.now_window') }}</el-radio>
+                    <el-radio value="_blank">{{ t('visualization.new_window') }}</el-radio>
+                    <el-radio value="newPop">{{ t('visualization.pop_window') }}</el-radio>
                   </el-radio-group>
                 </el-form-item>
 
@@ -126,12 +128,12 @@
                   v-if="state.linkJumpInfo?.jumpType === 'newPop'"
                 >
                   <template #label>
-                    <span class="title">窗口大小</span>
+                    <span class="title">{{ t('visualization.window_size') }}</span>
                   </template>
                   <el-radio-group class="larger-radio" v-model="state.linkJumpInfo.windowSize">
-                    <el-radio label="large">大</el-radio>
-                    <el-radio label="middle">中</el-radio>
-                    <el-radio label="small">小</el-radio>
+                    <el-radio value="large">{{ t('visualization.window_size_large') }}</el-radio>
+                    <el-radio value="middle">{{ t('visualization.window_size_middle') }}</el-radio>
+                    <el-radio value="small">{{ t('visualization.window_size_small') }}</el-radio>
                   </el-radio-group>
                 </el-form-item>
               </el-header>
@@ -143,7 +145,13 @@
                       <div class="m-row">
                         <div style="flex: 1">
                           <el-form-item>
-                            <template #label> 当前{{ resourceType }} </template>
+                            <template #label>
+                              {{
+                                dvInfo.type === 'dashboard'
+                                  ? t('visualization.cur_dashboard')
+                                  : t('visualization.cur_screen')
+                              }}
+                            </template>
                             <el-select style="width: 100%" v-model="dvInfo.name" disabled>
                               <el-option
                                 :key="dvInfo.name"
@@ -161,7 +169,9 @@
                         </div>
                         <div style="flex: 1">
                           <el-form-item>
-                            <template #label> 目标{{ resourceType }} </template>
+                            <template #label>
+                              {{ targetSource }}
+                            </template>
                             <el-tree-select
                               v-model="state.linkJumpInfo.targetDvId"
                               :data="state.panelList"
@@ -179,8 +189,12 @@
                                     v-if="data.leaf"
                                   >
                                     <Icon name="dv-dashboard-spine"
-                                      ><dvDashboardSpine class="svg-icon"
-                                    /></Icon>
+                                      ><dvDashboardSpine
+                                        v-if="data.type === 'dashboard'"
+                                        class="svg-icon"
+                                      />
+                                      <dvScreenSpine v-else class="svg-icon"> </dvScreenSpine>
+                                    </Icon>
                                   </el-icon>
                                   <el-icon size="18px" style="display: inline-block" v-else>
                                     <Icon name="dv-folder"><dvFolder class="svg-icon" /></Icon>
@@ -196,141 +210,318 @@
                           </el-form-item>
                         </div>
                       </div>
-
-                      <el-row style="margin-bottom: 8px" :gutter="8">
-                        <el-col :span="7"> 源字段 </el-col>
-                        <el-col :span="2"></el-col>
-                        <el-col :span="7" style="margin-left: -2.9%">
-                          {{ t('visualization.link_view_field') }}
-                        </el-col>
-                        <el-col :span="8"></el-col>
-                      </el-row>
-
-                      <div class="main-scrollbar-container">
-                        <el-scrollbar height="fit-content" max-height="208px">
-                          <div
-                            style="display: flex; margin-bottom: 6px"
-                            v-for="(targetViewInfo, index) in state.linkJumpInfo.targetViewInfoList"
-                            :key="index"
-                          >
-                            <div style="flex: 1">
-                              <el-select
-                                v-model="targetViewInfo.sourceFieldActiveId"
-                                :placeholder="'请选择字段'"
-                                style="width: 100%"
-                              >
-                                <el-option
-                                  v-for="curViewField in state.linkJumpCurViewFieldArray"
-                                  :key="curViewField.id"
-                                  :label="curViewField.name"
-                                  :value="curViewField.id"
-                                >
-                                  <span class="custom-option">
-                                    <Icon
-                                      ><component
-                                        class="svg-icon"
-                                        style="width: 14px; height: 14px"
-                                        :class="`field-icon-${fieldType[curViewField.deType]}`"
-                                        :is="iconFieldMap[fieldType[curViewField.deType]]"
-                                      ></component
-                                    ></Icon>
-                                    <span style="float: left; margin-left: 4px; font-size: 14px">{{
-                                      curViewField.name
-                                    }}</span>
-                                  </span>
-                                </el-option>
-                              </el-select>
-                            </div>
-                            <div class="icon-center">
-                              <Icon name="dv-link-target"
-                                ><dvLinkTarget style="width: 20px; height: 20px" class="svg-icon"
-                              /></Icon>
-                            </div>
-                            <div style="flex: 1">
-                              <el-select
-                                v-model="targetViewInfo.targetViewId"
-                                :disabled="!targetViewInfo.sourceFieldActiveId"
-                                :placeholder="'请选择图表'"
-                                style="width: 100%"
-                                @change="viewInfoOnChange(targetViewInfo)"
-                              >
-                                <el-option
-                                  v-for="item in state.currentLinkPanelViewArray"
-                                  :key="item.id"
-                                  :label="item.title"
-                                  :value="item.id"
-                                >
-                                  <span class="custom-option">
-                                    <Icon
-                                      ><component
-                                        class="svg-icon view-type-icon"
-                                        style="width: 14px; height: 14px"
-                                        :is="iconChartMap[item.type]"
-                                      ></component
-                                    ></Icon>
-                                    <span style="float: left; margin-left: 4px; font-size: 14px">{{
-                                      item.title
-                                    }}</span>
-                                  </span>
-                                </el-option>
-                              </el-select>
-                            </div>
-                            <div style="flex: 1; margin: 0 8px">
-                              <el-select
-                                v-model="targetViewInfo.targetFieldId"
-                                :placeholder="'请选择字段'"
-                                :disabled="fieldIdDisabledCheck(targetViewInfo)"
-                                style="width: 100%"
-                              >
-                                <el-option
-                                  v-for="viewField in state.viewIdFieldArrayMap[
-                                    targetViewInfo.targetViewId
-                                  ]"
-                                  :key="viewField.id"
-                                  :label="viewField.name"
-                                  :value="viewField.id"
-                                >
-                                  <span class="custom-option">
-                                    <Icon
-                                      ><component
-                                        class="svg-icon"
-                                        style="width: 14px; height: 14px"
-                                        :class="`field-icon-${fieldType[viewField.deType]}`"
-                                        :is="iconFieldMap[fieldType[viewField.deType]]"
-                                      ></component
-                                    ></Icon>
-                                    <span style="float: left; margin-left: 4px; font-size: 14px">{{
-                                      viewField.name
-                                    }}</span>
-                                  </span>
-                                </el-option>
-                              </el-select>
-                            </div>
-
-                            <el-button
-                              class="m-del-icon-btn"
-                              text
-                              @click="deleteLinkJumpField(index)"
+                      <template v-if="state.linkJumpInfo.targetDvId">
+                        <div class="jump-com-list">
+                          <el-tabs size="small" v-model="state.activeCollapse">
+                            <el-tab-pane
+                              v-if="!isIndicator"
+                              :label="t('visualization.linkage_view')"
+                              name="view"
                             >
-                              <el-icon size="20px">
-                                <Icon name="icon_delete-trash_outlined"
-                                  ><icon_deleteTrash_outlined class="svg-icon"
-                                /></Icon>
-                              </el-icon>
+                            </el-tab-pane>
+                            <el-tab-pane
+                              :label="t('visualization.with_filter_params')"
+                              name="filter"
+                            >
+                            </el-tab-pane>
+                          </el-tabs>
+                        </div>
+                        <template v-if="state.activeCollapse === 'view'">
+                          <el-row style="margin-bottom: 8px" :gutter="8">
+                            <el-col :span="7"> {{ t('visualization.source_field') }} </el-col>
+                            <el-col :span="2"></el-col>
+                            <el-col :span="7" style="margin-left: -2.9%">
+                              {{ t('visualization.link_view_field') }}
+                            </el-col>
+                            <el-col :span="8"></el-col>
+                          </el-row>
+                          <div
+                            class="main-scrollbar-container"
+                            :class="{
+                              'main-scrollbar-container-min':
+                                state.linkJumpInfo?.jumpType === 'newPop'
+                            }"
+                          >
+                            <el-scrollbar
+                              height="fit-content"
+                              :max-height="
+                                state.linkJumpInfo?.jumpType === 'newPop' ? '138px' : '178px'
+                              "
+                            >
+                              <div
+                                style="display: flex; margin-bottom: 6px"
+                                v-for="(
+                                  targetViewInfo, index
+                                ) in state.linkJumpInfo.targetViewInfoList.filter(
+                                  item => item.targetType === 'view'
+                                )"
+                                :key="index"
+                              >
+                                <div style="flex: 1">
+                                  <el-select
+                                    v-model="targetViewInfo.sourceFieldActiveId"
+                                    :placeholder="t('chart.pls_select_field')"
+                                    style="width: 100%"
+                                  >
+                                    <el-option
+                                      v-for="curViewField in state.linkJumpCurViewFieldArray"
+                                      :key="curViewField.id"
+                                      :label="curViewField.name"
+                                      :value="curViewField.id"
+                                    >
+                                      <span class="custom-option">
+                                        <Icon
+                                          ><component
+                                            class="svg-icon"
+                                            style="width: 14px; height: 14px"
+                                            :class="`field-icon-${fieldType[curViewField.deType]}`"
+                                            :is="iconFieldMap[fieldType[curViewField.deType]]"
+                                          ></component
+                                        ></Icon>
+                                        <span
+                                          style="float: left; margin-left: 4px; font-size: 14px"
+                                          >{{ curViewField.name }}</span
+                                        >
+                                      </span>
+                                    </el-option>
+                                  </el-select>
+                                </div>
+                                <div class="icon-center">
+                                  <Icon name="dv-link-target"
+                                    ><dvLinkTarget
+                                      style="width: 20px; height: 20px"
+                                      class="svg-icon"
+                                  /></Icon>
+                                </div>
+                                <div style="flex: 1">
+                                  <el-select
+                                    v-model="targetViewInfo.targetViewId"
+                                    :disabled="!targetViewInfo.sourceFieldActiveId"
+                                    :placeholder="t('visualization.select_view')"
+                                    style="width: 100%"
+                                    @change="viewInfoOnChange(targetViewInfo)"
+                                  >
+                                    <el-option
+                                      v-for="item in state.currentLinkPanelViewArray.filter(
+                                        item => item.type !== 'outerParams'
+                                      )"
+                                      :key="item.id"
+                                      :label="item.title"
+                                      :value="item.id"
+                                    >
+                                      <span class="custom-option">
+                                        <Icon
+                                          ><component
+                                            class="svg-icon view-type-icon"
+                                            style="width: 14px; height: 14px"
+                                            :is="iconChartMap[item.type]"
+                                          ></component
+                                        ></Icon>
+                                        <span
+                                          style="float: left; margin-left: 4px; font-size: 14px"
+                                          >{{ item.title }}</span
+                                        >
+                                      </span>
+                                    </el-option>
+                                  </el-select>
+                                </div>
+                                <div style="flex: 1; margin: 0 8px">
+                                  <el-select
+                                    v-model="targetViewInfo.targetFieldId"
+                                    :placeholder="t('chart.pls_select_field')"
+                                    :disabled="fieldIdDisabledCheck(targetViewInfo)"
+                                    style="width: 100%"
+                                  >
+                                    <el-option
+                                      v-for="viewField in state.viewIdFieldArrayMap[
+                                        targetViewInfo.targetViewId
+                                      ]"
+                                      :key="viewField.id"
+                                      :label="viewField.name"
+                                      :value="viewField.id"
+                                    >
+                                      <span class="custom-option">
+                                        <Icon
+                                          ><component
+                                            class="svg-icon"
+                                            style="width: 14px; height: 14px"
+                                            :class="`field-icon-${fieldType[viewField.deType]}`"
+                                            :is="iconFieldMap[fieldType[viewField.deType]]"
+                                          ></component
+                                        ></Icon>
+                                        <span
+                                          style="float: left; margin-left: 4px; font-size: 14px"
+                                          >{{ viewField.name }}</span
+                                        >
+                                      </span>
+                                    </el-option>
+                                  </el-select>
+                                </div>
+
+                                <el-button
+                                  class="m-del-icon-btn"
+                                  text
+                                  @click="deleteLinkJumpFieldById(targetViewInfo.targetId)"
+                                >
+                                  <el-icon size="20px">
+                                    <Icon name="icon_delete-trash_outlined"
+                                      ><icon_deleteTrash_outlined class="svg-icon"
+                                    /></Icon>
+                                  </el-icon>
+                                </el-button>
+                              </div>
+                            </el-scrollbar>
+                            <el-button
+                              style="margin-top: 8px"
+                              :disabled="!state.linkJumpInfo.targetDvId"
+                              type="primary"
+                              icon="Plus"
+                              text
+                              @click="addLinkJumpField('view')"
+                            >
+                              {{ t('visualization.add_jump_field') }}
                             </el-button>
                           </div>
-                        </el-scrollbar>
-                        <el-button
-                          style="margin-top: 8px"
-                          :disabled="!state.linkJumpInfo.targetDvId"
-                          type="primary"
-                          icon="Plus"
-                          text
-                          @click="addLinkJumpField"
-                        >
-                          {{ t('visualization.add_jump_field') }}
-                        </el-button>
-                      </div>
+                        </template>
+                        <template v-if="state.activeCollapse === 'filter'">
+                          <template v-if="state.currentOutParams.length === 0">
+                            <span
+                              >{{ t('visualization.link_target_tips1')
+                              }}<a
+                                class="target_jump"
+                                @click="resourceEdit(state.linkJumpInfo.targetDvId)"
+                                >{{ t('visualization.link_target_tips2') }}</a
+                              ></span
+                            >
+                          </template>
+                          <template v-else-if="state.linkJumpCurFilterFieldArray.length === 0">
+                            <span>{{ t('visualization.jump_no_banding_tips') }}</span>
+                          </template>
+                          <template v-else-if="state.currentOutParams.length > 0">
+                            <el-row style="margin-bottom: 8px" :gutter="8">
+                              <el-col :span="12"> {{ t('visualization.source_filter') }} </el-col>
+                              <el-col :span="1"></el-col>
+                              <el-col :span="10" style="margin-left: -2.9%">
+                                {{ t('visualization.link_outer_params') }}
+                              </el-col>
+                            </el-row>
+                            <div
+                              class="main-scrollbar-container"
+                              :class="{
+                                'main-scrollbar-container-min':
+                                  state.linkJumpInfo?.jumpType === 'newPop'
+                              }"
+                            >
+                              <el-scrollbar height="fit-content" max-height="178px">
+                                <div
+                                  style="display: flex; margin-bottom: 6px"
+                                  v-for="(
+                                    targetViewInfo, index
+                                  ) in state.linkJumpInfo.targetViewInfoList.filter(
+                                    item => item.targetType === 'outerParams'
+                                  )"
+                                  :key="index"
+                                >
+                                  <div style="flex: 1">
+                                    <el-select
+                                      v-model="targetViewInfo.sourceFieldActiveId"
+                                      :placeholder="t('chart.pls_select_field')"
+                                      style="width: 100%"
+                                    >
+                                      <el-option
+                                        v-for="curFilterField in state.linkJumpCurFilterFieldArray"
+                                        :key="curFilterField.id"
+                                        :label="curFilterField.name"
+                                        :value="curFilterField.id"
+                                      >
+                                        <span class="custom-option">
+                                          <Icon
+                                            ><component
+                                              class="svg-icon"
+                                              style="width: 14px; height: 14px"
+                                              :is="iconChartMap['filter']"
+                                            ></component
+                                          ></Icon>
+                                          <span
+                                            style="float: left; margin-left: 4px; font-size: 14px"
+                                            >{{ curFilterField.name }}</span
+                                          >
+                                        </span>
+                                      </el-option>
+                                    </el-select>
+                                  </div>
+                                  <div class="icon-center">
+                                    <Icon name="dv-link-target"
+                                      ><dvLinkTarget
+                                        style="width: 20px; height: 20px"
+                                        class="svg-icon"
+                                    /></Icon>
+                                  </div>
+                                  <div style="flex: 1">
+                                    <el-select
+                                      v-model="targetViewInfo.targetViewId"
+                                      :disabled="!targetViewInfo.sourceFieldActiveId"
+                                      :placeholder="t('visualization.select_param')"
+                                      style="width: 100%"
+                                      @change="viewInfoOnChange(targetViewInfo)"
+                                    >
+                                      <el-option
+                                        v-for="item in state.currentOutParams"
+                                        :key="item.id"
+                                        :label="item.title"
+                                        :value="item.id"
+                                      >
+                                        <span class="custom-option">
+                                          <Icon
+                                            ><component
+                                              class="svg-icon view-type-icon"
+                                              style="width: 14px; height: 14px"
+                                              :is="iconChartMap[item.type]"
+                                            ></component
+                                          ></Icon>
+                                          <span
+                                            style="float: left; margin-left: 4px; font-size: 14px"
+                                            >{{ item.title }}</span
+                                          >
+                                        </span>
+                                      </el-option>
+                                    </el-select>
+                                  </div>
+
+                                  <el-button
+                                    class="m-del-icon-btn"
+                                    text
+                                    @click="deleteLinkJumpFieldById(targetViewInfo.targetId)"
+                                  >
+                                    <el-icon size="20px">
+                                      <Icon name="icon_delete-trash_outlined"
+                                        ><icon_deleteTrash_outlined class="svg-icon"
+                                      /></Icon>
+                                    </el-icon>
+                                  </el-button>
+                                </div>
+                              </el-scrollbar>
+                              <el-button
+                                style="margin-top: 8px"
+                                :disabled="!state.linkJumpInfo.targetDvId"
+                                type="primary"
+                                icon="Plus"
+                                text
+                                @click="addLinkJumpField('outerParams')"
+                              >
+                                {{ t('visualization.add_jump_field') }}
+                              </el-button>
+                            </div>
+                          </template>
+                        </template>
+                      </template>
+                      <template v-else>
+                        <empty-background
+                          style="height: auto"
+                          :description="selectSourceTips"
+                          img-type="noneWhite"
+                        />
+                      </template>
                     </el-form>
                   </template>
 
@@ -426,6 +617,10 @@
         </el-button>
       </el-row>
     </div>
+    <XpackComponent
+      ref="openHandler"
+      jsname="L2NvbXBvbmVudC9lbWJlZGRlZC1pZnJhbWUvT3BlbkhhbmRsZXI="
+    />
   </el-dialog>
 </template>
 
@@ -438,6 +633,7 @@ import dvDashboardSpine from '@/assets/svg/dv-dashboard-spine.svg'
 import dvFolder from '@/assets/svg/dv-folder.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
 import icon_info_outlined from '@/assets/svg/icon_info_outlined.svg'
+import dvScreenSpine from '@/assets/svg/dv-screen-spine.svg'
 import {
   queryVisualizationJumpInfo,
   queryWithViewId,
@@ -448,7 +644,7 @@ import { reactive, ref, nextTick, computed, watch } from 'vue'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { fieldType } from '@/utils/attr'
 import { storeToRefs } from 'pinia'
-import { queryTreeApi } from '@/api/visualization/dataVisualization'
+import { findDvType, queryTreeApi } from '@/api/visualization/dataVisualization'
 import { ElMessage, ElScrollbar } from 'element-plus-secondary'
 import { useI18n } from '@/hooks/web/useI18n'
 import { getDatasetDetails, listFieldByDatasetGroup } from '@/api/dataset'
@@ -458,16 +654,33 @@ import { Search } from '@element-plus/icons-vue'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import EmptyBackground from '@/components/empty-background/src/EmptyBackground.vue'
 import { filterEmptyFolderTree } from '@/utils/canvasUtils'
+import { useEmitt } from '@/hooks/web/useEmitt'
+import { useAppStoreWithOut } from '@/store/modules/app'
+import { XpackComponent } from '@/components/plugin'
+import { useCache } from '@/hooks/web/useCache'
+import { useEmbedded } from '@/store/modules/embedded'
+import { guid } from '@/views/visualized/data/dataset/form/util'
+import treeSort from '@/utils/treeSortUtils'
 const dvMainStore = dvMainStoreWithOut()
 const { dvInfo, canvasViewInfo, componentData } = storeToRefs(dvMainStore)
 const linkJumpInfoTree = ref(null)
 const { t } = useI18n()
 const dialogShow = ref(false)
 const snapshotStore = snapshotStoreWithOut()
+const appStore = useAppStoreWithOut()
+const embeddedStore = useEmbedded()
 
-const resourceType = computed(() => (dvInfo.value.type === 'dashboard' ? '仪表板' : '数据大屏'))
+const resourceType = computed(() =>
+  dvInfo.value.type === 'dashboard' ? t('work_branch.dashboard') : t('work_branch.big_data_screen')
+)
+
+const selectSourceTips = t('visualization.select_target_resource')
+
+const targetSource = t('visualization.target_dashboard_dataV')
 
 const state = reactive({
+  curDataVWeight: 0,
+  activeCollapse: 'view',
   loading: false,
   showSelected: false,
   curJumpViewInfo: {},
@@ -475,6 +688,7 @@ const state = reactive({
   tempId: null,
   initState: false,
   viewId: null,
+  viewType: null,
   name2Auto: [],
   searchField: '',
   searchFunction: '',
@@ -504,6 +718,7 @@ const state = reactive({
   linkJumpInfoArray: [],
   linkJumpInfoXArray: [],
   linkJumpCurViewFieldArray: [],
+  linkJumpCurFilterFieldArray: [], //当前过滤条件明细
   mapJumpInfoArray: {},
   panelList: [],
   linkJumpInfo: null,
@@ -524,28 +739,65 @@ const state = reactive({
   quotaList: [],
   quotaData: [],
   dimension: [],
-  quota: []
+  quota: [],
+  currentOutParams: []
 })
+const { wsCache } = useCache()
 
 const outerContentEditor = ref(null)
 
+const resetParams = () => {
+  state.linkJump = null
+  state.linkJumpInfoArray = []
+  state.linkJumpInfoXArray = []
+  state.linkJumpCurViewFieldArray = []
+  state.linkJumpCurFilterFieldArray = []
+  state.mapJumpInfoArray = {}
+  state.linkJumpInfo = null
+}
+
 const dialogInit = viewItem => {
+  resetParams()
   state.showSelected = false
   dialogShow.value = true
   state.initState = false
   init(viewItem)
 }
 
+const initCurFilterFieldArray = componentDataCheck => {
+  componentDataCheck.forEach(componentItem => {
+    if (componentItem.component === 'VQuery' && componentItem.propValue instanceof Array) {
+      componentItem.propValue.forEach(filterItem => {
+        if (filterItem.checkedFields.includes(state.viewId)) {
+          state.linkJumpCurFilterFieldArray.push({
+            id: filterItem.id,
+            name: filterItem.name,
+            deType: 'filter'
+          })
+        }
+      })
+    } else if (componentItem.component === 'Group') {
+      initCurFilterFieldArray(componentItem.propValue)
+    } else if (componentItem.component === 'DeTabs') {
+      componentItem.propValue.forEach(tabItem => {
+        initCurFilterFieldArray(tabItem.componentData)
+      })
+    }
+  })
+}
+
+const isIndicator = computed(() => 'indicator' === state.viewType)
+
 const init = viewItem => {
   state.initState = false
   state.viewId = viewItem.id
+  state.viewType = viewItem.type
+  state.activeCollapse = isIndicator.value ? 'filter' : 'view'
   const chartDetails = canvasViewInfo.value[state.viewId] as ChartObj
   state.curJumpViewInfo = chartDetails
   let checkAllAxisStr =
     JSON.stringify(chartDetails.xAxis) +
     JSON.stringify(chartDetails.xAxisExt) +
-    JSON.stringify(chartDetails.yAxis) +
-    JSON.stringify(chartDetails.yAxisExt) +
     JSON.stringify(chartDetails.drillFields)
   let checkJumpStr
   // 堆叠图的可选参数分两种情况 1.如果有堆叠项 则指标只有第一个可选 2.如果没有堆叠项泽所有指标都可以选
@@ -559,14 +811,24 @@ const init = viewItem => {
       JSON.stringify(chartDetails.yAxisExt) +
       JSON.stringify(chartDetails.drillFields)
     checkJumpStr = checkAllAxisStr
-  } else if (chartDetails.type === 'table-pivot') {
-    checkJumpStr = checkAllAxisStr
-  } else if (chartDetails.type === 'table-info') {
-    checkJumpStr = JSON.stringify(chartDetails.xAxis) + JSON.stringify(chartDetails.drillFields)
+  } else if (
+    ['table-normal', 'table-info', 'table-pivot', 'indicator'].includes(chartDetails.type)
+  ) {
+    checkJumpStr =
+      checkAllAxisStr + JSON.stringify(chartDetails.yAxis) + JSON.stringify(chartDetails.yAxisExt)
+  } else if (chartDetails.type === 'multi-scatter') {
+    // 多维散点图跳转字段只列出维度，引用字段可选所有轴字段
+    const multiScatterExtra =
+      JSON.stringify(chartDetails.yAxis || []) +
+      JSON.stringify(chartDetails.extColor || []) +
+      JSON.stringify(chartDetails.extBubble || []) +
+      JSON.stringify(chartDetails.yAxisExt || [])
+    checkAllAxisStr = checkAllAxisStr + multiScatterExtra
+    checkJumpStr = JSON.stringify(chartDetails.extColor || [])
   } else {
     checkJumpStr = checkAllAxisStr
   }
-  const request = { busiFlag: dvInfo.value.type } as BusiTreeRequest
+  const request = { busiFlag: 'dashboard-dataV' } as BusiTreeRequest
   // 获取可关联的仪表板
   queryTreeApi(request).then(rsp => {
     if (rsp && rsp[0]?.id === '0') {
@@ -575,14 +837,19 @@ const init = viewItem => {
       state.panelList = rsp
     }
     state.panelList = filterEmptyFolderTree(state.panelList)
+    const curSortType = wsCache.get(`TreeSort-${dvInfo.value.type}`) || 'time_asc'
+    state.panelList = treeSort(state.panelList, curSortType)
   })
+
+  // 获取当前过滤条件明细 过滤原则：1.在当前仪表板或者大屏 2.作用于当前图表
+  state.linkJumpCurFilterFieldArray = []
+  initCurFilterFieldArray(componentData.value)
 
   if (chartDetails.tableId) {
     // 获取当前数据集信息
     getDatasetDetails(chartDetails.tableId).then(res => {
       state.curDatasetInfo = res || {}
     })
-
     // 获取当前图表的字段信息
     listFieldByDatasetGroup(chartDetails.tableId).then(rsp => {
       state.linkJumpCurViewFieldArray = []
@@ -611,7 +878,7 @@ const init = viewItem => {
       const firstNode = state.linkJumpInfoArray[0]
       state.initState = true
       nextTick(() => {
-        linkJumpInfoTree.value.setCurrentKey(firstNode.sourceFieldId)
+        linkJumpInfoTree.value.setCurrentKey(firstNode?.sourceFieldId)
         nodeClick(firstNode)
       })
     })
@@ -644,7 +911,7 @@ const save = () => {
         }
       }
       if (subCheckCount > 0) {
-        ElMessage.error('字段【' + linkJumpInfo.sourceFieldName + '】存在空配置，请先完善配置！')
+        ElMessage.error(t('visualization.jump_null_tips', [linkJumpInfo.sourceFieldName]))
       }
     }
   })
@@ -654,8 +921,8 @@ const save = () => {
   state.loading = true
   updateJumpSet(state.linkJump)
     .then(() => {
-      snapshotStore.recordSnapshotCache()
-      ElMessage.success('保存成功')
+      snapshotStore.recordSnapshotCache('updateJumpSet')
+      ElMessage.success(t('common.save_success'))
       // 刷新跳转信息
       queryVisualizationJumpInfo(dvInfo.value.id).then(rsp => {
         dvMainStore.setNowPanelJumpInfo(rsp.data)
@@ -668,7 +935,13 @@ const save = () => {
     })
 }
 const nodeClick = data => {
+  if (!data) {
+    return
+  }
   state.linkJumpInfo = state.mapJumpInfoArray[data.sourceFieldId]
+  if (!state.linkJumpInfo.windowSize) {
+    state.linkJumpInfo.windowSize = 'middle'
+  }
   if (!state.linkJumpInfo.linkType) {
     state.linkJumpInfo.linkType = 'outer'
   }
@@ -703,9 +976,20 @@ const getPanelViewList = dvId => {
         state.viewIdFieldArrayMap[view.id] = view.tableFields
       })
     }
+    // 外部参数 currentLinkPanelViewArray 也加入
+    // 在图表侧进行隐藏 保存的时候直接保存currentLinkPanelViewArray 方便处理
+    state.currentOutParams = rsp.data.outParamsJumpInfo || []
+    if (state.currentOutParams && state.currentOutParams.length > 0) {
+      state.currentOutParams.forEach(outerParamsItem => {
+        state.currentLinkPanelViewArray.push(outerParamsItem)
+        state.viewIdFieldArrayMap[outerParamsItem.id] = [
+          { id: '1000001', name: t('visualization.out_params_no_select') }
+        ]
+      })
+    }
     // 增加过滤组件匹配
     JSON.parse(rsp.data.bashComponentData).forEach(componentItem => {
-      if (componentItem.component === 'VQuery') {
+      if (componentItem.component === 'VQuery' && componentItem.propValue instanceof Array) {
         componentItem.propValue.forEach(filterItem => {
           state.currentLinkPanelViewArray.push({
             id: filterItem.id,
@@ -721,21 +1005,38 @@ const getPanelViewList = dvId => {
     })
   })
 }
+
 const dvNodeClick = data => {
   if (data.leaf) {
+    state.curDataVWeight = data.weight
     state.linkJumpInfo.targetViewInfoList = []
-    addLinkJumpField()
+    if (!isIndicator.value) {
+      addLinkJumpField()
+    }
     getPanelViewList(data.id)
   }
 }
-const addLinkJumpField = () => {
+const addLinkJumpField = (type = 'view') => {
   state.linkJumpInfo.targetViewInfoList.push({
+    targetId: guid(),
     targetViewId: '',
+    targetType: type,
     targetFieldId: ''
   })
 }
-const deleteLinkJumpField = index => {
-  state.linkJumpInfo.targetViewInfoList.splice(index, 1)
+
+const deleteLinkJumpFieldById = targetId => {
+  if (targetId) {
+    let indexResult
+    state.linkJumpInfo.targetViewInfoList.forEach((item, index) => {
+      if (targetId === item.targetId) {
+        indexResult = index
+      }
+    })
+    if (indexResult !== undefined) {
+      state.linkJumpInfo.targetViewInfoList.splice(indexResult, 1)
+    }
+  }
 }
 
 const fieldIdDisabledCheck = targetViewInfo => {
@@ -781,6 +1082,47 @@ const filterNodeMethod = (value, data) => {
   return !value || data.checked
 }
 
+const isEmbedded = computed(() => appStore.getIsDataEaseBi || appStore.getIsIframe)
+const openType = '_blank'
+
+const resourceEdit = async resourceId => {
+  if (state.curDataVWeight && state.curDataVWeight < 7) {
+    ElMessage.error(t('visualization.no_edit_auth'))
+    return
+  }
+  let busiFlagResult
+  await findDvType(resourceId).then(res => {
+    busiFlagResult = res.data
+  })
+  const baseUrl = busiFlagResult === 'dataV' ? '#/dvCanvas?dvId=' : '#/dashboard?resourceId='
+  if (isEmbedded.value) {
+    embeddedStore.clearState()
+    if (dvInfo.value.type === 'dataV') {
+      embeddedStore.setDvId(resourceId)
+    } else {
+      embeddedStore.setResourceId(resourceId)
+    }
+    useEmitt().emitter.emit(
+      'changeCurrentComponent',
+      dvInfo.value.type === 'dataV' ? 'VisualizationEditor' : 'DashboardEditor'
+    )
+    return
+  }
+  const newWindow = window.open(baseUrl + resourceId, openType)
+  initOpenHandler(newWindow)
+}
+
+const openHandler = ref(null)
+const initOpenHandler = newWindow => {
+  if (openHandler?.value) {
+    const pm = {
+      methodName: 'initOpenHandler',
+      args: newWindow
+    }
+    openHandler.value.invokeMethod(pm)
+  }
+}
+
 watch(
   () => state.showSelected,
   newValue => {
@@ -811,7 +1153,7 @@ defineExpose({
 .preview {
   margin-top: 5px;
   border: 1px solid #e6e6e6;
-  border-radius: 4px;
+  border-radius: 6px;
   height: 470px !important;
   overflow: hidden;
   background-size: 100% 100% !important;
@@ -945,7 +1287,7 @@ defineExpose({
   white-space: nowrap;
   text-overflow: ellipsis;
 
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid #dee0e3;
 
   background: #fff;
@@ -1021,6 +1363,8 @@ span {
   display: flex;
   flex-direction: row;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .top-area-text {
@@ -1099,6 +1443,13 @@ span {
   }
 }
 
+.main-scrollbar-container-min {
+  :deep(.ed-scrollbar) {
+    height: fit-content;
+    max-height: 138px !important;
+  }
+}
+
 .top-area-value {
   font-weight: 400;
   font-size: 14px;
@@ -1106,6 +1457,19 @@ span {
   display: flex;
   flex-direction: row;
   align-items: center;
+}
+
+/* 长标题单行省略，避免撑高弹窗 */
+.view-title-value {
+  flex: 1;
+  min-width: 0;
+}
+
+.top-area-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .view-type-icon {
   color: var(--ed-color-primary);
@@ -1136,13 +1500,13 @@ span {
 
 .outer-content {
   height: 340px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .padding-lr {
   height: 500px;
   border: 1px solid var(--deCardStrokeColor, #dee0e3);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 12px;
   box-sizing: border-box;
   margin-left: 12px;
@@ -1173,8 +1537,8 @@ span {
   color: var(--deTextDisable);
 }
 .outer-content-mirror {
-  border: 1px solid #bbbfc4;
-  border-radius: 4px;
+  border: 1px solid #d9dcdf;
+  border-radius: 6px;
   height: calc(100% - 30px);
   width: 100%;
   overflow: hidden;
@@ -1192,8 +1556,8 @@ span {
 }
 
 .outer-content-right {
-  border: 1px solid #bbbfc4;
-  border-radius: 4px;
+  border: 1px solid #d9dcdf;
+  border-radius: 6px;
   height: calc(100% - 30px);
   width: 100%;
   padding: 12px;
@@ -1203,6 +1567,7 @@ span {
   font-size: 14px;
   display: flex;
   align-items: center;
+  overflow: hidden;
 }
 
 .label-content-details {
@@ -1241,5 +1606,48 @@ span {
   font-size: 14px;
   display: flex;
   align-items: center;
+}
+
+.jump-com-list {
+  width: 100%;
+  margin-top: -18px;
+  :deep(.ed-collapse) {
+    --ed-collapse-header-font-size: 14px;
+    --ed-collapse-content-font-size: 14px;
+  }
+  :deep(.ed-tabs__active-bar) {
+    height: 2px;
+  }
+
+  & > :deep(.ed-tabs) {
+    --ed-tabs-header-height: 36px;
+    margin-bottom: 12px;
+    position: sticky;
+    background: #fff;
+    .ed-tabs__header {
+      &::before {
+        content: '';
+        width: 8px;
+        height: 1px;
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        background: #1f232926;
+      }
+    }
+  }
+
+  :deep(.ed-tabs__item) {
+    font-size: 14px;
+  }
+
+  :deep(.ed-tabs__item):not(.is-active) {
+    color: #646a73;
+  }
+}
+
+.target_jump {
+  color: var(--ed-color-primary);
+  cursor: pointer;
 }
 </style>

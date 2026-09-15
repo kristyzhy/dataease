@@ -2,13 +2,13 @@
 import icon_info_outlined from '@/assets/svg/icon_info_outlined.svg'
 import icon_linkRecord_outlined from '@/assets/svg/icon_link-record_outlined.svg'
 import icon_viewinchat_outlined from '@/assets/svg/icon_viewinchat_outlined.svg'
+import { cancelRequestBatch } from '@/config/axios/service'
 import icon_drilling_outlined from '@/assets/svg/icon_drilling_outlined.svg'
 import { useI18n } from '@/hooks/web/useI18n'
 import ChartComponentG2Plot from './components/ChartComponentG2Plot.vue'
 import DeIndicator from '@/custom-component/indicator/DeIndicator.vue'
 import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
 import { useAppStoreWithOut } from '@/store/modules/app'
-import router from '@/router'
 import { useEmbedded } from '@/store/modules/embedded'
 import { XpackComponent } from '@/components/plugin'
 import { PluginComponent } from '@/components/plugin'
@@ -17,6 +17,7 @@ import {
   CSSProperties,
   nextTick,
   onBeforeMount,
+  onBeforeUnmount,
   onMounted,
   PropType,
   provide,
@@ -36,15 +37,15 @@ import DrillPath from '@/views/chart/components/views/components/DrillPath.vue'
 import { ElIcon, ElInput, ElMessage } from 'element-plus-secondary'
 import { useFilter } from '@/hooks/web/useFilter'
 import { useCache } from '@/hooks/web/useCache'
-import { parseUrl } from '@/utils/ParseUrl'
 
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
-import { cloneDeep } from 'lodash-es'
+import { cloneDeep, debounce } from 'lodash-es'
 import ChartComponentS2 from '@/views/chart/components/views/components/ChartComponentS2.vue'
 import { ChartLibraryType } from '@/views/chart/components/js/panel/types'
 import chartViewManager from '@/views/chart/components/js/panel'
 import { storeToRefs } from 'pinia'
 import { checkAddHttp, setIdValueTrans } from '@/utils/canvasUtils'
+import { sanitizeHtml } from '@/utils/utils'
 import { Base64 } from 'js-base64'
 import DeRichTextView from '@/custom-component/rich-text/DeRichTextView.vue'
 import DePictureGroup from '@/custom-component/picture-group/Component.vue'
@@ -54,20 +55,24 @@ import { viewFieldTimeTrans } from '@/utils/viewUtils'
 import { CHART_TYPE_CONFIGS } from '@/views/chart/components/editor/util/chart'
 import request from '@/config/axios'
 import { store } from '@/store'
-
+import { clearExtremum } from '@/views/chart/components/js/extremumUitl'
+import DePreviewPopDialog from '@/components/visualization/DePreviewPopDialog.vue'
+import { useRoute } from 'vue-router_2'
+const route = useRoute()
 const { wsCache } = useCache()
 const chartComponent = ref<any>()
 const { t } = useI18n()
 const dvMainStore = dvMainStoreWithOut()
 const { emitter } = useEmitt()
-
+const dePreviewPopDialogRef = ref(null)
 let innerRefreshTimer = null
+let innerSearchCount = 0
 const appStore = useAppStoreWithOut()
 const appearanceStore = useAppearanceStoreWithOut()
 const isDataEaseBi = computed(() => appStore.getIsDataEaseBi)
 const isIframe = computed(() => appStore.getIsIframe)
 
-const emit = defineEmits(['onPointClick'])
+const emit = defineEmits(['onPointClick', 'onComponentEvent'])
 
 const {
   nowPanelJumpInfo,
@@ -76,10 +81,16 @@ const {
   curComponent,
   canvasStyleData,
   mobileInPc,
-  inMobile
+  inMobile,
+  editMode
 } = storeToRefs(dvMainStore)
 
 const props = defineProps({
+  // 公共参数集
+  commonParams: {
+    type: Object,
+    required: false
+  },
   active: {
     type: Boolean,
     default: false
@@ -130,11 +141,19 @@ const props = defineProps({
     type: String,
     required: false,
     default: 'common'
+  },
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
+  },
+  optType: {
+    type: String,
+    required: false
   }
 })
 const dynamicAreaId = ref('')
-const { view, showPosition, element, active, searchCount, scale } = toRefs(props)
-
+const { view, showPosition, element, active, searchCount, scale, suffixId } = toRefs(props)
 const titleShow = computed(() => {
   return (
     !['rich-text', 'picture-group'].includes(element.value.innerType) &&
@@ -165,7 +184,7 @@ const state = reactive({
     width: 'fit-content',
     maxWidth: '100%',
     wordBreak: 'break-word',
-    whiteSpace: 'pre-wrap'
+    whiteSpace: 'pre-wrap!important'
   } as CSSProperties,
   drillFilters: [],
   viewInfoData: null,
@@ -187,6 +206,32 @@ const titleAlign = computed<string>(() => {
 
   return 'flex-start'
 })
+
+// 标题宽度交给 flex 计算，图标显示时优先占位
+const titleTextStyle = computed<CSSProperties>(() => ({
+  ...state.title_class,
+  flex: '1 1 auto',
+  minWidth: 0,
+  width: 'auto',
+  maxWidth: '100%',
+  wordBreak: 'normal',
+  whiteSpace: 'nowrap'
+}))
+
+// 固定标题行高度，避免图标显示时触发图表区域 resize
+const titleContentHeight = computed<string>(() => {
+  const iconFontSize = Number.parseFloat(iconSize.value) || 0
+  const titleFontSize = Number.parseFloat(`${state.title_class.fontSize}`) || iconFontSize
+  return Math.max(iconFontSize, titleFontSize * 1.2) + 'px'
+})
+
+const titleContentStyle = computed<CSSProperties>(() => ({
+  height: titleContentHeight.value,
+  minHeight: titleContentHeight.value,
+  lineHeight: titleContentHeight.value
+}))
+
+const safeTitleRemark = computed(() => sanitizeHtml(state.title_remark.remark || ''))
 
 const trackMenu = computed<Array<string>>(() => {
   return chartComponent?.value?.trackMenu ?? []
@@ -224,7 +269,8 @@ const buildInnerRefreshTimer = (
     const timerRefreshTime = refreshUnit === 'second' ? refreshTime * 1000 : refreshTime * 60000
     innerRefreshTimer = setInterval(() => {
       clearViewLinkage()
-      queryData()
+      queryData(false, true)
+      innerSearchCount++
     }, timerRefreshTime)
   }
 }
@@ -235,14 +281,6 @@ const clearViewLinkage = () => {
   useEmitt().emitter.emit('clearPanelLinkage', { viewId: element.value.id })
 }
 
-watch(
-  [() => view.value],
-  () => {
-    initTitle()
-  },
-  { deep: true }
-)
-
 watch([() => scale.value], () => {
   initTitle()
 })
@@ -250,7 +288,7 @@ watch([() => scale.value], () => {
 watch([() => searchCount.value], () => {
   // 内部计时器启动 忽略外部计时器
   if (!innerRefreshTimer) {
-    queryData()
+    queryData(false, true)
   }
 })
 // 仪表板的查询结果设置变化 图表数据需要刷新
@@ -317,7 +355,7 @@ const initTitle = () => {
     }
 
     state.title_remark.show = customStyle.text.show && customStyle.text.remarkShow
-    state.title_remark.remark = customStyle.text.remark
+    state.title_remark.remark = sanitizeHtml(customStyle.text.remark || '')
   }
 }
 
@@ -347,6 +385,10 @@ const chartClick = param => {
     ElMessage.error(t('chart.drill_field_error'))
     return
   }
+  if (view.value.type === 'circle-packing' && param.data.name === t('commons.all')) {
+    ElMessage.error(t('chart.last_layer'))
+    return
+  }
   if (state.drillClickDimensionList.length < props.view.drillFields.length - 1) {
     state.drillClickDimensionList.push({
       dimensionList: param.data.dimensionList,
@@ -361,16 +403,29 @@ const chartClick = param => {
 
 // 仪表板和大屏所有额外过滤参数都在此处
 const filter = (firstLoad?: boolean) => {
-  const { filter } = useFilter(view.value.id, firstLoad)
-  return {
+  const { filter } = useFilter(view.value.id, firstLoad, showPosition.value)
+  const result = {
     user: wsCache.get('user.uid'),
     filter,
     linkageFilters: element.value.linkageFilters,
     outerParamsFilters: element.value.outerParamsFilters,
+    webParamsFilters: element.value.webParamsFilters,
     drill: state.drillClickDimensionList,
     resultCount: resultCount.value,
     resultMode: resultMode.value
   }
+  // 定时报告相关勿动
+  if (route.path === '/preview' && route.query.taskId) {
+    const sceneId = view.value['sceneId']
+    const filterJson = window[`de-report-filter-${sceneId}`]
+    let filterObj = {}
+    if (filterJson) {
+      filterObj = JSON.parse(filterJson)
+    }
+    filterObj[view.value.id] = result
+    window[`de-report-filter-${sceneId}`] = JSON.stringify(filterObj)
+  }
+  return result
 }
 
 const onDrillFilters = param => {
@@ -395,31 +450,9 @@ const windowsJump = (url, jumpType, size = 'middle') => {
   try {
     let newWindow
     if ('newPop' === jumpType) {
-      let sizeX, sizeY
-      if (size === 'large') {
-        sizeX = 0.95
-        sizeY = 0.9
-      } else if (size === 'middle') {
-        sizeX = 0.8
-        sizeY = 0.75
-      } else {
-        sizeX = 0.6
-        sizeY = 0.5
-      }
-      const height = screen.height * sizeY
-      const width = screen.width * sizeX
-      const left = screen.width * ((1 - sizeX) / 2)
-      const top = screen.height * ((1 - sizeY) / 2)
-      newWindow = window.open(
-        url,
-        '_blank',
-        `width=${width},height=${height},left=${left},top=${top},toolbar=no,scrollbars=yes,resizable=yes,location=no`
-      )
+      dePreviewPopDialogRef.value.previewInit({ url, size })
     } else if ('_self' === jumpType) {
       newWindow = window.open(url, jumpType)
-      if (inMobile) {
-        window.location.reload()
-      }
     } else {
       newWindow = window.open(url, jumpType)
     }
@@ -433,8 +466,13 @@ const jumpClick = param => {
   let dimension, jumpInfo, sourceInfo
   // 如果有名称name 获取和name匹配的dimension 否则倒序取最后一个能匹配的
   if (param.name) {
-    param.dimensionList.forEach(dimensionItem => {
-      if (dimensionItem.id === param.name || dimensionItem.value === param.name) {
+    const colList = [...param.dimensionList, ...param.quotaList]
+    colList.forEach(dimensionItem => {
+      if (
+        dimensionItem.id === param.name ||
+        dimensionItem.value === param.name ||
+        dimensionItem.name === param.name
+      ) {
         dimension = dimensionItem
         sourceInfo = param.viewId + '#' + dimension.id
         jumpInfo = nowPanelJumpInfo.value[sourceInfo]
@@ -462,15 +500,66 @@ const jumpClick = param => {
     if (isDataEaseBi.value) {
       embeddedBaseUrl = embeddedStore.baseUrl
     }
+    const jumpInfoParam = `&jumpInfoParam=${encodeURIComponent(
+      Base64.encode(JSON.stringify(param))
+    )}`
+
     // 内部仪表板跳转
     if (jumpInfo.linkType === 'inner') {
       if (jumpInfo.targetDvId) {
+        const editPreviewParams = ['canvas', 'edit-preview'].includes(showPosition.value)
+          ? '&editPreview=true'
+          : ''
+        const filterOuterParams = {}
+        const curFilter = dvMainStore.getLastViewRequestInfo(param.viewId)
+        const targetViewInfoList = jumpInfo.targetViewInfoList
+        if (
+          curFilter &&
+          curFilter.filter &&
+          curFilter.filter.length > 0 &&
+          targetViewInfoList &&
+          targetViewInfoList.length > 0
+        ) {
+          // do filter
+          curFilter.filter.forEach(filterItem => {
+            if (filterItem.filterFrom !== 'optionFilter') {
+              targetViewInfoList.forEach(targetViewInfo => {
+                if (targetViewInfo.sourceFieldActiveId === filterItem.filterId) {
+                  const outerFilterItem = filterOuterParams[targetViewInfo.outerParamsName]
+                  if (outerFilterItem) {
+                    // 当前已经存在 根据arrayType 放置位置
+                    if (filterItem['arrayType'] === 'END') {
+                      outerFilterItem.value[outerFilterItem.value.length - 1] = filterItem.value[0]
+                    } else {
+                      outerFilterItem.value[0] = filterItem.value[0]
+                    }
+                  } else {
+                    filterOuterParams[targetViewInfo.outerParamsName] = {
+                      operator: filterItem.operator,
+                      value: filterItem.value
+                    }
+                  }
+                }
+              })
+            }
+          })
+        }
+        let attachParamsInfo
+        if (Object.keys(filterOuterParams).length > 0) {
+          filterOuterParams['outerParamsVersion'] = 'v2'
+          attachParamsInfo =
+            '&attachParams=' + encodeURIComponent(Base64.encode(JSON.stringify(filterOuterParams)))
+        }
+        // 携带外部参数
         if (publicLinkStatus.value) {
           // 判断是否有公共链接ID
           if (jumpInfo.publicJumpId) {
-            const url = `${embeddedBaseUrl}#/de-link/${
-              jumpInfo.publicJumpId
-            }?jumpInfoParam=${encodeURIComponent(Base64.encode(JSON.stringify(param)))}`
+            let url = `${embeddedBaseUrl}#/de-link/${jumpInfo.publicJumpId}?fromLink=true&dvType=${jumpInfo.targetDvType}`
+            if (attachParamsInfo) {
+              url = url + attachParamsInfo + jumpInfoParam + editPreviewParams
+            } else {
+              url = url + '&ignoreParams=true' + jumpInfoParam + editPreviewParams
+            }
             const currentUrl = window.location.href
             localStorage.setItem('beforeJumpUrl', currentUrl)
             windowsJump(url, jumpInfo.jumpType, jumpInfo.windowSize)
@@ -478,22 +567,18 @@ const jumpClick = param => {
             ElMessage.warning(t('visualization.public_link_tips'))
           }
         } else {
-          const url = `${embeddedBaseUrl}#/preview?dvId=${
-            jumpInfo.targetDvId
-          }&jumpInfoParam=${encodeURIComponent(Base64.encode(JSON.stringify(param)))}`
-
-          if (isIframe.value || isDataEaseBi.value) {
-            embeddedStore.clearState()
+          let url = `${embeddedBaseUrl}#/preview?dvId=${jumpInfo.targetDvId}&fromLink=true&dvType=${jumpInfo.targetDvType}`
+          if (attachParamsInfo) {
+            url = url + attachParamsInfo + jumpInfoParam + editPreviewParams
+          } else {
+            url = url + '&ignoreParams=true' + jumpInfoParam + editPreviewParams
           }
-          if (divSelf) {
+          const currentUrl = window.location.href
+          localStorage.setItem('beforeJumpUrl', currentUrl)
+          if (divSelf || iframeSelf) {
             embeddedStore.setDvId(jumpInfo.targetDvId)
             embeddedStore.setJumpInfoParam(encodeURIComponent(Base64.encode(JSON.stringify(param))))
             divEmbedded('Preview')
-            return
-          }
-
-          if (iframeSelf) {
-            router.push(parseUrl(url))
             return
           }
           windowsJump(url, jumpInfo.jumpType, jumpInfo.windowSize)
@@ -521,17 +606,26 @@ const jumpClick = param => {
   }
 }
 
-const queryData = (firstLoad = false) => {
+const queryDataFromSelect = (firstLoad = false) => {
+  cancelRequestBatch(`chartData/getData/${view.value.id}`)
+  loading.value = false
+  queryData(firstLoad)
+}
+
+const queryData = debounce((firstLoad = false, autoRefresh = false) => {
   if (loading.value) {
     return
   }
   const searched = dvMainStore.firstLoadMap.includes(element.value.id)
-  const queryFilter = filter(searched ? false : firstLoad)
+  let queryFilter = filter(searched ? false : firstLoad)
+  if (showPosition.value.includes('viewDialog') || autoRefresh) {
+    queryFilter = dvMainStore.getLastViewRequestInfo(view.value.id)
+  }
   let params = cloneDeep(view.value)
   params['chartExtRequest'] = queryFilter
   chartExtRequest.value = queryFilter
   calcData(params)
-}
+}, 300)
 
 const calcData = params => {
   dvMainStore.setLastViewRequestInfo(params.id, params.chartExtRequest)
@@ -542,13 +636,13 @@ const calcData = params => {
         methodName: 'calcData',
         args: [
           params,
-          res => {
+          () => {
             loading.value = false
           }
         ]
       })
     } else {
-      chartComponent?.value?.calcData?.(params, res => {
+      chartComponent?.value?.calcData?.(params, () => {
         loading.value = false
       })
     }
@@ -569,7 +663,7 @@ onBeforeMount(() => {
     nextTick(() => {
       useEmitt({
         name: `query-data-${view.value.id}`,
-        callback: queryData
+        callback: queryDataFromSelect
       })
     })
   }
@@ -578,6 +672,8 @@ onBeforeMount(() => {
 const listenerEnable = computed(() => {
   return !showPosition.value.includes('viewDialog')
 })
+// 存储所有数据集字段，用于判断图表拖入的字段是否存在
+const viewAllDatasetFields = new Map()
 const showEmpty = ref(false)
 const checkFieldIsAllowEmpty = (allField?) => {
   showEmpty.value = false
@@ -593,47 +689,69 @@ const checkFieldIsAllowEmpty = (allField?) => {
       return
     }
     const axisConfigMap = new Map(Object.entries(chartView.axisConfig))
-    // 验证拖入的字段是否包含在当前数据集字段中，如果一个都不在数据集字段中，则显示空图表
+    // 验证拖入的字段是否包含在当前数据集字段中，如果有一个不在数据集字段中，则显示空图表
     let includeDatasetField = false
     if (allField && allField.length > 0) {
-      axisConfigMap.forEach((value, key) => {
-        if (view.value?.[key]?.length > 0) {
-          view.value[key].forEach(item => {
-            if (!allField.find(field => field.id === item.id)) {
-              includeDatasetField = true
-              return false
-            }
-          })
-          if (includeDatasetField) {
-            return false
+      viewAllDatasetFields.set(view.value.id, allField)
+      outerLoop: for (const [key, value] of axisConfigMap) {
+        // 只判断必须的
+        if (value['allowEmpty']) continue
+        if (!view.value?.[key]?.length) continue
+        for (const item of view.value[key]) {
+          if (!allField.find(field => field.id === item.id)) {
+            includeDatasetField = true
+            break outerLoop
           }
         }
-      })
+      }
     }
     if (includeDatasetField) {
       showEmpty.value = true
       return
     }
-    axisConfigMap.forEach((value, key) => {
-      // 不允许为空,并且没限制长度
-      if (!value['allowEmpty'] && !value['limit'] && view.value?.[key]?.length === 0) {
-        showEmpty.value = true
-        return false
+    for (const [key, value] of axisConfigMap) {
+      // 跳过允许为空的配置项
+      if (value['allowEmpty']) continue
+
+      // 如果有数据集字段并且字段值存在且不为空
+      if (viewAllDatasetFields.get(view.value?.id)) {
+        if (view.value?.[key]?.length) {
+          // 检查图表字段是否有不在数据集中
+          for (const item of view.value[key]) {
+            if (!viewAllDatasetFields.get(view.value?.id).find(field => field.id === item.id)) {
+              includeDatasetField = true
+              break
+            }
+          }
+        }
+        // 如果有不在数据集中
+        if (includeDatasetField) {
+          showEmpty.value = true
+          break
+        }
       }
-      // 不允许为空， 限制长度
+
+      // 如果没有限制长度，且值为空，标记为空并跳出
+      if (!value['limit'] && view.value?.[key]?.length === 0) {
+        showEmpty.value = true
+        break
+      }
+
+      // 如果有限制长度，且字段长度不足，标记为空并跳出
       if (
-        !value['allowEmpty'] &&
         value['limit'] &&
-        view.value?.[key]?.length < parseInt(value['limit'])
+        (!view.value?.[key] || view.value?.[key]?.length < parseInt(value['limit']))
       ) {
         showEmpty.value = true
-        return false
+        break
       }
+
+      // 如果是table-info类型且字段为空，标记为空并跳出
       if (view.value?.type === 'table-info' && view.value?.[key]?.length === 0) {
         showEmpty.value = true
-        return false
+        break
       }
-    })
+    }
   }
 }
 const changeChartType = () => {
@@ -642,9 +760,37 @@ const changeChartType = () => {
 const changeDataset = () => {
   checkFieldIsAllowEmpty()
 }
+
+const loadPlugin = ref(false)
+
+// 渲染图表回调
+const renderChartCallback = val => {
+  if (!state.initReady) {
+    return
+  }
+  initTitle()
+  const viewInfo = val ? val : view.value
+  nextTick(() => {
+    if (view.value?.plugin?.isPlugin) {
+      chartComponent?.value?.invokeMethod({
+        methodName: 'renderChart',
+        args: [viewInfo]
+      })
+      return
+    }
+    chartComponent?.value?.renderChart?.(viewInfo)
+  })
+}
 onMounted(() => {
   if (!view.value.isPlugin) {
+    state.drillClickDimensionList = view.value?.chartExtRequest?.drill ?? []
     queryData(!showPosition.value.includes('viewDialog'))
+  } else {
+    const searched = dvMainStore.firstLoadMap.includes(element.value.id)
+    const queryFilter = filter(!searched)
+    view.value['chartExtRequest'] = queryFilter
+    chartExtRequest.value = queryFilter
+    loadPlugin.value = true
   }
   if (!listenerEnable.value) {
     return
@@ -719,14 +865,7 @@ onMounted(() => {
   useEmitt({
     name: 'renderChart-' + view.value.id,
     callback: function (val) {
-      if (!state.initReady) {
-        return
-      }
-      initTitle()
-      const viewInfo = val ? val : view.value
-      nextTick(() => {
-        chartComponent?.value?.renderChart?.(viewInfo)
-      })
+      renderChartCallback(val)
     }
   })
   useEmitt({
@@ -754,6 +893,29 @@ onMounted(() => {
       initTitle()
     }
   })
+  useEmitt({
+    name: 'chart-type-change-' + view.value.id,
+    callback: () => {
+      const chart = cloneDeep(view.value)
+      chart.container =
+        'container-' + showPosition.value + '-' + view.value.id + '-' + suffixId.value
+      clearExtremum(chart)
+      // 切换到不支持下钻的图表类型时，清除下钻状态
+      const chartView = chartViewManager.getChartView(view.value.render, view.value.type)
+      if (chartView && !chartView.axis.includes('drill')) {
+        state.drillClickDimensionList = []
+        state.drillFilters = []
+      }
+    }
+  })
+  if (showPosition.value === 'viewDialog') {
+    useEmitt({
+      name: 'renderChart-viewDialog-' + view.value.id,
+      callback: function (val) {
+        renderChartCallback(val)
+      }
+    })
+  }
 
   const { refreshViewEnable, refreshUnit, refreshTime } = view.value
   buildInnerRefreshTimer(refreshViewEnable, refreshUnit, refreshTime)
@@ -761,9 +923,20 @@ onMounted(() => {
   initTitle()
 })
 
+onBeforeUnmount(() => {
+  if (innerRefreshTimer) {
+    clearInterval(innerRefreshTimer)
+    innerRefreshTimer = null
+  }
+})
+
 // 1.开启仪表板刷新 2.首次加载（searchCount =0 ）3.正在请求数据 则显示加载状态
 const loadingFlag = computed(() => {
-  return (canvasStyleData.value.refreshViewLoading || searchCount.value === 0) && loading.value
+  return (
+    (canvasStyleData.value.refreshViewLoading ||
+      (searchCount.value === 0 && innerSearchCount === 0)) &&
+    loading.value
+  )
 })
 
 const chartAreaShow = computed(() => {
@@ -792,8 +965,11 @@ const chartAreaShow = computed(() => {
 
 const titleInputRef = ref()
 const titleEditStatus = ref(false)
+const titleEditable = computed(() => {
+  return ['canvas', 'canvasDataV'].includes(showPosition.value) && !props.disabled
+})
 function changeEditTitle() {
-  if (!props.active) {
+  if (!titleEditable.value || !props.active || mobileInPc.value) {
     return
   }
   if (!titleEditStatus.value) {
@@ -831,14 +1007,19 @@ const vClickOutside = {
 }
 
 function onTitleChange() {
-  snapshotStore.recordSnapshotCache()
+  element.value.name = view.value.title
+  element.value.label = view.value.title
+  snapshotStore.recordSnapshotCache('onTitleChange')
 }
 
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 
 const marginBottom = computed<string | 0>(() => {
+  if (!titleShow.value) {
+    return 0
+  }
   if (titleShow.value || trackMenu.value.length > 0 || state.title_remark.show) {
     return 12 * scale.value + 'px'
   }
@@ -849,18 +1030,56 @@ const iconSize = computed<string>(() => {
   return 16 * scale.value + 'px'
 })
 
+/**
+ * 修改透明度
+ * 边框透明度为0时会是存色，顾配置低透明度
+ * @param {boolean} isBorder 是否为边框
+ */
+const modifyAlpha = isBorder => {
+  const { backgroundColor, backgroundType, backgroundImageEnable, backgroundColorSelect } =
+    element.value.commonBackground
+  // 透明
+  const transparent = 'rgba(0,0,0,0.01)'
+  // 背景图时，设置透明度为0.01
+  if (backgroundType === 'outerImage' && backgroundImageEnable) return transparent
+  // hex转rgba
+  if (backgroundColor.includes('#'))
+    return isBorder || !backgroundColorSelect ? transparent : backgroundColor
+  const match = backgroundColor.match(/rgba\((\d+), (\d+), (\d+), (\d+|0.\d+)\)/)
+  if (!match) return backgroundColor
+  const [r, g, b, a] = match.slice(1).map(Number)
+  // 边框或者不设置背景色时，设置透明度为0.01，否则原透明度
+  return `rgba(${r}, ${g}, ${b}, ${!backgroundColorSelect || isBorder ? 0.01 : a})`
+}
+
 const titleIconStyle = computed(() => {
+  const bgColor = modifyAlpha(false)
+  const borderColor = modifyAlpha(true)
+  // 不显示标题时，图标的样式
+  const style = {
+    position: 'absolute',
+    border: `1px solid ${borderColor}`,
+    'background-color': bgColor,
+    'border-radius': '2px',
+    padding: '0 2px 0 2px',
+    'z-index': 1,
+    top: '2px',
+    left: '2px',
+    ...(trackMenu.value.length ? {} : { display: 'none' })
+  }
   return {
-    color: canvasStyleData.value.component.seniorStyleSetting.linkageIconColor
+    color: canvasStyleData.value.component.seniorStyleSetting.linkageIconColor,
+    height: iconSize.value,
+    lineHeight: iconSize.value,
+    ...(titleShow.value ? {} : style)
   }
 })
-const chartHover = ref(false)
-const showActionIcons = computed(() => {
-  if (!chartHover.value) {
-    return false
-  }
-  return trackMenu.value.length > 0 || state.title_remark.show
-})
+// 只稳定标题行高度，图标隐藏时不占用标题横向空间
+const hasActionIcons = computed(
+  () => state.title_remark.show || hasLinkIcon.value || hasJumpIcon.value || hasDrillIcon.value
+)
+// 编辑标题时隐藏操作图标，避免遮挡输入框
+const showTitleActionIcons = computed(() => hasActionIcons.value && !titleEditStatus.value)
 const chartConfigs = ref(CHART_TYPE_CONFIGS)
 const pluginLoaded = computed(() => {
   let result = false
@@ -914,6 +1133,26 @@ const loadPluginCategory = data => {
 const allEmptyCheck = computed(() => {
   return ['rich-text', 'picture-group'].includes(element.value.innerType)
 })
+/**
+ * 标题提示的最大宽度
+ */
+const titleTooltipWidth = computed(() => {
+  if (inMobile.value) {
+    return `${screen.width - 10}px`
+  }
+  if (mobileInPc.value) {
+    return '270px'
+  }
+  return '500px'
+})
+const clearG2Tooltip = () => {
+  const g2TooltipWrapper = document.getElementById('g2-tooltip-wrapper')
+  if (g2TooltipWrapper) {
+    for (const ele of g2TooltipWrapper.children) {
+      ele.style.display = 'none'
+    }
+  }
+}
 </script>
 
 <template>
@@ -922,79 +1161,103 @@ const allEmptyCheck = computed(() => {
     :class="{ 'report-load-finish': !loadingFlag }"
     v-loading="loadingFlag"
     element-loading-background="rgba(0,0,0,0)"
-    @mouseover="chartHover = true"
-    @mouseleave="chartHover = false"
   >
     <div
       class="title-container"
-      :style="{ 'justify-content': titleAlign, 'margin-bottom': marginBottom }"
+      :style="{
+        'justify-content': titleAlign,
+        'margin-bottom': marginBottom
+      }"
     >
-      <template v-if="!titleEditStatus">
-        <p v-if="titleShow" :style="state.title_class" @dblclick="changeEditTitle">
-          {{ view.title }}
-        </p>
-      </template>
-      <template v-else>
-        <el-input
-          style="flex: 1"
-          :effect="canvasStyleData.dashboard.themeColor"
-          ref="titleInputRef"
-          v-model="view.title"
-          @keydown.stop
-          @keydown.enter="onLeaveTitleInput"
-          v-click-outside="onLeaveTitleInput"
-          @change="onTitleChange"
-        />
-      </template>
-      <transition name="fade">
-        <div
-          class="icons-container"
-          :class="{ 'is-editing': titleEditStatus }"
-          :style="titleIconStyle"
-          v-show="showActionIcons"
-        >
-          <el-tooltip :effect="toolTip" placement="top" v-if="state.title_remark.show">
-            <template #content>
-              <div
-                style="
-                  width: 500px;
-                  word-break: break-all;
-                  word-wrap: break-word;
-                  white-space: pre-wrap;
-                "
-                v-html="state.title_remark.remark"
-              ></div>
-            </template>
-            <el-icon :size="iconSize" class="inner-icon">
-              <Icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></Icon>
-            </el-icon>
-          </el-tooltip>
-          <el-tooltip :effect="toolTip" placement="top" content="已设置联动" v-if="hasLinkIcon">
-            <el-icon :size="iconSize" class="inner-icon">
-              <Icon name="icon_link-record_outlined"
-                ><icon_linkRecord_outlined class="svg-icon"
-              /></Icon>
-            </el-icon>
-          </el-tooltip>
-          <el-tooltip :effect="toolTip" placement="top" content="已设置跳转" v-if="hasJumpIcon">
-            <el-icon :size="iconSize" class="inner-icon">
-              <Icon name="icon_viewinchat_outlined"
-                ><icon_viewinchat_outlined class="svg-icon"
-              /></Icon>
-            </el-icon>
-          </el-tooltip>
-          <el-tooltip :effect="toolTip" placement="top" content="已设置下钻" v-if="hasDrillIcon">
-            <el-icon :size="iconSize" class="inner-icon">
-              <Icon name="icon_drilling_outlined"><icon_drilling_outlined class="svg-icon" /></Icon>
-            </el-icon>
-          </el-tooltip>
+      <div
+        class="title-content"
+        :class="{ 'is-editing': titleEditStatus }"
+        :style="titleShow && !titleEditStatus ? titleContentStyle : undefined"
+      >
+        <template v-if="!titleEditStatus">
+          <p
+            class="ellipsis"
+            v-if="titleShow"
+            :style="titleTextStyle"
+            :title="view.title || ''"
+            @dblclick="changeEditTitle"
+          >
+            {{ view.title }}
+          </p>
+        </template>
+        <template v-else>
+          <el-input
+            style="flex: 1; min-width: 0"
+            :effect="canvasStyleData.dashboard.themeColor"
+            ref="titleInputRef"
+            v-model="view.title"
+            @keydown.stop
+            @keydown.enter="onLeaveTitleInput"
+            v-click-outside="onLeaveTitleInput"
+            @change="onTitleChange"
+          />
+        </template>
+        <div v-if="showTitleActionIcons" class="icons-container-out">
+          <div
+            class="icons-container"
+            :class="{ 'is-editing': titleEditStatus }"
+            :style="titleIconStyle"
+          >
+            <el-tooltip :effect="toolTip" placement="top" v-if="state.title_remark.show">
+              <template #content>
+                <div
+                  :style="{
+                    maxWidth: titleTooltipWidth,
+                    wordBreak: 'break-all',
+                    wordWrap: 'break-word',
+                    whiteSpace: 'pre-wrap'
+                  }"
+                  v-html="safeTitleRemark"
+                ></div>
+              </template>
+              <el-icon :size="iconSize" class="inner-icon">
+                <Icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></Icon>
+              </el-icon>
+            </el-tooltip>
+            <el-tooltip :effect="toolTip" placement="top" content="已设置联动" v-if="hasLinkIcon">
+              <el-icon :size="iconSize" class="inner-icon">
+                <Icon name="icon_link-record_outlined"
+                  ><icon_linkRecord_outlined class="svg-icon"
+                /></Icon>
+              </el-icon>
+            </el-tooltip>
+            <el-tooltip
+              :effect="toolTip"
+              placement="top"
+              :content="t('visualization.jump_set_tips')"
+              v-if="hasJumpIcon"
+            >
+              <el-icon :size="iconSize" class="inner-icon">
+                <Icon name="icon_viewinchat_outlined"
+                  ><icon_viewinchat_outlined class="svg-icon"
+                /></Icon>
+              </el-icon>
+            </el-tooltip>
+            <el-tooltip
+              :effect="toolTip"
+              placement="top"
+              :content="t('visualization.drill_set_tips')"
+              v-if="hasDrillIcon"
+            >
+              <el-icon :size="iconSize" class="inner-icon">
+                <Icon name="icon_drilling_outlined"
+                  ><icon_drilling_outlined class="svg-icon"
+                /></Icon>
+              </el-icon>
+            </el-tooltip>
+          </div>
         </div>
-      </transition>
+      </div>
     </div>
     <!--这里去渲染不同图库的图表-->
     <div v-if="allEmptyCheck || (chartAreaShow && !showEmpty)" style="flex: 1; overflow: hidden">
       <plugin-component
-        v-if="view.plugin?.isPlugin"
+        v-if="view.plugin?.isPlugin && loadPlugin"
         :jsname="view.plugin.staticMap['index']"
         :scale="scale"
         :dynamic-area-id="dynamicAreaId"
@@ -1005,6 +1268,9 @@ const allEmptyCheck = computed(() => {
         :emitter="emitter"
         :store="store"
         :suffixId="suffixId"
+        :active="active"
+        :disabled="!['canvas', 'canvasDataV'].includes(showPosition) || disabled"
+        :edit-mode="editMode"
         ref="chartComponent"
         @onChartClick="chartClick"
         @onPointClick="onPointClick"
@@ -1032,6 +1298,7 @@ const allEmptyCheck = computed(() => {
         :disabled="!['canvas', 'canvasDataV'].includes(showPosition) || disabled"
         :active="active"
         :show-position="showPosition"
+        :edit-mode="editMode"
         :suffixId="suffixId"
       />
       <de-indicator
@@ -1040,8 +1307,17 @@ const allEmptyCheck = computed(() => {
         :themes="canvasStyleData.dashboard.themeColor"
         ref="chartComponent"
         :view="view"
+        :element="element"
         :show-position="showPosition"
         :suffixId="suffixId"
+        :font-family="fontFamily"
+        :common-params="commonParams"
+        @touchstart="clearG2Tooltip"
+        @onChartClick="chartClick"
+        @onPointClick="onPointClick"
+        @onDrillFilters="onDrillFilters"
+        @onJumpClick="jumpClick"
+        @onComponentEvent="() => emit('onComponentEvent')"
       />
       <chart-component-g2-plot
         :scale="scale"
@@ -1050,6 +1326,8 @@ const allEmptyCheck = computed(() => {
         :show-position="showPosition"
         :element="element"
         :suffixId="suffixId"
+        :font-family="fontFamily"
+        :active="active"
         v-else-if="
           showChartView(ChartLibraryType.G2_PLOT, ChartLibraryType.L7_PLOT, ChartLibraryType.L7)
         "
@@ -1066,6 +1344,7 @@ const allEmptyCheck = computed(() => {
         :show-position="showPosition"
         :element="element"
         :drill-length="drillClickLength"
+        :font-family="fontFamily"
         v-else-if="showChartView(ChartLibraryType.S2)"
         ref="chartComponent"
         @onPointClick="onPointClick"
@@ -1079,8 +1358,13 @@ const allEmptyCheck = computed(() => {
       v-if="(!chartAreaShow || showEmpty) && !allEmptyCheck"
       :themes="canvasStyleData.dashboard.themeColor"
       :view-icon="view.type"
+      @touchstart="clearG2Tooltip"
     ></chart-empty-info>
-    <drill-path :drill-filters="state.drillFilters" @onDrillJump="drillJump" />
+    <drill-path
+      :disabled="optType === 'enlarge'"
+      :drill-filters="state.drillFilters"
+      @onDrillJump="drillJump"
+    />
     <XpackComponent
       ref="openHandler"
       jsname="L2NvbXBvbmVudC9lbWJlZGRlZC1pZnJhbWUvT3BlbkhhbmRsZXI="
@@ -1090,6 +1374,7 @@ const allEmptyCheck = computed(() => {
       jsname="L2NvbXBvbmVudC9wbHVnaW5zLWhhbmRsZXIvVmlld0NhdGVnb3J5SGFuZGxlcg=="
       @load-plugin-category="loadPluginCategory"
     />
+    <DePreviewPopDialog ref="dePreviewPopDialogRef"></DePreviewPopDialog>
   </div>
 </template>
 
@@ -1100,8 +1385,16 @@ const allEmptyCheck = computed(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+
+  // hover 后图标参与 flex 宽度计算，隐藏时不占标题空间
+  &:hover {
+    .icons-container-out {
+      display: flex;
+    }
+  }
 }
 .title-container {
+  position: relative;
   margin: 0;
   width: 100%;
 
@@ -1111,35 +1404,67 @@ const allEmptyCheck = computed(() => {
 
   gap: 8px;
 
-  .icons-container {
+  .title-content {
     display: inline-flex;
-    flex-direction: row;
     align-items: center;
     flex-wrap: nowrap;
     gap: 8px;
-
-    color: #646a73;
-
-    &.icons-container__dark {
-      color: #a6a6a6;
-    }
+    max-width: 100%;
+    min-width: 0;
 
     &.is-editing {
-      gap: 6px;
+      width: 100%;
     }
+  }
 
-    .inner-icon {
-      cursor: pointer;
+  .icons-container-out {
+    position: relative;
+    display: none;
+    align-items: center;
+    flex: 0 0 auto;
+    max-width: 100%;
+    height: 100%;
+    margin-right: 16px;
+
+    .icons-container {
+      display: inline-flex;
+      flex-direction: row;
+      align-items: center;
+      flex: 0 0 auto;
+      flex-wrap: nowrap;
+      gap: 8px;
+      height: 100%;
+      white-space: nowrap;
+
+      color: #646a73;
+
+      &.icons-container__dark {
+        color: #a6a6a6;
+      }
+
+      &.is-editing {
+        gap: 6px;
+      }
+
+      .inner-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
     }
   }
 }
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.5s ease;
-}
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+.ellipsis {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  line-height: inherit;
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

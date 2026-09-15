@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MIN_REFRESH_TIME, MAX_REFRESH_TIME, normalizeRefreshTime } from '@/utils/refreshTime'
 import { nextTick, onMounted, PropType, toRefs } from 'vue'
 import { BASE_VIEW_CONFIG } from '@/views/chart/components/editor/util/chart'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
@@ -46,6 +47,15 @@ const onThresholdChange = val => {
   snapshotStore.recordSnapshotCache('calcData', view.value.id)
 }
 
+const onStyleChange = () => {
+  snapshotStore.recordSnapshotCache('onStyleChange')
+}
+
+const onRefreshChange = val => {
+  view.value.refreshTime = normalizeRefreshTime(val)
+  onStyleChange()
+}
+
 const closeThreshold = () => {
   view.value.senior.threshold.enable = false
 }
@@ -73,6 +83,55 @@ onMounted(() => {
       :property-inner="['tableThreshold']"
       @onThresholdChange="onThresholdChange"
     />
+    <el-row v-if="view" class="refresh-area">
+      <el-form-item
+        style="width: 100%"
+        class="form-item no-margin-bottom"
+        :class="'form-item-' + themes"
+      >
+        <el-checkbox
+          v-model="view.refreshViewEnable"
+          :effect="themes"
+          size="small"
+          @change="onStyleChange()"
+        >
+          {{ t('visualization.refresh_frequency') }}
+        </el-checkbox>
+      </el-form-item>
+      <el-row style="width: 100%" v-if="view.refreshViewEnable">
+        <el-form-item
+          class="form-item no-margin-bottom select-append"
+          :class="'form-item-' + themes"
+        >
+          <el-input
+            v-model.number="view.refreshTime"
+            :effect="themes"
+            :class="[themes === 'dark' && 'dv-dark']"
+            size="small"
+            :min="MIN_REFRESH_TIME"
+            :max="MAX_REFRESH_TIME"
+            type="number"
+            :step="1"
+            :disabled="!view.refreshViewEnable"
+            @change="onRefreshChange"
+          >
+            <template #append>
+              <el-select
+                v-model="view.refreshUnit"
+                :effect="themes"
+                size="small"
+                placeholder="Select"
+                style="width: 80px"
+                @change="onStyleChange()"
+              >
+                <el-option :effect="themes" :label="t('visualization.minute')" :value="'minute'" />
+                <el-option :effect="themes" :label="t('visualization.second')" :value="'second'" />
+              </el-select>
+            </template>
+          </el-input>
+        </el-form-item>
+      </el-row>
+    </el-row>
   </collapse-switch-item>
 </template>
 
@@ -120,7 +179,7 @@ onMounted(() => {
 :deep(.ed-upload--picture-card) {
   background: #eff0f1;
   border: 1px dashed #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
 
   .ed-icon {
     color: #1f2329;
@@ -204,7 +263,7 @@ onMounted(() => {
     margin-top: 8px;
     background: #fff;
     height: 32px;
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid #dcdfe6;
     display: flex;
     color: #cccccc;
@@ -218,8 +277,8 @@ onMounted(() => {
     }
 
     &.active {
-      color: #3370ff;
-      border-color: #3370ff;
+      color: var(--ed-color-primary, #3370ff);
+      border-color: var(--ed-color-primary, #3370ff);
     }
   }
 
@@ -235,5 +294,9 @@ onMounted(() => {
   &:first-child {
     border-top: none !important;
   }
+}
+.refresh-area {
+  width: 100%;
+  padding: 0;
 }
 </style>

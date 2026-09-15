@@ -1,7 +1,7 @@
 package io.dataease.config;
 
-
 import io.dataease.commons.utils.MybatisInterceptorConfig;
+import io.dataease.datasource.dao.auto.entity.CoreDatasource;
 import io.dataease.datasource.dao.auto.entity.CoreDeEngine;
 import io.dataease.interceptor.MybatisInterceptor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -22,6 +22,7 @@ public class MybatisConfig {
         MybatisInterceptor interceptor = new MybatisInterceptor();
         List<MybatisInterceptorConfig> configList = new ArrayList<>();
         configList.add(new MybatisInterceptorConfig(CoreDeEngine.class, "configuration"));
+        configList.add(new MybatisInterceptorConfig(CoreDatasource.class, "configuration"));
         interceptor.setInterceptorConfigList(configList);
         return interceptor;
     }

@@ -87,7 +87,7 @@ const handlePictureCardPreview = file => {
 }
 const upload = file => {
   uploadFileResult(file.file, fileUrl => {
-    snapshotStore.recordSnapshotCache()
+    snapshotStore.recordSnapshotCache('deUpload')
     imgUrlInner.value = fileUrl
     emits('onImgChange', fileUrl)
   })
@@ -100,14 +100,14 @@ const reUpload = e => {
     return
   }
   uploadFileResult(file, fileUrl => {
-    snapshotStore.recordSnapshotCache()
+    snapshotStore.recordSnapshotCache('uploadFileResult')
     imgUrlInner.value = fileUrl
     emits('onImgChange', fileUrl)
   })
 }
 
 const sizeMessage = () => {
-  ElMessage.success('图片大小不符合')
+  ElMessage.error('图片大小不能超过15M')
 }
 
 onMounted(() => {
@@ -128,7 +128,7 @@ watch(
   :deep(.ed-upload--picture-card) {
     background: #eff0f1;
     border: 1px dashed #dee0e3;
-    border-radius: 4px;
+    border-radius: 6px;
 
     .ed-icon {
       color: #1f2329;
@@ -206,7 +206,7 @@ watch(
   :deep(.ed-upload--picture-card) {
     background: #eff0f1;
     border: 1px dashed #dee0e3;
-    border-radius: 4px;
+    border-radius: 6px;
 
     .ed-icon {
       color: #1f2329;

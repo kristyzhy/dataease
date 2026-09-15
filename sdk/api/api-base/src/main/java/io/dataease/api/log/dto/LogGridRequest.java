@@ -20,4 +20,6 @@ public class LogGridRequest extends KeywordRequest implements Serializable {
     private List<Long> time;
 
     private Boolean timeDesc = true;
+
+    private List<String> client;
 }

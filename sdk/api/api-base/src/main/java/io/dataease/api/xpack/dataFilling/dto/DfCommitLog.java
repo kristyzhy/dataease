@@ -21,8 +21,10 @@ public class DfCommitLog implements Serializable {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long formId;
 
+    private String dataId;
+
     @JsonSerialize(using = ToStringSerializer.class)
-    private Long dataId;
+    private Long pid;
 
     /**
      * 操作 0删除 1插入 2更新
@@ -34,4 +36,6 @@ public class DfCommitLog implements Serializable {
     private String committer;
 
     private Long commitTime;
+
+    private Integer count;
 }

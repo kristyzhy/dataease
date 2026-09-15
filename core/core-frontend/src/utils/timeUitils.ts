@@ -12,6 +12,7 @@ export const getRange = (outerTimeValue, timeGranularity) => {
       return getMonthEnd(selectValue)
     case 'date':
     case 'y_M_d':
+    case 'M_d':
       return getDayEnd(selectValue)
     case 'hour':
     case 'y_M_d_H':
@@ -72,23 +73,6 @@ const getMinuteEnd = timestamp => {
 
 const getSecondEnd = timestamp => {
   return [+new Date(timestamp), +new Date(timestamp) + 999]
-}
-
-const getYearBegin = timestamp => {
-  const time = new Date(timestamp)
-  return +new Date(time.getFullYear(), 0, 1)
-}
-
-const getMonthBegin = timestamp => {
-  const time = new Date(timestamp)
-  const date = new Date(time.getFullYear(), time.getMonth(), 1)
-  date.setDate(1)
-  date.setMonth(date.getMonth() + 1)
-  return +new Date(time.getFullYear(), time.getMonth(), 1)
-}
-
-const getDayBegin = timestamp => {
-  return +new Date(timestamp)
 }
 
 const getUtcTime = timestamp => {

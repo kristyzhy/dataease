@@ -25,4 +25,6 @@ public class PermissionItem implements Serializable {
     private DataSetColumnPermissionsDTO columnPermissions;
     @Schema(description = "行权限")
     private DataSetRowPermissionsTreeDTO rowPermissions;
+    @Schema(description = "独立权重")
+    private int ext;
 }

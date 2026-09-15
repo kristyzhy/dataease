@@ -31,9 +31,16 @@ const interactiveStore = interactiveStoreWithOut()
 import { useRequestStoreWithOut } from '@/store/modules/request'
 import { usePermissionStoreWithOut } from '@/store/modules/permission'
 import eventBus from '@/utils/eventBus'
+import { useI18n } from '@/hooks/web/useI18n'
+import DashboardHiddenComponent from '@/components/dashboard/DashboardHiddenComponent.vue'
+import { recoverToPublished } from '@/api/visualization/dataVisualization'
+import SqlAssistant from '@/views/sqlbot/assistant.vue'
+import { contextmenuStoreWithOut } from '@/store/modules/data-visualization/contextmenu'
+const contextmenuStore = contextmenuStoreWithOut()
 const embeddedStore = useEmbedded()
 const { wsCache } = useCache()
 const canvasCacheOutRef = ref(null)
+const deCanvasRef = ref(null)
 const eventCheck = e => {
   if (e.key === 'panel-weight' && !compareStorage(e.oldValue, e.newValue)) {
     const resourceId = embeddedStore.resourceId || router.currentRoute.value.query.resourceId
@@ -55,11 +62,14 @@ const {
   canvasViewInfo,
   editMode,
   batchOptStatus,
+  hiddenListStatus,
+  lastHiddenComponent,
   dvInfo
 } = storeToRefs(dvMainStore)
 const dataInitState = ref(false)
 const appStore = useAppStoreWithOut()
 const isDataEaseBi = computed(() => appStore.getIsDataEaseBi)
+const { t } = useI18n()
 
 const state = reactive({
   datasetTree: [],
@@ -81,12 +91,15 @@ const otherEditorShow = computed(() => {
       (!['UserView', 'VQuery'].includes(curComponent.value?.component) ||
         (curComponent.value?.component === 'UserView' &&
           curComponent.value?.innerType === 'picture-group')) &&
-      !batchOptStatus.value
+      !batchOptStatus.value &&
+      !hiddenListStatus.value
   )
 })
 
 const otherEditorTitle = computed(() => {
-  return curComponent.value?.component === 'UserView' ? '属性' : curComponent.value?.label || '属性'
+  return curComponent.value?.component === 'UserView'
+    ? t('visualization.attribute')
+    : curComponent.value?.label || t('visualization.attribute')
 })
 
 const viewEditorShow = computed(() => {
@@ -94,14 +107,15 @@ const viewEditorShow = computed(() => {
     curComponent.value &&
       ['UserView', 'VQuery'].includes(curComponent.value.component) &&
       curComponent.value.innerType !== 'picture-group' &&
-      !batchOptStatus.value
+      !batchOptStatus.value &&
+      !hiddenListStatus.value
   )
 })
 const checkPer = async resourceId => {
   if (!window.DataEaseBi || !resourceId) {
     return true
   }
-  const request = { busiFlag: 'dashboard' }
+  const request = { busiFlag: 'dashboard', resourceTable: 'core' }
   await interactiveStore.setInteractive(request)
   return check(wsCache.get('panel-weight'), resourceId, 4)
 }
@@ -122,6 +136,7 @@ const onMobileConfig = () => {
   dvMainStore.setCanvasStyle(canvasStyleDataCopy)
   nextTick(() => {
     mobileConfig.value = true
+    dvMainStore.setCurComponent({ component: null, index: null })
   })
 }
 
@@ -137,7 +152,7 @@ const doUseCache = flag => {
     snapshotStore.snapshotPublish(canvasCacheSeries)
     dataInitState.value = true
     setTimeout(() => {
-      snapshotStore.recordSnapshotCache()
+      snapshotStore.recordSnapshotCache('doUseCache')
       // 使用缓存时，初始化的保存按钮为激活状态
       snapshotStore.recordSnapshotCache('renderChart')
     }, 1500)
@@ -147,23 +162,33 @@ const doUseCache = flag => {
   }
 }
 
-const initLocalCanvasData = () => {
+const initLocalCanvasData = callBack => {
   const { resourceId, opt, sourcePid } = state
-  const busiFlg = opt === 'copy' ? 'dashboard-copy' : 'dashboard'
-  initCanvasData(resourceId, busiFlg, function () {
-    dataInitState.value = true
-    if (dvInfo.value && opt === 'copy') {
-      dvInfo.value.dataState = 'prepare'
-      dvInfo.value.optType = 'copy'
-      dvInfo.value.pid = sourcePid
-      setTimeout(() => {
-        snapshotStore.recordSnapshotCache()
-      }, 1500)
+  const busiFlag = opt === 'copy' ? 'dashboard-copy' : 'dashboard'
+  initCanvasData(
+    resourceId,
+    { busiFlag, resourceTable: 'snapshot', source: 'main-edit' },
+    function () {
+      dataInitState.value = true
+      if (dvInfo.value && opt === 'copy') {
+        dvInfo.value.dataState = 'prepare'
+        dvInfo.value.optType = 'copy'
+        dvInfo.value.pid = sourcePid
+        setTimeout(() => {
+          snapshotStore.recordSnapshotCache('initLocalCanvasData')
+        }, 1500)
+      }
+      onInitReady({ resourceId: resourceId })
+      callBack && callBack()
     }
-    onInitReady({ resourceId: resourceId })
-  })
+  )
 }
 onMounted(async () => {
+  document.body.style.overflow = 'hidden'
+  dvMainStore.setCurComponent({ component: null, index: null })
+  dvMainStore.setHiddenListStatus(false)
+  snapshotStore.initSnapShot()
+  contextmenuStore.hideContextMenu()
   if (window.location.hash.includes('#/dashboard')) {
     newWindowFromDiv.value = true
   }
@@ -176,13 +201,15 @@ onMounted(async () => {
     }
   })
   window.addEventListener('storage', eventCheck)
+  window.addEventListener('message', winMsgHandle)
   const resourceId = embeddedStore.resourceId || router.currentRoute.value.query.resourceId
   const pid = embeddedStore.pid || router.currentRoute.value.query.pid
   const opt = embeddedStore.opt || router.currentRoute.value.query.opt
   const createType = embeddedStore.createType || router.currentRoute.value.query.createType
   const templateParams =
     embeddedStore.templateParams || router.currentRoute.value.query.templateParams
-  const checkResult = await checkPer(resourceId)
+  const checkResourceId = opt && opt === 'copy' ? null : resourceId
+  const checkResult = await checkPer(checkResourceId as string)
   if (!checkResult) {
     return
   }
@@ -197,7 +224,9 @@ onMounted(async () => {
     if (canvasCache) {
       canvasCacheOutRef.value?.dialogInit({ canvasType: 'dashboard', resourceId: resourceId })
     } else {
-      initLocalCanvasData()
+      initLocalCanvasData(() => {
+        // do init
+      })
     }
   } else if (opt && opt === 'create') {
     dataInitState.value = false
@@ -229,7 +258,7 @@ onMounted(async () => {
         dvMainStore.setCanvasViewInfo(deTemplateData['canvasViewInfo'])
         dvMainStore.setAppDataInfo(deTemplateData['appData'])
         setTimeout(() => {
-          snapshotStore.recordSnapshotCache()
+          snapshotStore.recordSnapshotCache('template')
         }, 1500)
         if (dvMainStore.getAppDataInfo()) {
           eventBus.emit('save')
@@ -245,8 +274,59 @@ onMounted(async () => {
   }
 })
 
+// 目标校验： 需要校验targetSourceId 是否是当前可视化资源ID
+const winMsgHandle = event => {
+  const msgInfo = event.data
+  if (msgInfo?.targetSourceId === dvInfo.value.id + '')
+    if (msgInfo.type === 'webParams') {
+      // 网络消息处理
+      winMsgWebParamsHandle(msgInfo)
+    }
+}
+
+const winMsgWebParamsHandle = msgInfo => {
+  const params = msgInfo.params
+  dvMainStore.addWebParamsFilter(params)
+}
+
+const dashboardComponentData = computed(() =>
+  componentData.value.filter(item => !item.dashboardHidden)
+)
+
+const cancelHidden = item => {
+  if (deCanvasRef.value) {
+    if (!(lastHiddenComponent.value?.length && lastHiddenComponent.value.includes(item.id))) {
+      item.y = undefined
+    }
+    deCanvasRef.value.addItemBox(item)
+    nextTick(() => {
+      deCanvasRef.value.canvasInit(false)
+    })
+    snapshotStore.recordSnapshotCache('cancelHidden')
+  }
+}
+
+const doRecoverToPublished = () => {
+  recoverToPublished({ id: dvInfo.value.id, type: 'dashboard', name: dvInfo.value.name }).then(
+    () => {
+      state.resourceId = dvInfo.value.id
+      state.sourcePid = dvInfo.value.pid
+      state.opt = null
+      initLocalCanvasData(() => {
+        nextTick(() => {
+          deCanvasRef.value.canvasInit(false)
+          dvMainStore.updateDvInfoCall(1)
+          useEmitt().emitter.emit('calcData-all')
+        })
+      })
+    }
+  )
+}
+
 onUnmounted(() => {
+  document.body.style.overflow = ''
   window.removeEventListener('storage', eventCheck)
+  window.removeEventListener('message', winMsgHandle)
 })
 </script>
 
@@ -257,21 +337,24 @@ onUnmounted(() => {
     v-loading="requestStore.loadingMap[permissionStore.currentPath]"
     v-if="loadFinish && !mobileConfig"
   >
-    <DbToolbar />
+    <DbToolbar @recoverToPublished="doRecoverToPublished" />
     <el-container
       class="dv-layout-container"
       :class="{ 'preview-content': editMode === 'preview' }"
       element-loading-background="rgba(0, 0, 0, 0)"
     >
+      <!--      <SqlAssistant></SqlAssistant>-->
       <!-- 中间画布 -->
       <main class="center" :class="{ 'de-screen-full': fullscreenFlag }">
         <de-canvas
           style="overflow-x: hidden"
           v-if="dataInitState"
+          ref="deCanvasRef"
           :canvas-id="state.canvasId"
-          :component-data="componentData"
+          :component-data="dashboardComponentData"
           :canvas-style-data="canvasStyleData"
           :canvas-view-info="canvasViewInfo"
+          :font-family="canvasStyleData.fontFamily"
         ></de-canvas>
       </main>
       <!-- 右侧侧组件列表 -->
@@ -283,16 +366,18 @@ onUnmounted(() => {
         :side-name="'componentProp'"
         :aside-position="'right'"
         :view="canvasViewInfo[curComponent.id]"
+        :element="curComponent"
         class="left-sidebar"
       >
         <component :is="findComponentAttr(curComponent)" :themes="'light'" />
       </dv-sidebar>
       <dv-sidebar
-        v-show="!curComponent && !batchOptStatus"
+        v-show="!curComponent && !batchOptStatus && !hiddenListStatus"
         :theme-info="'light'"
-        title="仪表板配置"
+        :title="t('visualization.dashboard_configuration')"
         :width="420"
         aside-position="right"
+        side-name="canvas"
         class="left-sidebar"
       >
         <DbCanvasAttr></DbCanvasAttr>
@@ -307,13 +392,23 @@ onUnmounted(() => {
       <dv-sidebar
         v-if="batchOptStatus"
         :theme-info="'light'"
-        title="批量设置样式"
+        :title="t('visualization.batch_style_set')"
         :width="280"
         aside-position="right"
         class="left-sidebar"
         :side-name="'batchOpt'"
       >
         <chart-style-batch-set></chart-style-batch-set>
+      </dv-sidebar>
+      <dv-sidebar
+        v-if="hiddenListStatus"
+        :theme-info="'light'"
+        :title="t('visualization.hidden_components')"
+        :width="280"
+        aside-position="right"
+        class="left-sidebar"
+      >
+        <DashboardHiddenComponent @cancel-hidden="cancelHidden"></DashboardHiddenComponent>
       </dv-sidebar>
     </el-container>
   </div>
@@ -332,7 +427,7 @@ onUnmounted(() => {
 
 <style lang="less">
 .dv-common-layout {
-  height: calc(100vh - 1px);
+  height: 100vh;
   width: 100vw;
 
   .dv-layout-container {

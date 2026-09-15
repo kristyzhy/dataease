@@ -5,6 +5,7 @@ import icon_dashboard_outlined from '@/assets/svg/icon_dashboard_outlined.svg'
 import icon_database_outlined from '@/assets/svg/icon_database_outlined.svg'
 import icon_operationAnalysis_outlined from '@/assets/svg/icon_operation-analysis_outlined.svg'
 import dvDashboardSpineMobile from '@/assets/svg/dv-dashboard-spine-mobile.svg'
+import dvDashboardSpineMobileDisabled from '@/assets/svg/dv-dashboard-spine-mobile-disabled.svg'
 import icon_pc_outlined from '@/assets/svg/icon_pc_outlined.svg'
 import { useI18n } from '@/hooks/web/useI18n'
 import { ref, reactive, watch, computed } from 'vue'
@@ -14,6 +15,7 @@ import dayjs from 'dayjs'
 import { propTypes } from '@/utils/propTypes'
 import ShareHandler from './ShareHandler.vue'
 import { interactiveStoreWithOut } from '@/store/modules/interactive'
+
 const props = defineProps({
   activeName: propTypes.string.def('')
 })
@@ -28,9 +30,9 @@ const state = reactive({
   tableData: [],
   curTypeList: ['all_types', 'panel', 'screen'],
   tableColumn: [
-    { field: 'creator', label: '分享人' },
-    { field: 'time', label: '分享时间', type: 'time' },
-    { field: 'exp', label: '有效期', type: 'time' }
+    { field: 'creator', label: t('visualization.who_share') },
+    { field: 'time', label: t('visualization.when_share'), type: 'time' },
+    { field: 'exp', label: t('visualization.over_time'), type: 'time' }
   ]
 })
 
@@ -42,9 +44,11 @@ const handleCommand = (command: string) => {
 const triggerFilterPanel = () => {
   loadTableData()
 }
-const preview = id => {
-  const routeUrl = `/#/preview?dvId=${id}`
-  window.open(routeUrl, '_blank')
+const preview = (id, disabled = false) => {
+  if (!disabled) {
+    const routeUrl = `/#/preview?dvId=${id}`
+    window.open(routeUrl, '_blank')
+  }
 }
 const formatterTime = (_, _column, cellValue) => {
   if (!cellValue) {
@@ -107,14 +111,14 @@ const getEmptyImg = (): string => {
 
 const getEmptyDesc = (): string => {
   if (panelKeyword.value) {
-    return '没有找到相关内容'
+    return t('work_branch.relevant_content_found')
   }
 
   return ''
 }
 
 const handleCellClick = row => {
-  if (row) {
+  if (row && row.extFlag1) {
     const sourceId = row.resourceId
     if (['dashboard', 'panel'].includes(row.type)) {
       window.open('#/panel/index?dvId=' + sourceId, '_self')
@@ -128,9 +132,11 @@ const iconMap = {
   panel: icon_dashboard_outlined,
   panelMobile: dvDashboardSpineMobile,
   dashboard: icon_dashboard_outlined,
+  dashboardDisabled: icon_dashboard_outlined,
   dashboardMobile: dvDashboardSpineMobile,
   screen: icon_operationAnalysis_outlined,
   dataV: icon_operationAnalysis_outlined,
+  dataVDisabled: icon_operationAnalysis_outlined,
   dataset: icon_app_outlined,
   datasource: icon_database_outlined
 }
@@ -172,7 +178,7 @@ watch(
         v-model="panelKeyword"
         clearable
         @change="triggerFilterPanel"
-        placeholder="搜索关键词"
+        :placeholder="t('work_branch.search_keyword')"
       >
         <template #prefix>
           <el-icon>
@@ -198,16 +204,34 @@ watch(
         <template v-slot:default="scope">
           <div class="name-content">
             <el-icon style="margin-right: 12px; font-size: 18px" v-if="scope.row.extFlag">
-              <Icon name="dv-dashboard-spine-mobile"
+              <Icon v-if="scope.row.extFlag1" name="dv-dashboard-spine-mobile"
                 ><dvDashboardSpineMobile class="svg-icon"
               /></Icon>
+              <Icon v-if="!scope.row.extFlag1" name="dv-dashboard-spine-mobile"
+                ><dvDashboardSpineMobileDisabled class="svg-icon"
+              /></Icon>
             </el-icon>
-            <el-icon v-else :class="`main-color color-${scope.row.type}`">
-              <Icon><component class="svg-icon" :is="iconMap[scope.row.type]"></component></Icon>
+            <el-icon
+              v-else
+              :class="`main-color color-${scope.row.type} custom-color${
+                scope.row.extFlag1 ? '' : '-disabled'
+              }`"
+            >
+              <Icon
+                ><component
+                  class="svg-icon"
+                  :is="iconMap[scope.row.type + (scope.row.extFlag1 ? '' : 'Disabled')]"
+                ></component
+              ></Icon>
             </el-icon>
             <el-tooltip placement="top">
               <template #content>{{ scope.row.name }}</template>
-              <span class="ellipsis" style="max-width: 250px">{{ scope.row.name }}</span>
+              <span
+                class="ellipsis"
+                :class="{ 'color-disabled': !scope.row.extFlag1 }"
+                style="max-width: 250px"
+                >{{ scope.row.name }}</span
+              >
             </el-tooltip>
           </div>
         </template>
@@ -230,16 +254,30 @@ watch(
 
       <el-table-column width="96" fixed="right" key="_operation" :label="t('common.operate')">
         <template #default="scope">
-          <el-tooltip effect="dark" content="新页面预览" placement="top">
-            <el-icon class="hover-icon hover-icon-in-table" @click="preview(scope.row.resourceId)">
-              <Icon name="icon_pc_outlined"><icon_pc_outlined class="svg-icon" /></Icon>
-            </el-icon>
-          </el-tooltip>
-          <ShareHandler
-            :in-grid="true"
-            :resource-id="scope.row.resourceId"
-            :weight="scope.row.weight"
-          />
+          <div
+            style="display: flex; flex-direction: row; align-items: center"
+            :class="{ 'opt-disabled': !scope.row.extFlag1 }"
+          >
+            <el-tooltip
+              :disabled="!scope.row.extFlag1"
+              effect="dark"
+              :content="t('work_branch.new_page_preview')"
+              placement="top"
+            >
+              <el-icon
+                class="hover-icon hover-icon-in-table"
+                @click="preview(scope.row.resourceId, !scope.row.extFlag1)"
+              >
+                <Icon><icon_pc_outlined class="svg-icon" /></Icon>
+              </el-icon>
+            </el-tooltip>
+            <ShareHandler
+              :in-grid="true"
+              :disabled="!scope.row.extFlag1"
+              :resource-id="scope.row.resourceId"
+              :weight="scope.row.weight"
+            />
+          </div>
         </template>
       </el-table-column>
     </GridTable>
@@ -248,7 +286,7 @@ watch(
 
 <style lang="less" scoped>
 .select-type-list {
-  width: 104px;
+  width: 120px;
   :deep(.ed-input__wrapper) {
     padding-left: 11px;
     padding-right: 11px;
@@ -279,8 +317,9 @@ watch(
     margin-right: 12px;
     border-radius: 4px;
     color: #fff;
-    background: #3370ff;
+    background: var(--ed-color-primary, #3370ff);
   }
+
   .name-star {
     font-size: 15px;
     padding-left: 5px;
@@ -292,5 +331,17 @@ watch(
     margin-top: 0px;
     line-height: 20px !important;
   }
+}
+.color-disabled {
+  color: #bbbfc4;
+}
+
+.custom-color-disabled {
+  background: #bbbfc4 !important;
+}
+
+.opt-disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
 }
 </style>

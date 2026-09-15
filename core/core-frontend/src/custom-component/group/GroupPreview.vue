@@ -43,6 +43,12 @@ const props = defineProps({
   canvasViewInfo: {
     type: Object,
     required: true
+  },
+  // 字体
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
   }
 })
 
@@ -78,10 +84,12 @@ const userViewEnlargeOpen = (opt, item) => {
         :config="item"
         :index="index"
         :dv-info="dvInfo"
+        :canvas-view-info="canvasViewInfo"
         :style="customGroupStyle(item)"
         :show-position="showPosition"
         :search-count="searchCount"
         :scale="scale"
+        :font-family="fontFamily"
         @userViewEnlargeOpen="userViewEnlargeOpen($event, item)"
       />
     </div>

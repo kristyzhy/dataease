@@ -1,12 +1,14 @@
 import type { Column, ColumnOptions } from '@antv/g2plot/esm/plots/column'
-import { cloneDeep, each, groupBy, isEmpty } from 'lodash-es'
+import { cloneDeep, defaults, each, groupBy, isEmpty, merge } from 'lodash-es'
 import {
   G2PlotChartView,
   G2PlotDrawOptions
 } from '@/views/chart/components/js/panel/types/impl/g2plot'
 import {
+  convertToAlphaColor,
   flow,
   hexColorToRGBA,
+  isAlphaColor,
   parseJson,
   setUpGroupSeriesColor,
   setUpStackSeriesColor
@@ -19,17 +21,29 @@ import {
   BAR_EDITOR_PROPERTY_INNER
 } from '@/views/chart/components/js/panel/charts/bar/common'
 import {
+  configPlotTooltipEvent,
+  configRoundAngle,
+  configXAxisLengthLimit,
   getLabel,
   getPadding,
-  setGradientColor
+  getTooltipContainer,
+  setGradientColor,
+  TOOLTIP_TPL
 } from '@/views/chart/components/js/panel/common/common_antv'
 import { useI18n } from '@/hooks/web/useI18n'
-import { DEFAULT_LABEL } from '@/views/chart/components/editor/util/chart'
+import {
+  DEFAULT_BASIC_STYLE,
+  DEFAULT_LABEL,
+  DEFAULT_LEGEND_STYLE
+} from '@/views/chart/components/editor/util/chart'
 import { clearExtremum, extremumEvt } from '@/views/chart/components/js/extremumUitl'
 import { Group } from '@antv/g-canvas'
+import { getItemsOfView } from '@antv/g2/lib/interaction/action/active-region'
 
 const { t } = useI18n()
 const DEFAULT_DATA: any[] = []
+// G2Plot 百分比堆叠会把 value 转成占比，这个内部字段用于保留原始指标值
+const PERCENTAGE_STACK_ORIGIN_VALUE_FIELD = '__DE_PERCENTAGE_STACK_ORIGIN_VALUE__'
 /**
  * 柱状图
  */
@@ -37,9 +51,17 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
   properties = BAR_EDITOR_PROPERTY
   propertyInner = {
     ...BAR_EDITOR_PROPERTY_INNER,
+    'x-axis-selector': [...BAR_EDITOR_PROPERTY_INNER['x-axis-selector'], 'showLengthLimit'],
     'basic-style-selector': [...BAR_EDITOR_PROPERTY_INNER['basic-style-selector'], 'seriesColor'],
     'label-selector': ['vPosition', 'seriesLabelFormatter', 'showExtremum'],
-    'tooltip-selector': ['fontSize', 'color', 'backgroundColor', 'seriesTooltipFormatter', 'show'],
+    'tooltip-selector': [
+      'fontSize',
+      'color',
+      'backgroundColor',
+      'seriesTooltipFormatter',
+      'show',
+      'carousel'
+    ],
     'y-axis-selector': [...BAR_EDITOR_PROPERTY_INNER['y-axis-selector'], 'axisLabelFormatter']
   }
   protected baseOptions: ColumnOptions = {
@@ -65,11 +87,14 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
 
   async drawChart(drawOptions: G2PlotDrawOptions<Column>): Promise<Column> {
     const { chart, container, action } = drawOptions
+    chart.container = container
     if (!chart?.data?.data?.length) {
-      chart.container = container
       clearExtremum(chart)
       return
     }
+    const isGroup = 'bar-group' === this.name && chart.xAxisExt?.length > 0
+    const isStack =
+      ['bar-stack', 'bar-group-stack'].includes(this.name) && chart.extStack?.length > 0
     const data = cloneDeep(drawOptions.chart.data?.data)
     const initOptions: ColumnOptions = {
       ...this.baseOptions,
@@ -81,7 +106,39 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
     const { Column: ColumnClass } = await import('@antv/g2plot/esm/plots/column')
     newChart = new ColumnClass(container, options)
     newChart.on('interval:click', action)
+    // 只处理柱状图，分组和堆叠的阴影部分没有子维度信息
+    if (this.name === 'bar' && options.tooltip) {
+      newChart.on('plot:click', e => {
+        if (e.target?.cfg?.renderer !== 'canvas') {
+          return
+        }
+        const activeRegion = e.view.backgroundGroup.cfg.children.find(
+          i => i.cfg.name === 'active-region'
+        )
+        if (activeRegion?.cfg.visible) {
+          const items = getItemsOfView(
+            e.view,
+            { x: e.x, y: e.y },
+            e.view.getController('tooltip').getTooltipCfg()
+          )
+          if (items?.length) {
+            const datum = items[0].data
+            if (datum && datum.field) {
+              action({
+                x: e.x,
+                y: e.y,
+                data: {
+                  data: datum
+                }
+              })
+            }
+          }
+        }
+      })
+    }
     extremumEvt(newChart, chart, options, container)
+    configPlotTooltipEvent(chart, newChart)
+    configXAxisLengthLimit(chart, newChart)
     return newChart
   }
 
@@ -103,7 +160,7 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
     const label = {
       fields: [],
       ...tmpOptions.label,
-      formatter: (data: Datum, _point) => {
+      formatter: (data: Datum) => {
         if (data.EXTREME) {
           return ''
         }
@@ -128,10 +185,22 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
             textAlign: 'start',
             textBaseline: 'top',
             fontSize: labelCfg.fontSize,
+            fontFamily: chart.fontFamily,
             fill: labelCfg.color
           }
         })
         return group
+      },
+      position: data => {
+        if (data.value < 0) {
+          if (tmpOptions.label?.position === 'top') {
+            return 'bottom'
+          }
+          if (tmpOptions.label?.position === 'bottom') {
+            return 'top'
+          }
+        }
+        return tmpOptions.label?.position
       }
     }
     return {
@@ -157,21 +226,41 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
         color
       }
     }
-    if (basicStyle.radiusColumnBar === 'roundAngle') {
-      const columnStyle = {
-        radius: [
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius,
-          basicStyle.columnBarRightAngleRadius
-        ]
-      }
-      options = {
-        ...options,
-        columnStyle
-      }
+    options = {
+      ...options,
+      ...configRoundAngle(chart, 'columnStyle')
     }
+    let columnWidthRatio
+    const _v = basicStyle.columnWidthRatio ?? DEFAULT_BASIC_STYLE.columnWidthRatio
+    if (_v >= 1 && _v <= 100) {
+      columnWidthRatio = _v / 100.0
+    } else if (_v < 1) {
+      columnWidthRatio = 1 / 100.0
+    } else if (_v > 100) {
+      columnWidthRatio = 1
+    }
+    if (columnWidthRatio) {
+      options.columnWidthRatio = columnWidthRatio
+    }
+
     return options
+  }
+
+  protected configXAxis(chart: Chart, options: ColumnOptions): ColumnOptions {
+    const tmpOptions = super.configXAxis(chart, options)
+    if (!tmpOptions.xAxis) {
+      return tmpOptions
+    }
+    const xAxis = parseJson(chart.customStyle).xAxis
+    if (tmpOptions.xAxis.label) {
+      const { lengthLimit } = xAxis.axisLabel
+      defaults(tmpOptions.xAxis.label, {
+        formatter: value => {
+          return value?.length > lengthLimit ? value.substring(0, lengthLimit) + '...' : value
+        }
+      })
+    }
+    return tmpOptions
   }
 
   protected configYAxis(chart: Chart, options: ColumnOptions): ColumnOptions {
@@ -197,13 +286,17 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
           tickCount: axisValue.splitCount
         }
       }
-      return { ...tmpOptions, ...axis }
+      // 根据axis的最小值，过滤options中的data数据，过滤掉小于最小值的数据
+      const { data } = options
+      const newData = data.filter(item => item.value >= axisValue.min)
+      return { ...tmpOptions, data: newData, ...axis }
     }
     return tmpOptions
   }
 
   protected setupOptions(chart: Chart, options: ColumnOptions): ColumnOptions {
     return flow(
+      this.addConditionsStyleColorToData,
       this.configTheme,
       this.configEmptyDataStrategy,
       this.configColor,
@@ -214,7 +307,8 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
       this.configXAxis,
       this.configYAxis,
       this.configSlider,
-      this.configAnalyse
+      this.configAnalyse,
+      this.configBarConditions
     )(chart, options, {}, this)
   }
 
@@ -232,6 +326,7 @@ export class Bar extends G2PlotChartView<ColumnOptions, Column> {
  * 堆叠柱状图
  */
 export class StackBar extends Bar {
+  properties: EditorProperty[] = BAR_EDITOR_PROPERTY.filter(ele => ele !== 'threshold')
   propertyInner = {
     ...this['propertyInner'],
     'label-selector': [
@@ -243,7 +338,15 @@ export class StackBar extends Bar {
       'totalFormatter',
       'showStackQuota'
     ],
-    'tooltip-selector': ['fontSize', 'color', 'backgroundColor', 'tooltipFormatter', 'show']
+    'tooltip-selector': [
+      'fontSize',
+      'color',
+      'backgroundColor',
+      'tooltipFormatter',
+      'show',
+      'carousel'
+    ],
+    'legend-selector': [...BAR_EDITOR_PROPERTY_INNER['legend-selector'], 'legendSort']
   }
   protected configLabel(chart: Chart, options: ColumnOptions): ColumnOptions {
     let label = getLabel(chart)
@@ -308,7 +411,10 @@ export class StackBar extends Bar {
         const res = valueFormatter(param.value, tooltipAttr.tooltipFormatter)
         obj.value = res ?? ''
         return obj
-      }
+      },
+      container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+      itemTpl: TOOLTIP_TPL,
+      enterable: true
     }
     return {
       ...options,
@@ -317,6 +423,43 @@ export class StackBar extends Bar {
   }
 
   protected configColor(chart: Chart, options: ColumnOptions): ColumnOptions {
+    const customStyle = parseJson(chart.customStyle)
+    const { sort } = customStyle.legend
+    const extStack = chart.extStack[0]
+    if ((!sort || sort === 'none') && extStack?.customSort?.length > 0) {
+      // 图例自定义排序
+      const sort = extStack.customSort ?? []
+      if (sort?.length) {
+        // 用值域限定排序，有可能出现新数据但是未出现在图表上，所以这边要遍历一下子维度，加到后面，让新数据显示出来
+        const data = options.data
+        const cats =
+          data?.reduce((p, n) => {
+            const cat = n['category']
+            if (cat && !p.includes(cat)) {
+              p.push(cat)
+            }
+            return p
+          }, []) || []
+        const values = sort.reduce((p, n) => {
+          if (cats.includes(n)) {
+            const index = cats.indexOf(n)
+            if (index !== -1) {
+              cats.splice(index, 1)
+            }
+            p.push(n)
+          }
+          return p
+        }, [])
+        cats.length > 0 && values.push(...cats)
+        options.meta = {
+          ...options.meta,
+          category: {
+            type: 'cat',
+            values
+          }
+        }
+      }
+    }
     return this.configStackColor(chart, options)
   }
 
@@ -347,24 +490,102 @@ export class StackBar extends Bar {
     return options
   }
 
+  protected configSortedLegend(chart: Chart, options: ColumnOptions): ColumnOptions {
+    const optionTmp = super.configLegend(chart, options)
+    if (!optionTmp.legend) {
+      return optionTmp
+    }
+    const extStack = chart.extStack[0]
+    const customStyle = parseJson(chart.customStyle)
+    let size
+    if (customStyle && customStyle.legend) {
+      size = defaults(JSON.parse(JSON.stringify(customStyle.legend)), DEFAULT_LEGEND_STYLE).size
+    } else {
+      size = DEFAULT_LEGEND_STYLE.size
+    }
+
+    optionTmp.legend.marker.style = style => {
+      return {
+        r: size,
+        fill: style.fill
+      }
+    }
+    const { sort, customSort, icon } = customStyle.legend
+    if (sort && sort !== 'none' && chart.extStack.length) {
+      const customAttr = parseJson(chart.customAttr)
+      const { basicStyle } = customAttr
+      const seriesMap =
+        basicStyle.seriesColor?.reduce((p, n) => {
+          p[n.id] = n
+          return p
+        }, {}) || {}
+      const dupCheck = new Set()
+      const colors = optionTmp.color ?? optionTmp.theme.styleSheet.paletteQualitative10
+      const items = optionTmp.data?.reduce((arr, item) => {
+        if (!dupCheck.has(item.category)) {
+          const fill = seriesMap[item.category]?.color ?? colors[dupCheck.size % colors.length]
+          dupCheck.add(item.category)
+          arr.push({
+            name: item.category,
+            value: item.category,
+            marker: {
+              symbol: icon,
+              style: {
+                r: size,
+                fill: isAlphaColor(fill) ? fill : convertToAlphaColor(fill, basicStyle.alpha)
+              }
+            }
+          })
+        }
+        return arr
+      }, [])
+      if (sort !== 'custom') {
+        items.sort((a, b) => {
+          return sort !== 'desc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
+        })
+      } else {
+        const tmp = []
+        ;(customSort || []).forEach(item => {
+          const index = items.findIndex(i => i.name === item)
+          if (index !== -1) {
+            tmp.push(items[index])
+            items.splice(index, 1)
+          }
+        })
+        items.unshift(...tmp)
+      }
+      optionTmp.legend.items = items
+      if (extStack?.customSort?.length > 0) {
+        delete optionTmp.meta?.category.values
+      }
+    }
+    return optionTmp
+  }
+
   public setupSeriesColor(chart: ChartObj, data?: any[]): ChartBasicStyle['seriesColor'] {
     return setUpStackSeriesColor(chart, data)
+  }
+
+  setupDefaultOptions(chart: ChartObj): ChartObj {
+    const chartTmp = super.setupDefaultOptions(chart)
+    chartTmp.customAttr.label.showStackQuota = true
+    return chartTmp
   }
 
   protected setupOptions(chart: Chart, options: ColumnOptions): ColumnOptions {
     return flow(
       this.configTheme,
       this.configEmptyDataStrategy,
+      this.configData,
       this.configColor,
       this.configBasicStyle,
       this.configLabel,
       this.configTooltip,
-      this.configLegend,
+      this.configSortedLegend,
       this.configXAxis,
       this.configYAxis,
       this.configSlider,
-      this.configAnalyse,
-      this.configData
+      this.configAnalyse
     )(chart, options, {}, this)
   }
 
@@ -388,9 +609,11 @@ export class StackBar extends Bar {
  * 分组柱状图
  */
 export class GroupBar extends StackBar {
+  properties = BAR_EDITOR_PROPERTY
   propertyInner = {
     ...this['propertyInner'],
-    'label-selector': [...BAR_EDITOR_PROPERTY_INNER['label-selector'], 'vPosition', 'showExtremum']
+    'label-selector': [...BAR_EDITOR_PROPERTY_INNER['label-selector'], 'vPosition', 'showExtremum'],
+    'legend-selector': BAR_EDITOR_PROPERTY_INNER['legend-selector']
   }
   axisConfig = {
     ...this['axisConfig'],
@@ -399,6 +622,74 @@ export class GroupBar extends StackBar {
       type: 'q',
       limit: 1
     }
+  }
+
+  async drawChart(drawOptions: G2PlotDrawOptions<Column>): Promise<Column> {
+    const plot = await super.drawChart(drawOptions)
+    if (!plot) {
+      return plot
+    }
+    const { chart } = drawOptions
+    const { xAxis, xAxisExt, yAxis } = chart
+    let innerSort = !!(xAxis.length && xAxisExt.length && yAxis.length)
+    if (innerSort && yAxis[0].sort === 'none') {
+      innerSort = false
+    }
+    if (innerSort && xAxisExt[0].sort !== 'none') {
+      const sortPriority = chart.sortPriority ?? []
+      const yAxisIndex = sortPriority?.findIndex(e => e.id === yAxis[0].id)
+      const xAxisExtIndex = sortPriority?.findIndex(e => e.id === xAxisExt[0].id)
+      if (xAxisExtIndex <= yAxisIndex) {
+        innerSort = false
+      }
+    }
+    if (!innerSort) {
+      return plot
+    }
+    plot.chart.once('beforepaint', () => {
+      const geo = plot.chart.geometries[0]
+      const originMapping = geo.beforeMapping.bind(geo)
+      geo.beforeMapping = originData => {
+        const values = geo.getXScale().values
+        const valueMap = values.reduce((p, n) => {
+          if (!p?.[n]) {
+            p[n] = {
+              fieldArr: [],
+              indexArr: [],
+              dataArr: []
+            }
+          }
+          originData.forEach((arr, arrIndex) => {
+            arr.forEach((item, index) => {
+              if (item._origin.field === n) {
+                p[n].fieldArr.push(item.field)
+                p[n].indexArr.push([arrIndex, index])
+                p[n].dataArr.push(item)
+              }
+            })
+          })
+          return p
+        }, {})
+        values.forEach(v => {
+          const item = valueMap[v]
+          item.dataArr.sort((a, b) => {
+            if (yAxis[0].sort === 'asc') {
+              return a.value - b.value
+            }
+            if (yAxis[0].sort === 'desc') {
+              return b.value - a.value
+            }
+            return 0
+          })
+          item.indexArr.forEach((index, i) => {
+            item.dataArr[i].field = item.fieldArr[i]
+            originData[index[0]][index[1]] = item.dataArr[i]
+          })
+        })
+        return originMapping(originData)
+      }
+    })
+    return plot
   }
 
   protected configLabel(chart: Chart, options: ColumnOptions): ColumnOptions {
@@ -411,7 +702,7 @@ export class GroupBar extends StackBar {
     baseOptions.label.style.fill = labelAttr.color
     const label = {
       ...baseOptions.label,
-      formatter: function (param: Datum, _point) {
+      formatter: function (param: Datum) {
         if (param.EXTREME) {
           return ''
         }
@@ -435,6 +726,7 @@ export class GroupBar extends StackBar {
 
   protected setupOptions(chart: Chart, options: ColumnOptions): ColumnOptions {
     return flow(
+      this.addConditionsStyleColorToData,
       this.configTheme,
       this.configEmptyDataStrategy,
       this.configColor,
@@ -445,7 +737,8 @@ export class GroupBar extends StackBar {
       this.configXAxis,
       this.configYAxis,
       this.configSlider,
-      this.configAnalyse
+      this.configAnalyse,
+      this.configBarConditions
     )(chart, options, {}, this)
   }
 
@@ -453,6 +746,7 @@ export class GroupBar extends StackBar {
     super(name)
     this.baseOptions = {
       ...this.baseOptions,
+      marginRatio: 0,
       isGroup: true,
       isStack: false,
       meta: {
@@ -471,7 +765,8 @@ export class GroupBar extends StackBar {
 export class GroupStackBar extends StackBar {
   propertyInner = {
     ...this['propertyInner'],
-    'label-selector': [...BAR_EDITOR_PROPERTY_INNER['label-selector'], 'vPosition']
+    'label-selector': [...BAR_EDITOR_PROPERTY_INNER['label-selector'], 'vPosition'],
+    'legend-selector': BAR_EDITOR_PROPERTY_INNER['legend-selector']
   }
   protected configTheme(chart: Chart, options: ColumnOptions): ColumnOptions {
     const baseOptions = super.configTheme(chart, options)
@@ -522,7 +817,10 @@ export class GroupStackBar extends StackBar {
         const obj = { name: `${param.category} - ${param.group}`, value: param.value }
         obj.value = valueFormatter(param.value, tooltipAttr.tooltipFormatter)
         return obj
-      }
+      },
+      container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+      itemTpl: TOOLTIP_TPL,
+      enterable: true
     }
     return {
       ...options,
@@ -530,8 +828,20 @@ export class GroupStackBar extends StackBar {
     }
   }
 
+  protected configData(chart: Chart, options: ColumnOptions): ColumnOptions {
+    if (!chart.xAxisExt?.length) {
+      options.isGroup = false
+    }
+    if (!chart.extStack?.length) {
+      options.isStack = false
+      options.groupField = 'category'
+    }
+    return options
+  }
+
   protected setupOptions(chart: Chart, options: ColumnOptions): ColumnOptions {
     return flow(
+      this.configData,
       this.configTheme,
       this.configEmptyDataStrategy,
       this.configColor,
@@ -563,11 +873,20 @@ export class GroupStackBar extends StackBar {
 export class PercentageStackBar extends GroupStackBar {
   propertyInner = {
     ...this['propertyInner'],
-    'label-selector': ['color', 'fontSize', 'vPosition', 'reserveDecimalCount'],
-    'tooltip-selector': ['color', 'fontSize', 'backgroundColor', 'show']
+    'label-selector': ['color', 'fontSize', 'vPosition', 'showQuota', 'showProportion'],
+    'tooltip-selector': ['color', 'fontSize', 'backgroundColor', 'showQuota', 'show', 'carousel']
   }
   protected configLabel(chart: Chart, options: ColumnOptions): ColumnOptions {
-    const baseOptions = super.configLabel(chart, options)
+    // 在 G2Plot 执行百分比转换前先缓存原始 value，标签和 tooltip 显示指标时使用
+    const optionsWithOriginValue = {
+      ...options,
+      data: options.data?.map(item => ({
+        ...item,
+        [PERCENTAGE_STACK_ORIGIN_VALUE_FIELD]:
+          item[PERCENTAGE_STACK_ORIGIN_VALUE_FIELD] ?? item.value
+      }))
+    }
+    const baseOptions = super.configLabel(chart, optionsWithOriginValue)
     if (!baseOptions.label) {
       return baseOptions
     }
@@ -576,10 +895,25 @@ export class PercentageStackBar extends GroupStackBar {
     const label = {
       ...baseOptions.label,
       formatter: function (param: Datum) {
-        if (!param.value) {
-          return '0%'
+        // 按标签配置组合指标值和占比，默认保持只显示占比
+        const showQuota = l.showQuota === true
+        const showProportion = l.showProportion ?? true
+        if (!showQuota && !showProportion) {
+          return ''
         }
-        return (Math.round(param.value * 10000) / 100).toFixed(l.reserveDecimalCount) + '%'
+        const quotaText = showQuota
+          ? valueFormatter(
+              param[PERCENTAGE_STACK_ORIGIN_VALUE_FIELD],
+              l.quotaLabelFormatter ?? l.labelFormatter ?? formatterItem
+            ) ?? ''
+          : ''
+        const proportion = param.value
+          ? (Math.round(param.value * 10000) / 100).toFixed(l.reserveDecimalCount) + '%'
+          : '0%'
+        const proportionText = showProportion
+          ? `${showQuota ? ' (' : ''}${proportion}${showQuota ? ')' : ''}`
+          : ''
+        return `${quotaText}${proportionText}`
       }
     }
     return {
@@ -600,12 +934,34 @@ export class PercentageStackBar extends GroupStackBar {
     }
     const { customAttr } = chart
     const l = parseJson(customAttr).label
+    const originValueMap = new Map(
+      options.data?.map(item => [
+        JSON.stringify([item.field, item.category]),
+        item[PERCENTAGE_STACK_ORIGIN_VALUE_FIELD] ?? item.value
+      ])
+    )
     const tooltip = {
       formatter: (param: Datum) => {
-        const obj = { name: param.category, value: param.value }
-        obj.value = (Math.round(param.value * 10000) / 100).toFixed(l.reserveDecimalCount) + '%'
+        const percentValue = Number(param.value)
+        const percent =
+          (Math.round((Number.isFinite(percentValue) ? percentValue : 0) * 10000) / 100).toFixed(
+            l.reserveDecimalCount
+          ) + '%'
+        const obj = { name: param.category, value: percent }
+        if (tooltipAttr.showQuota) {
+          const value =
+            valueFormatter(
+              param[PERCENTAGE_STACK_ORIGIN_VALUE_FIELD] ??
+                originValueMap.get(JSON.stringify([param.field, param.category])),
+              tooltipAttr.tooltipFormatter ?? formatterItem
+            ) ?? ''
+          obj.value = `${value} (${percent})`
+        }
         return obj
-      }
+      },
+      container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+      itemTpl: TOOLTIP_TPL,
+      enterable: true
     }
     return {
       ...options,

@@ -11,8 +11,8 @@ function toLine(name) {
 const textEnum = ['eq', 'not_eq', 'like', 'not like', 'null', 'not_null', 'empty', 'not_empty']
 const textOptions = textEnum.map(formatEnum)
 
-const dateEnum = ['eq', 'not_eq', 'lt', 'gt', 'le', 'ge']
-const dateOptions = dateEnum.concat(['null', 'not_null']).map(formatEnum)
+const dateEnum = ['eq', 'not_eq', 'lt', 'gt', 'le', 'ge', 'null', 'not_null']
+const dateOptions = dateEnum.map(formatEnum)
 
 const valueEnum = [...dateEnum]
 const valueOptions = valueEnum.map(formatEnum)
@@ -20,7 +20,7 @@ const valueOptions = valueEnum.map(formatEnum)
 const sysParams = ['eq', 'not_eq', 'like', 'not like', 'in', 'not in']
 const textOptionsForSysParams = sysParams.map(formatEnum)
 
-const sysParamsEnum = ['userId', 'userName', 'userEmail']
+const sysParamsEnum = ['userId', 'userName', 'userEmail', 'userPhone']
 
 const sysParamsIlns = sysParamsEnum.map(_ => {
   return { value: `\${sysParams.${_}}`, label: `auth.sysParams_type.${toLine(_)}` }

@@ -1,6 +1,5 @@
 package io.dataease.job.schedule;
 
-
 import io.dataease.exception.DEException;
 import io.dataease.i18n.Translator;
 import io.dataease.utils.LogUtil;
@@ -302,6 +301,16 @@ public class ScheduleManager {
     }
 
     /**
+     * Job 已存在但 Trigger 缺失（数据不一致）时，删除残留 Job，避免新增时 JobKey 冲突。
+     */
+    private void deleteJobIfExists(JobKey jobKey) throws SchedulerException {
+        if (scheduler.checkExists(jobKey)) {
+            LogUtil.warn("delete stale job before add: " + jobKey.getName() + "," + jobKey.getGroup());
+            scheduler.deleteJob(jobKey);
+        }
+    }
+
+    /**
      * 新增或者修改 simpleJob
      *
      * @param jobKey
@@ -317,6 +326,7 @@ public class ScheduleManager {
         if (scheduler.checkExists(triggerKey)) {
             modifySimpleJobTime(triggerKey, intervalTime);
         } else {
+            deleteJobIfExists(jobKey);
             addSimpleJob(jobKey, triggerKey, clz, intervalTime, jobDataMap);
         }
 
@@ -328,6 +338,7 @@ public class ScheduleManager {
             if (scheduler.checkExists(triggerKey)) {
                 modifySingleJobTime(triggerKey, date);
             } else {
+                deleteJobIfExists(jobKey);
                 addSingleJob(jobKey, triggerKey, clz, date, jobDataMap);
             }
         } catch (Exception e) {
@@ -363,6 +374,7 @@ public class ScheduleManager {
             if (scheduler.checkExists(triggerKey)) {
                 modifyCronJobTime(triggerKey, cron, startTime, endTime);
             } else {
+                deleteJobIfExists(jobKey);
                 addCronJob(jobKey, triggerKey, jobClass, cron, startTime, endTime, jobDataMap);
             }
         } catch (Exception e) {
@@ -396,7 +408,7 @@ public class ScheduleManager {
                 returnMap.put("groupName", groupName);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            LogUtil.error(e);
         }
 
         return returnMap;
@@ -444,5 +456,155 @@ public class ScheduleManager {
         scheduler.pauseTriggers(GroupMatcher.groupEquals(groupName));
         scheduler.unscheduleJobs(new ArrayList<>(triggerKeys));
         scheduler.deleteJobs(new ArrayList<>(jobKeys));
+    }
+
+    /**
+     * 添加或修改 simpleJob,自定义开始时间和结束时间
+     *
+     */
+    public void addOrUpdateSimpleJobForCustomTime(JobKey jobKey, TriggerKey triggerKey, Class clz, Date startTime, Date endTime,
+                                                  String period, JobDataMap jobDataMap) throws SchedulerException {
+
+        if (scheduler.checkExists(triggerKey)) {
+            modifySimpleJobTimeForCustomTime(triggerKey, period, startTime, endTime);
+        } else {
+            deleteJobIfExists(jobKey);
+            addSimpleJobForCustomTime(jobKey, triggerKey, clz, period, startTime, endTime, jobDataMap);
+        }
+
+    }
+
+    /**
+     * 添加 simpleJob,自定义开始时间和结束时间
+     *
+     */
+    public void addSimpleJobForCustomTime(JobKey jobKey, TriggerKey triggerKey, Class<? extends Job> cls,
+                                          String period, Date startTime, Date endTime, JobDataMap jobDataMap)
+            throws SchedulerException {
+        JobDataMap dateMap = jobDataMap != null ? jobDataMap : new JobDataMap();
+        dateMap.put("period", period);
+        JobDetail jobDetail = JobBuilder.newJob(cls)
+                .withIdentity(jobKey)
+                .usingJobData(dateMap)
+                .build();
+        TriggerBuilder<SimpleTrigger> triggerBuilder = simpleJobTriggerBuilder(triggerKey, period, startTime, endTime);
+        triggerBuilder.usingJobData(dateMap);
+        scheduler.scheduleJob(jobDetail, triggerBuilder.build());
+    }
+
+    /**
+     * 修改simpleTrigger触发器的触发时间,自定义开始时间和结束时间
+     *
+     */
+    public void modifySimpleJobTimeForCustomTime(TriggerKey triggerKey, String period, Date startTime, Date endTime) {
+        try {
+            LogUtil.info("modifySimpleJobTimeForCustomTime: " + triggerKey.getName() + "," + triggerKey.getGroup());
+            SimpleTrigger trigger = (SimpleTrigger) scheduler.getTrigger(triggerKey);
+            if (trigger == null) {
+                return;
+            }
+            Date oldStartTime = trigger.getStartTime();
+            Date oldEndTime = trigger.getEndTime();
+            String oldPeriod = trigger.getJobDataMap().getString("period");
+            boolean startTimeChanged = !Objects.equals(oldStartTime, startTime);
+            boolean endTimeChanged = !Objects.equals(oldEndTime, endTime);
+            boolean periodChanged = !Objects.equals(oldPeriod, period);
+            if (startTimeChanged || endTimeChanged || periodChanged) {
+                TriggerBuilder<SimpleTrigger> triggerBuilder = simpleJobTriggerBuilder(triggerKey, period, startTime, endTime);
+                triggerBuilder.usingJobData(trigger.getJobDataMap());
+                scheduler.rescheduleJob(triggerKey, triggerBuilder.build());
+            }
+        } catch (Exception e) {
+            LogUtil.error(e.getMessage(), e);
+            DEException.throwException(e);
+        }
+    }
+
+    /**
+     * 构建simpleTrigger
+     *
+     */
+    private TriggerBuilder<SimpleTrigger> simpleJobTriggerBuilder(TriggerKey triggerKey, String period, Date startTime, Date endTime) {
+        SimpleScheduleBuilder scheduleBuilder = SimpleScheduleBuilder.simpleSchedule();
+        if (period != null && period.length() > 1) {
+            String number = period.substring(0, period.length() - 1);
+            char unit = period.charAt(period.length() - 1);
+            switch (unit) {
+                case 's':
+                    scheduleBuilder.withIntervalInSeconds(Integer.parseInt(number));
+                    break;
+                case 'm':
+                    scheduleBuilder.withIntervalInMinutes(Integer.parseInt(number));
+                    break;
+                case 'h':
+                    scheduleBuilder.withIntervalInHours(Integer.parseInt(number));
+                    break;
+                case 'd':
+                    scheduleBuilder.withIntervalInHours(Integer.parseInt(number) * 24);
+                    break;
+                default:
+                    scheduleBuilder.withIntervalInMinutes(1);
+            }
+            scheduleBuilder.repeatForever();
+        } else {
+            scheduleBuilder.withIntervalInMinutes(1);
+        }
+        TriggerBuilder<SimpleTrigger> triggerBuilder = TriggerBuilder.newTrigger()
+                .withIdentity(triggerKey)
+                .withSchedule(scheduleBuilder);
+        if (startTime != null) {
+            triggerBuilder.startAt(startTime);
+        } else {
+            triggerBuilder.startNow();
+        }
+        triggerBuilder.endAt(endTime);
+        return triggerBuilder;
+    }
+
+    /**
+     * 获取间隔任务的下一次执行时间
+     */
+    public Long getNextSimpleTriggerTime(TriggerKey triggerKey, Date currentTime) {
+        try {
+            SimpleTrigger trigger = (SimpleTrigger) scheduler.getTrigger(triggerKey);
+            if (trigger == null) {
+                LogUtil.warn("getNextSimpleTriggerTime: " + triggerKey.getName() + "," + triggerKey.getGroup());
+                return null;
+            }
+            LogUtil.debug("SimpleTriggerNextTime: " + triggerKey.getName() + "," + triggerKey.getGroup() + "," + trigger.getFireTimeAfter(currentTime));
+            return trigger.getFireTimeAfter(currentTime) != null ? trigger.getFireTimeAfter(currentTime).getTime() : null;
+        } catch (Exception e) {
+            LogUtil.error(e.getMessage(), e);
+            DEException.throwException(e);
+        }
+        return null;
+    }
+
+    public void pauseTrigger(TriggerKey triggerKey) {
+        try {
+            Trigger trigger = scheduler.getTrigger(triggerKey);
+            if (trigger != null) {
+                scheduler.pauseTrigger(triggerKey);
+            } else {
+                LogUtil.warn("pauseTrigger: " + triggerKey.getName() + "," + triggerKey.getGroup());
+            }
+        } catch (Exception e) {
+            LogUtil.error(e.getMessage(), e);
+            DEException.throwException(e);
+        }
+    }
+
+    public void resumeTrigger(TriggerKey triggerKey) {
+        try {
+            Trigger trigger = scheduler.getTrigger(triggerKey);
+            if (trigger != null) {
+                scheduler.resumeTrigger(triggerKey);
+            } else {
+                LogUtil.warn("resumeTrigger: " + triggerKey.getName() + "," + triggerKey.getGroup());
+            }
+        } catch (Exception e) {
+            LogUtil.error(e.getMessage(), e);
+            DEException.throwException(e);
+        }
     }
 }

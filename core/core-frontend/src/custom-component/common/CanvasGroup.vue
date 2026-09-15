@@ -51,6 +51,12 @@ const props = defineProps({
     type: Number,
     required: false,
     default: 1
+  },
+  // 字体
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
   }
 })
 const { element, isEdit, showPosition, canvasStyleData, canvasViewInfo, dvInfo, componentData } =
@@ -67,6 +73,7 @@ const { element, isEdit, showPosition, canvasStyleData, canvasViewInfo, dvInfo, 
     :canvas-view-info="canvasViewInfo"
     :canvas-id="canvasId"
     :canvas-active="element['canvasActive']"
+    :font-family="fontFamily"
   ></canvas-core>
   <group-preview
     v-else
@@ -78,6 +85,7 @@ const { element, isEdit, showPosition, canvasStyleData, canvasViewInfo, dvInfo, 
     :show-position="showPosition"
     :scale="scale * 100"
     :canvas-view-info="canvasViewInfo"
+    :font-family="fontFamily"
   ></group-preview>
 </template>
 

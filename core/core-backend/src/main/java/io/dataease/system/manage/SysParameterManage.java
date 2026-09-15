@@ -2,24 +2,24 @@ package io.dataease.system.manage;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import io.dataease.api.system.request.OnlineMapEditor;
+import io.dataease.api.system.request.SQLBotConfigCreator;
 import io.dataease.api.system.vo.SettingItemVO;
 import io.dataease.api.system.vo.ShareBaseVO;
 import io.dataease.datasource.server.DatasourceServer;
+import io.dataease.exception.DEException;
+import io.dataease.i18n.Translator;
 import io.dataease.license.config.XpackInteract;
 import io.dataease.system.dao.auto.entity.CoreSysSetting;
 import io.dataease.system.dao.auto.mapper.CoreSysSettingMapper;
 import io.dataease.system.dao.ext.mapper.ExtCoreSysSettingMapper;
-import io.dataease.utils.BeanUtils;
-import io.dataease.utils.CommonBeanFactory;
-import io.dataease.utils.IDUtils;
-import io.dataease.utils.SystemSettingUtils;
+import io.dataease.utils.*;
 import jakarta.annotation.Resource;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -53,31 +53,65 @@ public class SysParameterManage {
         return null;
     }
 
-    public OnlineMapEditor queryOnlineMap() {
+    public OnlineMapEditor queryOnlineMap(String mapType) {
+        if (StringUtils.isBlank(mapType)) {
+            List<CoreSysSetting> typeList = groupList(MAP_KEY_PREFIX + "mapType");
+            mapType = "gaode";
+            if (!CollectionUtils.isEmpty(typeList)) {
+                mapType = typeList.getFirst().getPval();
+            }
+        }
+        String prefix;
+        if (!StringUtils.equals(mapType, "gaode")) {
+            prefix = mapType + "." + MAP_KEY_PREFIX;
+        } else {
+            prefix = MAP_KEY_PREFIX;
+        }
         var editor = new OnlineMapEditor();
         List<String> fields = BeanUtils.getFieldNames(OnlineMapEditor.class);
-        Map<String, String> mapVal = groupVal(MAP_KEY_PREFIX);
+        Map<String, String> mapVal = groupVal(prefix);
         fields.forEach(field -> {
-            String val = mapVal.get(MAP_KEY_PREFIX + field);
+            String val = mapVal.get(prefix + field);
             if (StringUtils.isNotBlank(val)) {
                 BeanUtils.setFieldValueByName(editor, field, val, String.class);
             }
         });
+
+        editor.setMapType(mapType);
+
         return editor;
     }
 
     public void saveOnlineMap(OnlineMapEditor editor) {
+        String mapType = editor.getMapType();
+        if (StringUtils.isBlank(mapType)) {
+            List<CoreSysSetting> typeList = groupList(MAP_KEY_PREFIX + "mapType");
+            mapType = "gaode";
+            if (!CollectionUtils.isEmpty(typeList)) {
+                mapType = typeList.getFirst().getPval();
+            }
+        }
+
         List<String> fieldNames = BeanUtils.getFieldNames(OnlineMapEditor.class);
+        String finalMapType = mapType;
         fieldNames.forEach(field -> {
+            String prefix = MAP_KEY_PREFIX;
+            if (!(StringUtils.equals(field, "mapType") || StringUtils.equals(finalMapType, "gaode"))) {
+                prefix = finalMapType + "." + MAP_KEY_PREFIX;
+            }
+
             QueryWrapper<CoreSysSetting> queryWrapper = new QueryWrapper<>();
-            queryWrapper.eq("pkey", MAP_KEY_PREFIX + field);
+            queryWrapper.eq("pkey", prefix + field);
             CoreSysSetting sysSetting = coreSysSettingMapper.selectOne(queryWrapper);
             var val = (String) BeanUtils.getFieldValueByName(field, editor);
+            if (val == null) {
+                return;
+            }
             if (ObjectUtils.isEmpty(sysSetting)) {
                 sysSetting = new CoreSysSetting();
                 sysSetting.setId(IDUtils.snowID());
-                sysSetting.setPkey(MAP_KEY_PREFIX + field);
-                sysSetting.setPval(val == null ? "" : val);
+                sysSetting.setPkey(prefix + field);
+                sysSetting.setPval(val);
                 sysSetting.setType("text");
                 sysSetting.setSort(1);
                 coreSysSettingMapper.insert(sysSetting);
@@ -87,7 +121,6 @@ public class SysParameterManage {
             coreSysSettingMapper.updateById(sysSetting);
         });
     }
-
 
     public Map<String, String> groupVal(String groupKey) {
         QueryWrapper<CoreSysSetting> queryWrapper = new QueryWrapper<>();
@@ -133,25 +166,73 @@ public class SysParameterManage {
         return item;
     }
 
-
     @Transactional
     public void saveGroup(List<SettingItemVO> vos, String groupKey) {
-        QueryWrapper<CoreSysSetting> queryWrapper = new QueryWrapper<>();
-        queryWrapper.likeRight("pkey", groupKey);
-        coreSysSettingMapper.delete(queryWrapper);
         List<CoreSysSetting> sysSettings = vos.stream().filter(vo -> !SystemSettingUtils.xpackSetting(vo.getPkey())).map(item -> {
             CoreSysSetting sysSetting = BeanUtils.copyBean(new CoreSysSetting(), item);
             sysSetting.setId(IDUtils.snowID());
             return sysSetting;
         }).collect(Collectors.toList());
-        extCoreSysSettingMapper.saveBatch(sysSettings);
+        if (CollectionUtils.isNotEmpty(sysSettings)) {
+            QueryWrapper<CoreSysSetting> queryWrapper = new QueryWrapper<>();
+            sysSettings.forEach(sysSetting -> {
+                queryWrapper.clear();
+                queryWrapper.eq("pkey", sysSetting.getPkey());
+                coreSysSettingMapper.delete(queryWrapper);
+            });
+            extCoreSysSettingMapper.saveBatch(sysSettings);
+        }
         datasourceServer.addJob(sysSettings);
     }
 
+    public void saveSqlBotConfig(SQLBotConfigCreator configVO) {
+        List<CoreSysSetting> configList = new ArrayList<>();
+        String key = "sqlbot.";
+        CoreSysSetting domainVo = new CoreSysSetting();
+        domainVo.setPkey(key + "domain");
+        domainVo.setPval(configVO.getDomain());
+        domainVo.setType("text");
+        domainVo.setSort(0);
+        domainVo.setId(IDUtils.snowID());
+        configList.add(domainVo);
+
+        CoreSysSetting idVo = new CoreSysSetting();
+        idVo.setPkey(key + "id");
+        idVo.setPval(configVO.getId());
+        idVo.setType("text");
+        idVo.setSort(0);
+        idVo.setId(IDUtils.snowID());
+        configList.add(idVo);
+
+        CoreSysSetting enabledVo = new CoreSysSetting();
+        enabledVo.setPkey(key + "enabled");
+        enabledVo.setPval(configVO.getEnabled().toString());
+        enabledVo.setType("text");
+        enabledVo.setSort(0);
+        enabledVo.setId(IDUtils.snowID());
+        configList.add(enabledVo);
+
+        CoreSysSetting validVo = new CoreSysSetting();
+        validVo.setPkey(key + "valid");
+        validVo.setPval(configVO.getValid().toString());
+        validVo.setType("text");
+        validVo.setSort(0);
+        validVo.setId(IDUtils.snowID());
+        configList.add(validVo);
+
+        QueryWrapper<CoreSysSetting> queryWrapper = new QueryWrapper<>();
+        queryWrapper.likeRight("pkey", key);
+        coreSysSettingMapper.delete(queryWrapper);
+
+        extCoreSysSettingMapper.saveBatch(configList);
+    }
 
     @XpackInteract(value = "perSetting", before = false)
     @Transactional
     public void saveBasic(List<SettingItemVO> vos) {
+        if (!AuthUtils.isSysAdmin()) {
+            DEException.throwException(Translator.get("i18n_no_permission"));
+        }
         String key = "basic.";
         proxy().saveGroup(vos, key);
     }
@@ -171,5 +252,9 @@ public class SysParameterManage {
             vo.setPeRequire(true);
         }
         return vo;
+    }
+
+    public void insert(CoreSysSetting coreSysSetting) {
+        coreSysSettingMapper.insert(coreSysSetting);
     }
 }

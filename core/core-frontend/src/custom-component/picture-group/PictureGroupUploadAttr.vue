@@ -3,8 +3,8 @@ import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 
 import { storeToRefs } from 'pinia'
-import { ElIcon, ElMessage } from 'element-plus-secondary'
-import { ref, onMounted, onBeforeUnmount, watch, PropType, computed } from 'vue'
+import { ElIcon } from 'element-plus-secondary'
+import { ref, onMounted, onBeforeUnmount, watch, PropType, nextTick } from 'vue'
 import { beforeUploadCheck, uploadFileResult } from '@/api/staticResource'
 import { imgUrlTrans } from '@/utils/imgUtils'
 import eventBus from '@/utils/eventBus'
@@ -13,6 +13,9 @@ import { useI18n } from '@/hooks/web/useI18n'
 import { toRefs } from 'vue'
 import { useEmitt } from '@/hooks/web/useEmitt'
 const { t } = useI18n()
+
+let uploadCount = 0
+let totalUploads = 0
 
 const props = defineProps({
   themes: {
@@ -28,6 +31,10 @@ const props = defineProps({
         }
       }
     }
+  },
+  view: {
+    type: Object,
+    required: true
   }
 })
 
@@ -42,14 +49,13 @@ const dialogImageUrl = ref('')
 const dialogVisible = ref(false)
 const uploadDisabled = ref(false)
 const files = ref(null)
-const maxImageSize = 15000000
 
 const handlePictureCardPreview = file => {
   dialogImageUrl.value = file.url
   dialogVisible.value = true
 }
 
-const handleRemove = (file, fileListArray) => {
+const handleRemove = file => {
   uploadDisabled.value = false
   let file_static_part = file.url.split('static-resource/')[1]
   let index = element.value.propValue['urlList'].findIndex(
@@ -59,28 +65,47 @@ const handleRemove = (file, fileListArray) => {
     element.value.propValue['urlList'].splice(index, 1)
     useEmitt().emitter.emit('calcData-' + element.value.id)
   }
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('picture-handleRemove')
 }
 async function upload(file) {
   if (element.value.propValue.urlList.length < 10) {
-    uploadFileResult(file.file, fileUrl => {
-      snapshotStore.recordSnapshotCache()
-      element.value.propValue.urlList.unshift({ name: file.file.name, url: fileUrl })
-      useEmitt().emitter.emit('calcData-' + element.value.id)
+    // 增加总任务数
+    totalUploads++
+
+    uploadFileResult(file.file, (fileUrl, error) => {
+      if (error) {
+        // 上传失败
+        console.error('上传失败:', error)
+      } else {
+        // 上传成功
+        snapshotStore.recordSnapshotCache('pic-upload')
+        element.value.propValue.urlList.unshift({ name: file.file.name, url: fileUrl })
+        useEmitt().emitter.emit('calcData-' + element.value.id)
+      }
+
+      // 无论成功失败，都增加完成计数
+      uploadCount++
+
+      // 检查是否所有上传都完成了
+      if (uploadCount === totalUploads) {
+        // 所有图片上传完成，刷新列表
+        nextTick(() => {
+          fileListInit()
+          // 重置计数器
+          uploadCount = 0
+          totalUploads = 0
+        })
+      }
     })
   }
 }
 
 const onStyleChange = () => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('pic-onStyleChange')
 }
 
 const goFile = () => {
   files.value.click()
-}
-
-const sizeMessage = () => {
-  ElMessage.success('图片大小不符合')
 }
 
 const fileListInit = () => {
@@ -94,10 +119,6 @@ const fileListInit = () => {
 const init = () => {
   fileListInit()
 }
-
-const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
-})
 
 watch(
   () => element.value.propValue['urlList'],
@@ -116,7 +137,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <el-collapse-item :effect="themes" title="图片组" name="picture">
+  <el-collapse-item :effect="themes" :title="t('visualization.pic_group')" name="picture">
     <el-row class="img-area" :class="`img-area_${themes}`">
       <el-col style="width: 130px !important">
         <el-upload
@@ -126,7 +147,7 @@ onBeforeUnmount(() => {
           accept=".jpeg,.jpg,.png,.gif,.svg"
           class="avatar-uploader"
           list-type="picture-card"
-          :class="{ disabled: uploadDisabled }"
+          :class="{ disabled: uploadDisabled || element.propValue.urlList.length >= 10 }"
           :on-preview="handlePictureCardPreview"
           :on-remove="handleRemove"
           :before-upload="beforeUploadCheck"
@@ -141,14 +162,15 @@ onBeforeUnmount(() => {
     </el-row>
     <el-row>
       <span style="margin-top: 2px" class="image-hint" :class="`image-hint_${themes}`">
-        支持JPG、PNG、GIF、SVG
+        {{ t('visualization.pic_upload_tips2') }}
       </span>
     </el-row>
     <el-row class="pic-adaptor">
       <el-form-item
         v-if="curComponent.style.adaptation"
         class="form-item form-item-custom"
-        label="图片适应方式"
+        :class="'form-item-' + themes"
+        :label="t('visualization.pic_adaptor_type')"
         size="small"
         :effect="themes"
       >
@@ -158,9 +180,15 @@ onBeforeUnmount(() => {
           @change="onStyleChange"
           :effect="themes"
         >
-          <el-radio label="adaptation" :effect="themes">适应组件</el-radio>
-          <el-radio label="original" :effect="themes">原始尺寸</el-radio>
-          <el-radio label="equiratio" :effect="themes">等比适应</el-radio>
+          <el-radio value="adaptation" :effect="themes">{{
+            t('visualization.pic_adaptation')
+          }}</el-radio>
+          <el-radio value="original" :effect="themes">{{
+            t('visualization.pic_original')
+          }}</el-radio>
+          <el-radio value="equiratio" :effect="themes">{{
+            t('visualization.pic_equiratio')
+          }}</el-radio>
         </el-radio-group>
       </el-form-item>
     </el-row>
@@ -193,7 +221,7 @@ onBeforeUnmount(() => {
   }
 }
 
-.disabled :deep(.el-upload--picture-card) {
+.disabled :deep(.ed-upload) {
   display: none;
 }
 
@@ -211,7 +239,7 @@ onBeforeUnmount(() => {
 :deep(.ed-upload--picture-card) {
   background: #eff0f1;
   border: 1px dashed #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
 
   .ed-icon {
     color: #1f2329;
@@ -224,7 +252,6 @@ onBeforeUnmount(() => {
   }
 }
 .img-area {
-  margin-top: 10px;
   overflow: hidden;
 
   &.img-area_dark {
@@ -272,7 +299,7 @@ onBeforeUnmount(() => {
 }
 
 .pic-adaptor {
-  margin: 8px 0 16px 0;
+  margin: 8px 0 8px 0;
   :deep(.ed-form-item__content) {
     margin-top: 8px !important;
   }
@@ -293,7 +320,7 @@ onBeforeUnmount(() => {
     margin-top: 8px;
     background: #fff;
     height: 32px;
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid #dcdfe6;
     display: flex;
     color: #cccccc;
@@ -307,8 +334,8 @@ onBeforeUnmount(() => {
     }
 
     &.active {
-      color: #3370ff;
-      border-color: #3370ff;
+      color: var(--ed-color-primary, #3370ff);
+      border-color: var(--ed-color-primary, #3370ff);
     }
   }
 

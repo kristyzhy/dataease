@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 public interface LicenseApi {
 
-
     @PostMapping("/update")
     F2CLicResult update(@RequestBody LicenseRequest request);
 
@@ -17,4 +16,7 @@ public interface LicenseApi {
 
     @GetMapping("/version")
     String version();
+
+    @PostMapping("/revert")
+    void revert();
 }

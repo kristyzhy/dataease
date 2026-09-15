@@ -1,6 +1,8 @@
 <template>
   <div class="testcase-template">
-    <div class="template-img" :style="classBackground" @click.stop="templateInnerPreview" />
+    <div class="template-img-container">
+      <div class="template-img" :style="classBackground" @click.stop="templateInnerPreview" />
+    </div>
     <el-row class="bottom-area"> </el-row>
     <el-row
       class="bottom-area-show"
@@ -94,7 +96,7 @@ const templateInnerPreview = () => {
   margin: 0;
   border: 1px solid rgba(222, 224, 227, 1);
   box-sizing: border-box;
-  border-radius: 4px;
+  border-radius: 12px;
   width: 100%;
   background: #fff;
   overflow: hidden;
@@ -115,11 +117,15 @@ const templateInnerPreview = () => {
   text-overflow: ellipsis;
   color: var(--TextPrimary, #1f2329);
 }
-
+.template-img-container {
+  padding: 4px 4px 0;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+}
 .template-img {
   background-size: 100% 100%;
-  margin: 4px 4px 0 4px;
-  border-radius: 4px 4px 0 0;
+  border-radius: 6px 4px 0 0;
 }
 
 .template-button {

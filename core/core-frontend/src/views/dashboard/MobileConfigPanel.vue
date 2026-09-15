@@ -7,7 +7,7 @@ import MobileBackgroundSelector from './MobileBackgroundSelector.vue'
 import ComponentWrapper from '@/components/data-visualization/canvas/ComponentWrapper.vue'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import { useEmbedded } from '@/store/modules/embedded'
-import { canvasSave } from '@/utils/canvasUtils'
+import { canvasSave, findComponentById } from '@/utils/canvasUtils'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { backCanvasData } from '@/utils/canvasUtils'
@@ -15,6 +15,9 @@ import { storeToRefs } from 'pinia'
 import { debounce } from 'lodash-es'
 import mobileHeader from '@/assets/img/mobile-header.png'
 import ComponentStyleEditor from '@/views/common/ComponentStyleEditor.vue'
+import { deepCopy } from '@/utils/utils'
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 
 const dvMainStore = dvMainStoreWithOut()
 const { componentData, canvasStyleData, canvasViewInfo, dvInfo } = storeToRefs(dvMainStore)
@@ -24,15 +27,10 @@ const emits = defineEmits(['pcMode'])
 const snapshotStore = snapshotStoreWithOut()
 const canvasViewInfoMobile = ref({})
 
-const getComponentStyleDefault = () => {
-  return {
-    top: 0,
-    left: 0,
-    width: '190px',
-    height: '190px'
-  }
-}
 const mobileStatusChange = (type, value) => {
+  if (type === 'componentStyleChange') {
+    changeTimes.value++
+  }
   const iframe = document.querySelector('iframe')
   if (iframe) {
     iframe.contentWindow.postMessage(
@@ -52,7 +50,16 @@ const iframeSrc = computed(() => {
     : './mobile.html#/panel'
 })
 const handleLoad = () => {
-  canvasViewInfoMobile.value = JSON.parse(JSON.stringify(unref(canvasViewInfo)))
+  const mobileViewInfo = JSON.parse(JSON.stringify(unref(canvasViewInfo)))
+  // 移动端初始化话
+  if (!!mobileViewInfo) {
+    Object.keys(mobileViewInfo).forEach(key => {
+      const { customAttrMobile, customStyleMobile, customAttr, customStyle } = mobileViewInfo[key]
+      mobileViewInfo[key]['customAttr'] = customAttrMobile || customAttr
+      mobileViewInfo[key]['customStyle'] = customStyleMobile || customStyle
+    })
+  }
+  canvasViewInfoMobile.value = mobileViewInfo
   mobileStatusChange(
     'panelInit',
     JSON.parse(
@@ -61,7 +68,7 @@ const handleLoad = () => {
           JSON.stringify(unref(componentData.value.filter(ele => !!ele.inMobile)))
         ),
         canvasStyleData: JSON.parse(JSON.stringify(unref(canvasStyleData))),
-        canvasViewInfo: JSON.parse(JSON.stringify(unref(canvasViewInfo))),
+        canvasViewInfo: deepCopy(mobileViewInfo),
         dvInfo: JSON.parse(JSON.stringify(unref(dvInfo))),
         isEmbedded: !!embeddedStore.baseUrl
       })
@@ -74,6 +81,33 @@ const componentDataNotInMobile = computed(() => {
 })
 
 const newWindow = ref()
+
+/**
+ * 将指定组件及其 Tab 直属子组件的 PC viewInfo 同步到移动端配置缓存
+ * @param targetComponent 用户点击同步按钮对应的组件
+ * @returns 普通组件返回单个 viewInfo，DeTabs 返回其自身及直属子组件的 viewInfo 数组
+ */
+const syncPcViewInfoToMobile = targetComponent => {
+  const targetComponents = [targetComponent]
+  if (targetComponent.component === 'DeTabs') {
+    targetComponent.propValue?.forEach(tabItem => {
+      targetComponents.push(...(tabItem.componentData || []))
+    })
+  }
+  const targetViewInfos = targetComponents.reduce((result, component) => {
+    const sourceViewInfo = canvasViewInfo.value[component.id]
+    if (sourceViewInfo) {
+      const targetViewInfo = deepCopy(sourceViewInfo)
+      // 同步 PC 设计应重新采用 PC 图表配置；仅清空移动图表覆盖项并保留全部配置字段
+      targetViewInfo.customStyleMobile = null
+      targetViewInfo.customAttrMobile = null
+      canvasViewInfoMobile.value[component.id] = targetViewInfo
+      result.push(targetViewInfo)
+    }
+    return result
+  }, [])
+  return targetComponent.component === 'DeTabs' ? targetViewInfos : targetViewInfos[0]
+}
 
 const hanedleMessage = event => {
   if (
@@ -94,8 +128,8 @@ const hanedleMessage = event => {
   }
 
   if (event.data.type === 'curComponentChange') {
-    // 移动端CurComponent引用不在主dvMain中 1111
-    dvMainStore.setCurComponent({ component: event.data.value, index: 0 })
+    // 移动端CurComponent引用不在主dvMain中
+    dvMainStore.setCurComponentMobileConfig(event.data.value)
     if (!!event.data.value) {
       activeCollapse.value = 'componentStyle'
     } else {
@@ -114,33 +148,63 @@ const hanedleMessage = event => {
     })
   }
 
+  if (event.data.type === 'syncPcDesign') {
+    const targetComponent = findComponentById(event.data.value)
+    if (targetComponent) {
+      changeTimes.value++
+      // DeTabs 自身通常没有 viewInfo，实际图表配置属于子组件；同步整个 Tab 内的图表配置
+      const targetViewInfo = syncPcViewInfoToMobile(targetComponent)
+      snapshotStore.recordSnapshotCacheToMobile('syncPcDesign', targetComponent, targetViewInfo)
+    }
+  }
+
   if (['mobileSaveFromMobile', 'mobilePatchFromMobile'].includes(event.data.type)) {
     componentData.value.forEach(ele => {
       const com = event.data.value[ele.id]
       if (!!com) {
-        const { x, y, sizeX, sizeY, style, commonBackground } = com
+        const { x, y, sizeX, sizeY, style, propValue, events, commonBackground } = com
         ele.mx = x
         ele.my = y
         ele.mSizeX = sizeX
         ele.mSizeY = sizeY
         ele.mStyle = style
+        ele.mEvents = events
         ele.mCommonBackground = commonBackground
+
+        if (ele.component === 'VQuery') {
+          ele.propValue = propValue
+          ele.propValue?.forEach(queryItem => {
+            queryItem['mPlaceholder'] = queryItem.placeholder
+            queryItem['mQueryConditionWidth'] = queryItem.queryConditionWidth
+            queryItem.placeholder = queryItem.tempPlaceholder
+            queryItem.queryConditionWidth = queryItem.tempQueryConditionWidth
+          })
+        }
         if (ele.component === 'DeTabs') {
           ele.propValue.forEach(tabItem => {
-            tabItem.componentData.forEach(tabComponent => {
+            tabItem.componentData?.forEach(tabComponent => {
+              const tabMobileComponent = com.tab?.[tabComponent.id]
+              if (!tabMobileComponent) {
+                return
+              }
               const {
                 x: tx,
                 y: ty,
                 sizeX: tSizeX,
                 sizeY: tSizeY,
                 style: tStyle,
+                events: tEvents,
                 commonBackground: tCommonBackground
-              } = com.tab[tabComponent.id]
+              } = tabMobileComponent
+              // mx、my 保存移动端 Matrix 坐标，避免覆盖 PC 使用的 x、y
               tabComponent.mx = tx
               tabComponent.my = ty
+              // mSizeX、mSizeY 保存移动端 Matrix 尺寸，避免覆盖 PC 使用的 sizeX、sizeY
               tabComponent.mSizeX = tSizeX
               tabComponent.mSizeY = tSizeY
+              // mStyle、mEvents、mCommonBackground 仅保存移动端的外观、事件和公共背景覆盖项
               tabComponent.mStyle = tStyle
+              tabComponent.mEvents = tEvents
               tabComponent.mCommonBackground = tCommonBackground
             })
           })
@@ -168,7 +232,7 @@ const hanedleMessage = event => {
 const saveCanvasWithCheckFromMobile = () => {
   snapshotStore.resetStyleChangeTimes()
   canvasSave(() => {
-    ElMessage.success('保存成功')
+    ElMessage.success(t('visualization.save_success'))
   })
 }
 const loadCanvasData = () => {
@@ -190,7 +254,7 @@ const setMobileStyle = debounce(() => {
     transformOrigin: '0 0'
   }
 }, 100)
-const curComponentChangeHandle = info => {
+const curComponentChangeHandle = () => {
   // do change
 }
 onMounted(() => {
@@ -228,18 +292,19 @@ const addToMobile = com => {
 const changeTimes = ref(0)
 const activeCollapse = ref('com')
 const handleBack = () => {
+  dvMainStore.setCurComponent({ component: null, index: null })
   if (!changeTimes.value) {
     mobileStatusChange('mobilePatch', undefined)
     return
   }
-  ElMessageBox.confirm('当前的更改尚未保存，确定退出吗？', {
+  ElMessageBox.confirm(t('visualization.change_save_tips'), {
     confirmButtonType: 'primary',
     type: 'warning',
     autofocus: false,
     showClose: false
   }).then(() => {
     setTimeout(() => {
-      backCanvasData(dvInfo.value.id, 'dashboard', () => {
+      backCanvasData(dvInfo.value.id, canvasViewInfoMobile.value, 'dashboard', () => {
         changeTimes.value = 0
         emits('pcMode')
       })
@@ -263,7 +328,7 @@ const save = () => {
         {{ dvInfo.name }}
       </div>
       <div class="mobile-save">
-        <span class="open-mobile">开启移动端</span>
+        <span class="open-mobile">{{ t('common.openMobileTerminal') }}</span>
         <el-switch size="small" v-model="dvInfo.mobileLayout" />
         <span class="open-mobile-line"></span>
         <el-tooltip :offset="14" effect="dark" content="切换至PC端布局" placement="bottom">
@@ -290,50 +355,53 @@ const save = () => {
       <div class="config-panel-foot"></div>
     </div>
     <div class="mobile-com-list">
-      <div class="config-mobile-sidebar">移动端配置</div>
+      <div class="config-mobile-sidebar">{{ t('visualization.mobile_config') }}</div>
       <el-tabs size="small" v-model="activeCollapse">
-        <el-tab-pane label="可视化组件" name="com"> </el-tab-pane>
-        <el-tab-pane label="组件样式" name="componentStyle"> </el-tab-pane>
-        <el-tab-pane label="整体样式" name="style"> </el-tab-pane>
+        <el-tab-pane :label="t('visualization.visualization_component')" name="com"> </el-tab-pane>
+        <el-tab-pane :label="t('visualization.component_style')" name="componentStyle">
+        </el-tab-pane>
+        <el-tab-pane :label="t('visualization.whole_style')" name="style"> </el-tab-pane>
       </el-tabs>
-      <div class="config-mobile-tab" v-show="activeCollapse === 'style'">
-        <MobileBackgroundSelector @styleChange="changeTimes++"></MobileBackgroundSelector>
-      </div>
-      <div class="config-mobile-tab-style" v-show="activeCollapse === 'componentStyle'">
-        <component-style-editor
-          :canvas-view-info-mobile="canvasViewInfoMobile"
-        ></component-style-editor>
-      </div>
-      <div class="config-mobile-tab" v-show="activeCollapse === 'com'">
-        <div
-          :style="{ height: '198px', width: '198px' }"
-          class="mobile-wrapper-inner-adaptor"
-          v-for="item in componentDataNotInMobile"
-          :key="item.id"
-        >
-          <div class="component-outer">
-            <ComponentWrapper
-              v-show="item.isShow"
-              canvas-id="canvas-main"
-              :canvas-style-data="canvasStyleData"
-              :dv-info="dvInfo"
-              :canvas-view-info="canvasViewInfo"
-              :view-info="canvasViewInfo[item.id]"
-              :config="item"
-              :style="getComponentStyleDefault()"
-              show-position="preview"
-              :search-count="0"
-              :scale="80"
-            />
-          </div>
-          <div class="mobile-com-mask" @click="addToMobile(item)">
-            <span v-show="item.component === 'DeStreamMedia'" style="color: #909399"
-              >IOS可能无法显示</span
-            >
-          </div>
-          <div class="pc-select-to-mobile" @click="addToMobile(item)" v-if="!mobileLoading"></div>
+      <template v-if="!mobileLoading">
+        <div class="config-mobile-tab" v-show="activeCollapse === 'style'">
+          <MobileBackgroundSelector @styleChange="changeTimes++"></MobileBackgroundSelector>
         </div>
-      </div>
+        <div class="config-mobile-tab-style" v-show="activeCollapse === 'componentStyle'">
+          <component-style-editor
+            :canvas-view-info-mobile="canvasViewInfoMobile"
+          ></component-style-editor>
+        </div>
+        <div class="config-mobile-tab" v-if="activeCollapse === 'com'">
+          <div
+            :style="{ height: '196px', width: '196px' }"
+            class="mobile-wrapper-inner-adaptor"
+            v-for="item in componentDataNotInMobile"
+            :key="item.id"
+          >
+            <div class="component-outer">
+              <ComponentWrapper
+                v-show="item.isShow"
+                canvas-id="canvas-main"
+                :canvas-style-data="canvasStyleData"
+                :dv-info="dvInfo"
+                :canvas-view-info="canvasViewInfoMobile"
+                :view-info="canvasViewInfoMobile[item.id]"
+                :config="item"
+                class="wrapper-design"
+                show-position="preview"
+                :search-count="0"
+                :scale="65"
+              />
+            </div>
+            <div class="mobile-com-mask" @click="addToMobile(item)">
+              <span v-show="item.component === 'DeStreamMedia'" style="color: #909399">{{
+                t('visualization.mobile_ios_tips')
+              }}</span>
+            </div>
+            <div class="pc-select-to-mobile" @click="addToMobile(item)" v-if="!mobileLoading"></div>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -342,6 +410,7 @@ const save = () => {
 .mobile-config-panel {
   height: 100vh;
   width: 100vw;
+  overflow: hidden;
   position: relative;
   background: #f5f6f7;
 
@@ -364,7 +433,7 @@ const save = () => {
       .switch-pc {
         &::after {
           content: '';
-          border-radius: 4px;
+          border-radius: 6px;
           display: none;
           position: absolute;
           width: calc(100% + 10px);
@@ -527,7 +596,7 @@ const save = () => {
     }
 
     .config-mobile-tab {
-      padding: 16px 8px;
+      padding: 16px 0;
     }
     .config-mobile-tab-style {
       padding: 0;
@@ -539,12 +608,12 @@ const save = () => {
     }
     .mobile-wrapper-inner-adaptor {
       position: relative;
-      margin-right: 8px;
+      margin-left: 8px;
       margin-bottom: 8px;
       float: left;
       background: #fff;
       padding: 4px;
-      border-radius: 4px;
+      border-radius: 6px;
       border: 1px solid #dee0e3;
       &:nth-child(2n) {
         margin-right: -1px;
@@ -581,7 +650,7 @@ const save = () => {
       top: 12px;
       right: 12px;
       border: 2px solid #8f959e;
-      border-radius: 4px;
+      border-radius: 6px;
       z-index: 24;
       cursor: pointer;
       &:hover {
@@ -589,6 +658,13 @@ const save = () => {
       }
     }
   }
+}
+
+.wrapper-design {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }
 </style>
 

@@ -25,7 +25,7 @@ import {
   updateLinkageActive
 } from '@/api/visualization/linkage'
 import { includesAny } from '../util/StringUtils'
-import { ElIcon, ElMessage } from 'element-plus-secondary'
+import { ElCollapseItem, ElIcon, ElMessage } from 'element-plus-secondary'
 import { storeToRefs } from 'pinia'
 import { BASE_VIEW_CONFIG } from '../util/chart'
 import { cloneDeep, defaultsDeep } from 'lodash-es'
@@ -33,9 +33,10 @@ import BubbleAnimateCfg from '@/views/chart/components/editor/editor-senior/comp
 import { XpackComponent } from '@/components/plugin'
 import CarouselSetting from '@/custom-component/common/CarouselSetting.vue'
 import { Icon } from 'vant'
+import CommonEvent from '@/custom-component/common/CommonEvent.vue'
 const dvMainStore = dvMainStoreWithOut()
 
-const { nowPanelTrackInfo, nowPanelJumpInfo, dvInfo, componentData, curComponent } =
+const { nowPanelTrackInfo, nowPanelJumpInfo, dvInfo, curComponent, batchOptStatus } =
   storeToRefs(dvMainStore)
 
 const { t } = useI18n()
@@ -90,6 +91,10 @@ const props = defineProps({
     default: () => {
       return {}
     }
+  },
+  eventInfo: {
+    type: Object,
+    required: false
   }
 })
 
@@ -119,6 +124,14 @@ const seniorCounts = computed(() => {
   }
 })
 
+const eventsShow = computed(() => {
+  return (
+    !batchOptStatus.value &&
+    ['indicator', 'rich-text'].includes(chart.value.type) &&
+    props.eventInfo
+  )
+})
+
 const onFunctionCfgChange = val => {
   emit('onFunctionCfgChange', val)
 }
@@ -135,8 +148,8 @@ const onThresholdChange = val => {
   emit('onThresholdChange', val)
 }
 
-const onMapMappingChange = val => {
-  emit('onMapMappingChange', val)
+const onMapMappingChange = (val, useGlobalAreaMapping) => {
+  emit('onMapMappingChange', val, useGlobalAreaMapping)
 }
 
 const onBubbleAnimateChange = val => {
@@ -149,17 +162,17 @@ const showProperties = (prop: EditorProperty) => {
 
 const linkJumpSetOpen = () => {
   if (!dvInfo.value.id) {
-    ElMessage.warning('请先保存当前页面')
+    ElMessage.warning(t('visualization.save_page_tips'))
     return
   }
   //跳转设置需要先触发保存
   canvasSave(() => {
-    linkJumpRef.value.dialogInit({ id: chart.value.id })
+    linkJumpRef.value.dialogInit({ id: chart.value.id, type: chart.value.type })
   })
 }
 const linkageSetOpen = () => {
   if (!dvInfo.value.id) {
-    ElMessage.warning('请先保存当前页面')
+    ElMessage.warning(t('visualization.save_page_tips'))
     return
   }
   //跳转设置需要先触发保存
@@ -210,7 +223,7 @@ const appStore = useAppStoreWithOut()
 const isDataEaseBi = computed(() => appStore.getIsDataEaseBi)
 
 const removeLinkageSenior = () => {
-  removeLinkage({ dvId: dvInfo.value.id, sourceViewId: chart.value.id }).then(rsp => {
+  removeLinkage({ dvId: dvInfo.value.id, sourceViewId: chart.value.id }).then(() => {
     // 刷新联动信息
     getPanelAllLinkageInfo(dvInfo.value.id).then(rsp => {
       dvMainStore.setNowPanelTrackInfo(rsp.data)
@@ -219,7 +232,7 @@ const removeLinkageSenior = () => {
 }
 
 const removeJumpSenior = () => {
-  removeJumpSet({ sourceDvId: dvInfo.value.id, sourceViewId: chart.value.id }).then(rspCur => {
+  removeJumpSet({ sourceDvId: dvInfo.value.id, sourceViewId: chart.value.id }).then(() => {
     // 刷新跳转信息
     queryVisualizationJumpInfo(dvInfo.value.id).then(rsp => {
       dvMainStore.setNowPanelJumpInfo(rsp.data)
@@ -321,6 +334,7 @@ const removeJumpSenior = () => {
             :chart="chart"
             :themes="themes"
             :is-screen="dvInfo.type === 'dataV'"
+            :resource-table="'snapshot'"
             jsname="L2NvbXBvbmVudC90aHJlc2hvbGQtd2FybmluZy9TZW5pb3JIYW5kbGVy"
           />
 
@@ -328,16 +342,18 @@ const removeJumpSenior = () => {
             v-if="showProperties('linkage')"
             :themes="themes"
             name="linkage"
-            :title="'联动设置'"
+            :title="t('visualization.linkage_setting')"
             v-model="chart.linkageActive"
             @modelChange="linkageActiveChange"
           >
             <div class="inner-container">
-              <span class="label" :class="'label-' + props.themes">联动设置</span>
+              <span class="label" :class="'label-' + props.themes">{{
+                t('visualization.linkage_setting')
+              }}</span>
               <span class="right-btns">
                 <template v-if="seniorCounts.linkageCount > 0">
                   <span class="set-text-info" :class="{ 'set-text-info-dark': themes === 'dark' }">
-                    已设置
+                    {{ t('visualization.already_setting') }}
                   </span>
                   <button
                     :class="'label-' + props.themes"
@@ -377,16 +393,18 @@ const removeJumpSenior = () => {
             v-if="showProperties('jump-set') && !isDataEaseBi"
             :themes="themes"
             name="jumpSet"
-            :title="'跳转设置'"
+            :title="t('visualization.jump_set')"
             v-model="chart.jumpActive"
             @modelChange="linkJumpActiveChange"
           >
             <div class="inner-container">
-              <span class="label" :class="'label-' + props.themes">跳转设置</span>
+              <span class="label" :class="'label-' + props.themes">{{
+                t('visualization.jump_set')
+              }}</span>
               <span class="right-btns">
                 <template v-if="seniorCounts.jumpCount">
                   <span class="set-text-info" :class="{ 'set-text-info-dark': themes === 'dark' }">
-                    已设置
+                    {{ t('visualization.already_setting') }}
                   </span>
                   <button
                     :class="'label-' + props.themes"
@@ -424,7 +442,7 @@ const removeJumpSenior = () => {
           </collapse-switch-item>
           <collapse-switch-item
             :effect="themes"
-            title="气泡动效"
+            :title="t('visualization.bubble_dynamic_effect')"
             :change-model="chart.senior.bubbleCfg"
             v-if="showProperties('bubble-animate')"
             v-model="chart.senior.bubbleCfg.enable"
@@ -443,6 +461,14 @@ const removeJumpSenior = () => {
             :element="curComponent"
             :themes="themes"
           ></carousel-setting>
+          <el-collapse-item
+            :effect="themes"
+            name="events"
+            :title="t('visualization.event')"
+            v-if="eventsShow"
+          >
+            <common-event :themes="themes" :events-info="eventInfo"></common-event>
+          </el-collapse-item>
         </el-collapse>
       </el-row>
     </div>
@@ -499,6 +525,9 @@ span {
   :deep(.ed-form-item__label) {
     justify-content: flex-start;
   }
+  :deep(.style-collapse) {
+    border-bottom: none;
+  }
 }
 
 .label-dark {
@@ -518,7 +547,7 @@ span {
 
   .label {
     cursor: default;
-    color: #646a73;
+    color: @canvas-main-font-color;
     font-size: 12px;
     font-style: normal;
     font-weight: 400;
@@ -548,6 +577,14 @@ span {
       color: #a6a6a6;
       background: rgba(235, 235, 235, 0.1);
     }
+  }
+}
+</style>
+
+<style>
+.senior-dark {
+  .label-dark {
+    color: #ebebeb !important;
   }
 }
 </style>

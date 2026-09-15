@@ -2,7 +2,9 @@
 import { storeToRefs } from 'pinia'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { ref } from 'vue'
-import { personInfoApi } from '@/api/user'
+import { ipInfoApi } from '@/api/user'
+import { isISOMobile } from '@/utils/utils'
+
 const dvMainStore = dvMainStoreWithOut()
 
 const { dvInfo } = storeToRefs(dvMainStore)
@@ -44,7 +46,6 @@ export function watermark(settings, domId) {
   // 获取页面最大高度
   let page_height = watermarkDom.scrollHeight - 56
   page_height = page_height < 220 ? 220 : page_height
-  // page_height = Math.max(page_height, window.innerHeight - 30)
   // 如果将水印列数设置为0，或水印列数设置过大，超过页面最大宽度，则重新计算水印列数和水印x轴间隔
   if (
     defaultSettings.watermark_cols === 0 ||
@@ -65,15 +66,10 @@ export function watermark(settings, domId) {
         (defaultSettings.watermark_cols - 1)
     )
   }
-  // 如果将水印行数设置为0，或水印行数设置过大，超过页面最大长度，则重新计算水印行数和水印y轴间隔
-  if (
-    defaultSettings.watermark_rows === 0 ||
-    Math.floor(
-      defaultSettings.watermark_y +
-        defaultSettings.watermark_height * defaultSettings.watermark_rows +
-        defaultSettings.watermark_y_space * (defaultSettings.watermark_rows - 1)
-    ) > page_height
-  ) {
+  // 始终根据页面实际高度重新计算水印行数和y轴间隔。
+  // 默认 watermark_rows(60) 只是占位上限,页面很高时(超过默认行数覆盖范围)
+  // 若仅在超出时才收缩行数,则底部会因行数不足而缺失水印,因此这里无条件按页面高度铺满计算。
+  {
     defaultSettings.watermark_rows = Math.floor(
       (defaultSettings.watermark_y_space + page_height - defaultSettings.watermark_y) /
         (defaultSettings.watermark_height + defaultSettings.watermark_y_space)
@@ -163,7 +159,7 @@ export function activeWatermarkCheckUser(domId, canvasId, scale = 1) {
         scale
       )
     } else {
-      personInfoApi().then(res => {
+      ipInfoApi().then(res => {
         userInfo.value = res.data
         if (userInfo.value && userInfo.value.model !== 'lose') {
           activeWatermark(
@@ -214,26 +210,24 @@ export function activeWatermark(
     watermark_txt = watermark_txt.replaceAll('${username}', userLoginInfo.account)
     watermark_txt = watermark_txt.replaceAll('${nickName}', userLoginInfo.name)
     watermark_txt = watermark_txt.replaceAll('${time}', getNow())
-    watermark_width = watermark_txt.length * watermarkForm.watermark_fontsize * 0.75
-    watermark_width = watermark_width > 350 ? 350 : watermark_width
   } else if (watermarkForm.type === 'nickName') {
     watermark_txt = userLoginInfo.name
   } else if (watermarkForm.type === 'ip') {
     watermark_txt = userLoginInfo.ip
-    watermark_width = 150
   } else if (watermarkForm.type === 'time') {
     watermark_txt = getNow()
-    watermark_width = 200
   } else {
     watermark_txt = userLoginInfo.account
   }
+  watermark_width = watermark_txt.length * watermarkForm.watermark_fontsize * 0.75
+  watermark_width = watermark_width > 350 ? 350 : watermark_width
   const settings = {
     watermark_txt: watermark_txt,
     watermark_width: watermark_width * scale,
     watermark_color: watermarkForm.watermark_color,
     watermark_x_space: watermarkForm.watermark_x_space * scale,
     watermark_y_space: watermarkForm.watermark_y_space * scale,
-    watermark_fontsize: watermarkForm.watermark_fontsize * scale + 'px'
+    watermark_fontsize: watermarkForm.watermark_fontsize * scale * (isISOMobile() ? 2.5 : 1) + 'px'
   }
   watermark(settings, domId)
 }

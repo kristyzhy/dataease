@@ -1,8 +1,8 @@
 <template>
   <el-drawer
-    :title="'应用导出'"
+    :title="t('visualization.app_export')"
     v-model="state.applyDownloadDrawer"
-    custom-class="de-user-drawer"
+    modal-class="de-user-drawer"
     size="600px"
     direction="rtl"
   >
@@ -15,21 +15,25 @@
         label-width="180px"
         label-position="top"
       >
-        <el-form-item :label="'应用名称'" prop="appName">
-          <el-input v-model="state.form.appName" autocomplete="off" :placeholder="'请输入名称'" />
+        <el-form-item :label="t('visualization.app_name')" prop="appName">
+          <el-input
+            v-model="state.form.appName"
+            autocomplete="off"
+            :placeholder="t('common.input_name')"
+          />
         </el-form-item>
-        <el-form-item :label="'应用版本号'" prop="version">
+        <el-form-item :label="t('visualization.app_version')" prop="version">
           <el-input v-model="state.form.version" autocomplete="off" />
         </el-form-item>
-        <el-form-item :label="'DataEase最低版本号'" prop="required">
+        <el-form-item :label="t('visualization.app_export')" prop="required">
           <el-input v-model="state.form.required" autocomplete="off" />
         </el-form-item>
-        <el-form-item :label="'作者'" prop="creator">
+        <el-form-item :label="t('visualization.creator')" prop="creator">
           <el-input v-model="state.form.creator" autocomplete="off" />
         </el-form-item>
-        <el-form-item :label="'描述'" prop="description">
+        <el-form-item :label="t('visualization.description')" prop="description">
           <el-input
-            :placeholder="'请输入内容'"
+            :placeholder="t('commons.input_content')"
             show-word-limit
             v-model="state.form.description"
             type="textarea"
@@ -39,8 +43,8 @@
     </div>
     <template #footer>
       <div class="apply" style="width: 100%">
-        <el-button secondary @click="close">{{ $t('commons.cancel') }} </el-button>
-        <el-button type="primary" @click="downloadApp">导出</el-button>
+        <el-button secondary @click="close">{{ t('commons.cancel') }} </el-button>
+        <el-button type="primary" @click="downloadApp">{{ t('chart.export') }}</el-button>
       </div>
     </template>
   </el-drawer>
@@ -51,11 +55,9 @@ import { ElButton, ElDrawer, ElForm, ElFormItem, ElInput } from 'element-plus-se
 import { reactive, ref, toRefs } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import { export2AppCheck } from '@/api/visualization/dataVisualization'
-import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 const { t } = useI18n()
 const emits = defineEmits(['closeDraw', 'downLoadApp'])
 const applyDownloadForm = ref(null)
-const dvMainStore = dvMainStoreWithOut()
 
 const props = defineProps({
   componentData: {
@@ -134,43 +136,34 @@ const close = () => {
   state.applyDownloadDrawer = false
 }
 
-const gatherAppInfo = (viewIds, dsIds) => {
-  componentData.value.forEach(item => {
-    if (item.component === 'UserView' && canvasViewInfo.value[item.id]) {
+const gatherAppInfo = (viewIds, dsIds, componentDataCheck) => {
+  componentDataCheck.forEach(item => {
+    if (item.component === 'VQuery' && item.propValue?.length) {
+      item.propValue.forEach(filterItem => {
+        if (filterItem.dataset?.id) {
+          dsIds.push(filterItem.dataset.id)
+        }
+      })
+    } else if (item.component === 'UserView' && canvasViewInfo.value[item.id]) {
       const viewDetails = canvasViewInfo.value[item.id]
       const { id, tableId } = viewDetails
       viewIds.push(id)
       dsIds.push(tableId)
     } else if (item.component === 'Group') {
-      item.propValue.forEach(groupItem => {
-        if (groupItem.component === 'UserView') {
-          const viewDetails = canvasViewInfo.value[groupItem.id]
-          const { id, tableId } = viewDetails
-          viewIds.push(id)
-          dsIds.push(tableId)
-        }
-      })
+      gatherAppInfo(viewIds, dsIds, item.propValue)
     } else if (item.component === 'DeTabs') {
       item.propValue.forEach(tabItem => {
-        tabItem.componentData.forEach(tabComponent => {
-          if (tabComponent.component === 'UserView') {
-            const viewDetails = canvasViewInfo.value[tabComponent.id]
-            const { id, tableId } = viewDetails
-            viewIds.push(id)
-            dsIds.push(tableId)
-          }
-        })
+        gatherAppInfo(viewIds, dsIds, tabItem.componentData)
       })
     }
   })
 }
-
 const downloadApp = () => {
   applyDownloadForm.value?.validate(valid => {
     if (valid) {
       const viewIds = []
       const dsIds = []
-      gatherAppInfo(viewIds, dsIds)
+      gatherAppInfo(viewIds, dsIds, componentData.value)
       export2AppCheck({ dvId: dvInfo.value.id, viewIds, dsIds }).then(rsp => {
         const params = {
           ...rsp.data,

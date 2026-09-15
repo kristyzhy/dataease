@@ -3,6 +3,7 @@ package io.dataease.result;
 import io.dataease.i18n.I18n;
 import io.dataease.i18n.Translator;
 import io.dataease.utils.JsonUtil;
+import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageConverter;
@@ -29,8 +30,11 @@ public class ResultResponseBodyAdvice implements ResponseBodyAdvice<Object> {
         }
         //if true, need to translate
         if (methodParameter.hasMethodAnnotation(I18n.class)) {
-            I18n i18n = methodParameter.getMethodAnnotation(I18n.class);
-            o = translate(o, i18n.value());
+            o = translate(o);
+        }
+
+        if (ObjectUtils.isNotEmpty(mediaType) && MediaType.APPLICATION_XML_VALUE.equals(mediaType.toString())) {
+            return o;
         }
 
         if (!(o instanceof ResultMessage)) {
@@ -43,11 +47,8 @@ public class ResultResponseBodyAdvice implements ResponseBodyAdvice<Object> {
         return o;
     }
 
-
     // i18n
-    private Object translate(Object obj, String type) {
+    private Object translate(Object obj) {
         return Translator.translateObject(obj);
     }
-
-
 }

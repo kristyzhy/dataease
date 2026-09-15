@@ -11,7 +11,7 @@ CREATE TABLE `visualization_watermark`
 
 INSERT INTO `visualization_watermark` (`id`, `version`, `setting_content`, `create_by`, `create_time`)
 VALUES ('system_default', '1.0',
-        '{\"enable\":false,\"enablePanelCustom\":true,\"type\":\"custom\",\"content\":\"水印\",\"watermark_color\":\"#DD1010\",\"watermark_x_space\":12,\"watermark_y_space\":36,\"watermark_fontsize\":15}',
+        '{"enable":false,"enablePanelCustom":true,"type":"custom","content":"水印","watermark_color":"#DD1010","watermark_x_space":12,"watermark_y_space":36,"watermark_fontsize":15}',
         'admin', NULL);
 
 

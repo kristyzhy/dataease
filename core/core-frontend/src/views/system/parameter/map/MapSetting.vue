@@ -9,7 +9,7 @@
           :class="{ active: activeIndex === item.id }"
           @click="selectHandler(index)"
         >
-          <span>{{ t(item.name) }}</span>
+          <span :title="t(item.name)">{{ t(item.name) }}</span>
         </div>
       </div>
     </el-aside>
@@ -58,12 +58,19 @@ const selectHandler = (index: number) => {
         height: 40px;
         padding: 9px 8px;
         line-height: 22px;
-        border-radius: 4px;
+        border-radius: 6px;
         font-size: 14px;
         font-weight: 400;
         cursor: pointer;
         &:hover {
           background: #1f232926;
+        }
+        span {
+          display: block;
+          width: 150px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
       }
       .active {

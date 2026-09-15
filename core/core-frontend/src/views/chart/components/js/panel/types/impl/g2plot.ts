@@ -10,7 +10,11 @@ import {
   getTheme,
   getTooltip,
   getXAxis,
-  getYAxis
+  getYAxis,
+  getConditions,
+  handleConditionsStyle,
+  addConditionsStyleColorToData,
+  configEmptyDataStyle
 } from '@/views/chart/components/js/panel/common/common_antv'
 import {
   AntVAbstractChartView,
@@ -22,6 +26,7 @@ import {
 import {
   getColor,
   getGroupColor,
+  parseJson,
   getSingleDimensionColor,
   getStackColor,
   handleEmptyDataStrategy,
@@ -89,7 +94,31 @@ export abstract class G2PlotChartView<
 
   protected configTheme(chart: Chart, options: O): O {
     const theme = getTheme(chart)
-    return { ...options, theme }
+    // 根据主题深色浅色配置图表选中状态样式
+    let state = {}
+    if (chart.customAttr) {
+      const customAttr = parseJson(chart.customAttr)
+      const basicStyle = customAttr.basicStyle
+      const stockStrokeColor = basicStyle.themeContrastColor ?? customAttr.label?.color ?? '#000000'
+      const selectedStyle = {
+        stroke: stockStrokeColor
+      }
+      state = {
+        selected: {
+          style: selectedStyle
+        },
+        active: {
+          style: selectedStyle
+        },
+        inactive: {
+          style: {
+            fillOpacity: 0.3,
+            strokeOpacity: 0.3
+          }
+        }
+      }
+    }
+    return { ...options, theme, state }
   }
 
   protected configLabel(chart: Chart, options: O): O {
@@ -135,7 +164,7 @@ export abstract class G2PlotChartView<
   }
 
   protected configAnalyseHorizontal(chart: Chart, options: O): O {
-    const annotations = getAnalyseHorizontal(chart)
+    const annotations = [...(options.annotations ?? []), ...getAnalyseHorizontal(chart)]
     return { ...options, annotations }
   }
 
@@ -166,9 +195,36 @@ export abstract class G2PlotChartView<
   public setupSeriesColor(chart: ChartObj, data?: any[]): ChartBasicStyle['seriesColor'] {
     return setupSeriesColor(chart, data)
   }
-
+  // eslint-disable-next-line
   public setupSubSeriesColor(chart: ChartObj, data?: any[]): ChartBasicStyle['seriesColor'] {
     return undefined
+  }
+
+  protected configConditions(chart: Chart, options: O) {
+    const annotations = getConditions(chart)
+    const { threshold, functionCfg } = parseJson(chart.senior)
+    const disabledAnimation =
+      threshold?.enable &&
+      functionCfg?.sliderShow &&
+      annotations.some(annotation => annotation.type === 'regionFilter')
+    return {
+      ...options,
+      // 缩略轴过滤后 regionFilter 需跟随当前渲染周期立即重建
+      ...(disabledAnimation ? { animation: false } : {}),
+      annotations: [...annotations, ...((options as unknown as Options).annotations || [])]
+    }
+  }
+
+  protected configBarConditions(chart: Chart, options: O) {
+    return handleConditionsStyle(chart, options)
+  }
+
+  protected addConditionsStyleColorToData(chart: Chart, data: any[]) {
+    return addConditionsStyleColorToData(chart, data)
+  }
+
+  protected configEmptyDataStyle(newData, container, newChart?, content?) {
+    configEmptyDataStyle(newData, container, newChart, content)
   }
 
   /**

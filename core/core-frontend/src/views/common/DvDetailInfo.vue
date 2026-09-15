@@ -1,6 +1,14 @@
 <template>
   <div class="info-card">
-    <div class="info-title">{{ `${dvInfo.type === 'dashboard' ? '仪表板' : '数据大屏'}ID` }}</div>
+    <div class="info-title">
+      {{
+        `${
+          dvInfo.type === 'dashboard'
+            ? t('work_branch.dashboard')
+            : t('work_branch.big_data_screen')
+        }ID`
+      }}
+    </div>
     <div class="info-content">{{ dvInfo.id }}</div>
     <div v-if="dvInfo.creatorName" class="info-title">{{ t('visualization.create_by') }}</div>
     <div v-if="dvInfo.creatorName" class="info-content">{{ dvInfo.creatorName }}</div>

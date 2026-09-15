@@ -1,6 +1,7 @@
 <script lang="tsx" setup>
 import { PropType, reactive, watch } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
+import { BubbleCfg } from '@/models/chart/chart-senior'
 
 const { t } = useI18n()
 
@@ -38,26 +39,18 @@ const onBubbleAnimateChange = () => {
 }
 
 const changeSpeedSize = v => {
-  const _v = parseInt(v)
-  if (_v >= 0 && _v <= 5) {
-    state.bubbleAnimateForm.speed = _v
-  } else if (_v < 0) {
-    state.bubbleAnimateForm.speed = 0
-  } else if (_v > 5) {
-    state.bubbleAnimateForm.speed = 5
-  }
+  let _v = parseFloat(v)
+  if (isNaN(_v) || _v < 0.1) _v = 0.1
+  if (_v > 5) _v = 5
+  state.bubbleAnimateForm.speed = _v
   onBubbleAnimateChange()
 }
 
 const changeRingsSize = v => {
-  const _v = parseInt(v)
-  if (_v >= 0 && _v <= 5) {
-    state.bubbleAnimateForm.rings = _v
-  } else if (_v < 0) {
-    state.bubbleAnimateForm.rings = 0
-  } else if (_v > 5) {
-    state.bubbleAnimateForm.rings = 5
-  }
+  let _v = parseFloat(v)
+  if (isNaN(_v) || _v < 0.1) _v = 0.1
+  if (_v > 5) _v = 5
+  state.bubbleAnimateForm.rings = _v
   onBubbleAnimateChange()
 }
 
@@ -93,7 +86,7 @@ init()
           style="line-height: 20px"
           :class="{ dark: 'dark' === themes }"
         >
-          动效类型
+          {{ t('chart.animation_type') }}
         </label>
         <el-row style="flex: 1" :gutter="8">
           <el-col :span="13">
@@ -105,7 +98,7 @@ init()
                 v-model="state.bubbleAnimateForm.type"
                 @change="onBubbleAnimateChange()"
               >
-                <el-radio :effect="themes" label="wave"> 水波 </el-radio>
+                <el-radio :effect="themes" label="wave"> {{ t('chart.water_wave') }} </el-radio>
               </el-radio-group>
             </el-form-item>
           </el-col>
@@ -113,13 +106,15 @@ init()
       </div>
 
       <div class="bubble-animate-setting">
-        <label class="bubble-animate-label" :class="{ dark: 'dark' === themes }"> 动效速率 </label>
+        <label class="bubble-animate-label" :class="{ dark: 'dark' === themes }">
+          {{ t('chart.animation_speed') }}
+        </label>
         <el-row style="flex: 1" :gutter="8">
           <el-col :span="13">
             <el-form-item class="form-item bubble-animate-slider" :class="'form-item-' + themes">
               <el-slider
                 :effect="themes"
-                :min="1"
+                :min="0.1"
                 :max="5"
                 v-model="state.bubbleAnimateForm.speed"
                 @change="onBubbleAnimateChange()"
@@ -132,7 +127,7 @@ init()
                 type="number"
                 :effect="themes"
                 v-model="state.bubbleAnimateForm.speed"
-                :min="1"
+                :min="0.1"
                 :max="5"
                 class="basic-input-number"
                 :controls="false"
@@ -144,13 +139,15 @@ init()
         </el-row>
       </div>
       <div class="bubble-animate-setting">
-        <label class="bubble-animate-label" :class="{ dark: 'dark' === themes }"> 水波环数 </label>
+        <label class="bubble-animate-label" :class="{ dark: 'dark' === themes }">
+          {{ t('chart.wave_rings') }}
+        </label>
         <el-row style="flex: 1" :gutter="8">
           <el-col :span="13">
             <el-form-item class="form-item bubble-animate-slider" :class="'form-item-' + themes">
               <el-slider
                 :effect="themes"
-                :min="1"
+                :min="0.1"
                 :max="5"
                 v-model="state.bubbleAnimateForm.rings"
                 @change="onBubbleAnimateChange()"
@@ -163,7 +160,7 @@ init()
                 type="number"
                 :effect="themes"
                 v-model="state.bubbleAnimateForm.rings"
-                :min="1"
+                :min="0.1"
                 :max="5"
                 class="basic-input-number"
                 :controls="false"
@@ -215,7 +212,7 @@ init()
     min-width: 56px;
 
     &.dark {
-      color: #a6a6a6;
+      color: #ebebeb;
     }
   }
 }

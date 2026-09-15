@@ -1,8 +1,8 @@
 package io.dataease.engine.trans;
 
-import io.dataease.engine.constant.DeTypeConstants;
+import io.dataease.constant.DeTypeConstants;
 import io.dataease.engine.constant.ExtFieldConstant;
-import io.dataease.engine.constant.SQLConstants;
+import io.dataease.constant.SQLConstants;
 import io.dataease.engine.utils.Utils;
 import io.dataease.extensions.datasource.api.PluginManageApi;
 import io.dataease.extensions.datasource.constant.SqlPlaceholderConstants;
@@ -46,7 +46,7 @@ public class Dimension2SQLObj {
                 String originField;
                 if (ObjectUtils.isNotEmpty(x.getExtField()) && Objects.equals(x.getExtField(), ExtFieldConstant.EXT_CALC)) {
                     // 解析origin name中有关联的字段生成sql表达式
-                    String calcFieldExp = Utils.calcFieldRegex(x.getOriginName(), tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
+                    String calcFieldExp = Utils.calcFieldRegex(x, tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
                     // 给计算字段处加一个占位符，后续SQL方言转换后再替换
                     originField = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, x.getId());
                     fieldsDialect.put(originField, calcFieldExp);
@@ -58,6 +58,14 @@ public class Dimension2SQLObj {
                         originField = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), x.getOriginName());
                     } else {
                         originField = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), x.getDataeaseName());
+                    }
+                } else if (ObjectUtils.isNotEmpty(x.getExtField()) && Objects.equals(x.getExtField(), ExtFieldConstant.EXT_GROUP)) {
+                    String groupFieldExp = Utils.transGroupFieldToSql(x, originFields, isCross, dsMap, pluginManage);
+                    // 给计算字段处加一个占位符，后续SQL方言转换后再替换
+                    originField = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, x.getId());
+                    fieldsDialect.put(originField, groupFieldExp);
+                    if (isCross) {
+                        originField = groupFieldExp;
                     }
                 } else {
                     if (StringUtils.equalsIgnoreCase(dsType, "es")) {
@@ -76,6 +84,7 @@ public class Dimension2SQLObj {
                             .orderField(originField)
                             .orderAlias(fieldAlias)
                             .orderDirection(x.getSort())
+                            .id(x.getId())
                             .build());
                 }
             }
@@ -90,7 +99,7 @@ public class Dimension2SQLObj {
         if (Objects.equals(x.getDeExtractType(), DeTypeConstants.DE_TIME)) {
             if (Objects.equals(x.getDeType(), DeTypeConstants.DE_INT) || Objects.equals(x.getDeType(), DeTypeConstants.DE_FLOAT)) {
                 fieldName = String.format(SQLConstants.UNIX_TIMESTAMP, originField);
-            } else if (Objects.equals(x.getDeType(), DeTypeConstants.DE_TIME)) {
+            } else if (Objects.equals(x.getDeType(), DeTypeConstants.DE_TIME) && !StringUtils.equalsIgnoreCase(x.getType(), "year")) {
                 // 如果都是时间类型，把date和time类型进行字符串拼接
                 if (isCross) {
                     if (StringUtils.equalsIgnoreCase(x.getType(), "date")) {
@@ -121,7 +130,7 @@ public class Dimension2SQLObj {
                                 String.format(SQLConstants.DE_DATE_FORMAT, String.format(SQLConstants.DE_STR_TO_DATE, originField, SQLConstants.DEFAULT_DATE_FORMAT), "yyyy"),
                                 String.format(SQLConstants.QUARTER, String.format(SQLConstants.DE_STR_TO_DATE, originField, SQLConstants.DEFAULT_DATE_FORMAT)));
                     } else {
-                        String s = String.format(SQLConstants.DE_STR_TO_DATE, originField, StringUtils.isEmpty(x.getDateFormat()) ? SQLConstants.DEFAULT_DATE_FORMAT : x.getDateFormat());
+                        String s = String.format(SQLConstants.DE_STR_TO_DATE, originField, StringUtils.isEmpty(x.getDateFormat()) ? SQLConstants.DEFAULT_DATE_FORMAT : (Utils.isValidDateFormat(x.getDateFormat()) ? Utils.transValue(x.getDateFormat()) : SQLConstants.DEFAULT_DATE_FORMAT));
                         fieldName = String.format(SQLConstants.DE_CAST_DATE_FORMAT, s, SQLConstants.DEFAULT_DATE_FORMAT, format);
                     }
                 } else if (Objects.equals(x.getDeExtractType(), DeTypeConstants.DE_INT) || Objects.equals(x.getDeExtractType(), DeTypeConstants.DE_FLOAT) || Objects.equals(x.getDeExtractType(), DeTypeConstants.DE_BOOL)) {
@@ -154,5 +163,4 @@ public class Dimension2SQLObj {
                 .fieldAlias(fieldAlias)
                 .build();
     }
-
 }

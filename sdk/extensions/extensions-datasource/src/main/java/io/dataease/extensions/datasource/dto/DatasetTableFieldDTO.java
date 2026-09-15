@@ -124,9 +124,21 @@ public class DatasetTableFieldDTO implements Serializable {
     private String fieldShortName;
 
     /**
+     * 分组设置
+     */
+    private List<FieldGroupDTO> groupList;
+
+    /**
+     * 未分组的值
+     */
+    private String otherGroup;
+
+    /**
      * 是否脱敏
      */
     private Boolean desensitized;
+
+    private Boolean orderChecked;
 
     /**
      * 计算字段参数

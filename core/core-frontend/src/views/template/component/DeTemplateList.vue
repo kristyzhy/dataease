@@ -3,12 +3,12 @@
     <el-empty
       v-if="!templateListComputed.length && state.templateFilterText === ''"
       :image="NoneImage"
-      :description="'当前无分类'"
+      :description="t('template_manage.no_catalog')"
     />
     <el-empty
       v-if="!templateListComputed.length && state.templateFilterText !== ''"
       :image="NothingImage"
-      :description="'没有找到相关内容'"
+      :description="t('template_manage.relevant_content_found')"
     />
     <ul>
       <li
@@ -19,17 +19,17 @@
       >
         <span class="text-template-overflow" :title="ele.name">{{ ele.name }}</span>
         <span class="more" @click.stop>
-          <el-dropdown trigger="click" size="small" @command="type => clickMore(type, ele)">
+          <el-dropdown trigger="click" @command="type => clickMore(type, ele)">
             <el-icon class="el-icon-more"><MoreFilled /></el-icon>
             <template #dropdown>
               <el-dropdown-menu class="de-template-dropdown">
                 <el-dropdown-item command="edit">
-                  <el-icon><EditPen /></el-icon>
-                  {{ t('visualization.rename') }}
+                  <el-icon class="opt-icon"><EditPen /></el-icon>
+                  <span class="opt-name">{{ t('visualization.rename') }}</span>
                 </el-dropdown-item>
                 <el-dropdown-item command="delete">
-                  <el-icon><Delete /></el-icon>
-                  {{ t('visualization.delete') }}
+                  <el-icon class="opt-icon"><Delete /></el-icon>
+                  <span class="opt-name">{{ t('visualization.delete') }}</span>
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -99,8 +99,8 @@ const nodeClick = ({ id, name }) => {
 }
 
 const categoryDelete = template => {
-  ElMessageBox.confirm('确定删除该分类吗？', {
-    tip: '删除后不可恢复，是否继续？',
+  ElMessageBox.confirm(t('template_manage.delete_catalog_hint'), {
+    tip: t('template_manage.delete_catalog_tip'),
     confirmButtonType: 'danger',
     confirmButtonText: t('common.delete'),
     type: 'warning',
@@ -142,7 +142,7 @@ defineExpose({
     padding: 0 30px 0 12px;
     display: flex;
     align-items: center;
-    border-radius: 4px;
+    border-radius: 6px;
     color: var(--deTextPrimary, #1f2329);
     font-family: var(--de-custom_font, 'PingFang');
     font-style: normal;
@@ -186,12 +186,12 @@ defineExpose({
 
       .el-icon-more:hover {
         background: rgba(31, 35, 41, 0.1);
-        border-radius: 4px;
+        border-radius: 6px;
       }
 
       .el-icon-more:active {
         background: rgba(31, 35, 41, 0.2);
-        border-radius: 4px;
+        border-radius: 6px;
       }
     }
 
@@ -234,5 +234,17 @@ defineExpose({
   background: rgba(31, 35, 41, 0.15);
   border: 0;
   height: 1px;
+}
+
+.opt-icon {
+  font-size: 16px;
+  color: rgba(100, 106, 115, 1);
+}
+.opt-name {
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 22px;
+  margin-left: 3px;
+  color: rgba(31, 35, 41, 1);
 }
 </style>

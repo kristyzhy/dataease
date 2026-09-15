@@ -8,6 +8,7 @@ public class CacheConstant {
         public static final String USER_ROLES_CACHE = "de_v2_user_roles";
         public static final String USER_BUSI_PERS_CACHE = "de_v2_user_busi_pers";
         public static final String USER_BUSI_PERS_INTERACTIVE_CACHE = "de_v2_user_busi_pers_interactive";
+        public static final String USER_COMMUNITY_LANGUAGE = "de_v2_user_community_language";
     }
 
     public static class RoleCacheConstant {
@@ -19,14 +20,18 @@ public class CacheConstant {
     public static class OrgCacheConstant {
         public static final String ORG_GLOBAL_RESOURCE_CACHE = "de_v2_org_global_resource";
         public static final String ALL_OID_FLAG_RESOURCE_CACHE = "de_v2_all_oid_flag_resource";
-
+        public static final String BUSI_RESOURCE_EXIST_CACHE = "de_v2_busi_resource_exist";
 
     }
 
     public static class CommonCacheConstant {
         public static final String WORLD_MAP_CACHE = "de_v2_world_map";
+        public static final String CUSTOM_GEO_CACHE = "de_v2_custom_geo";
         public static final String RSA_CACHE = "de_v2_rsa";
         public static final String PER_MENU_ID_CACHE = "de_v2_per_menu_id";
+        public static final String GLOBAL_MFA_CACHE = "de_v2_global_mfa";
+        public static final String GLOBAL_HMAC_CACHE = "de_v2_global_hmac";
+        public static final String MFA_BIND_KEY_CACHE = "de_v2_mfa_bind_key";
     }
 
     public static class LicenseCacheConstant {
@@ -34,5 +39,10 @@ public class CacheConstant {
         public static final String LIC_RESULT_CACHE = "de_v2_lic_cache_result";
 
         public static final String cacheKey = "de_v2_lic_key";
+    }
+
+    public static class DatasetCacheConstant {
+        public static final String DATASET_TABLE_CACHE = "de_v2_dataset_table";
+        public static final String DATASET_FIELD_CACHE = "de_v2_dataset_field";
     }
 }

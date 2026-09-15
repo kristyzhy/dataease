@@ -12,6 +12,7 @@ interface AppState {
   pid: string
   chartId: string
   resourceId: string
+  dfId: string
   opt: string
   createType: string
   templateParams: string
@@ -38,6 +39,7 @@ export const userStore = defineStore('embedded', {
       pid: '',
       chartId: '',
       resourceId: '',
+      dfId: '',
       opt: '',
       createType: '',
       templateParams: '',
@@ -94,6 +96,9 @@ export const userStore = defineStore('embedded', {
     getResourceId(): string {
       return this.resourceId
     },
+    getDfId(): string {
+      return this.dfId
+    },
     getOpt(): string {
       return this.opt
     },
@@ -110,7 +115,8 @@ export const userStore = defineStore('embedded', {
         dvId: this.dvId,
         chartId: this.chartId,
         pid: this.pid,
-        resourceId: this.resourceId
+        resourceId: this.resourceId,
+        dfId: this.dfId
       }
     }
   },
@@ -172,6 +178,9 @@ export const userStore = defineStore('embedded', {
     setResourceId(resourceId: string) {
       this.resourceId = resourceId
     },
+    setDfId(dfId: string) {
+      this.dfId = dfId
+    },
     setOpt(opt: string) {
       this.opt = opt
     },
@@ -185,6 +194,7 @@ export const userStore = defineStore('embedded', {
       this.chartId = data['chartId']
       this.pid = data['pid']
       this.resourceId = data['resourceId']
+      this.dfId = data['dfId']
     },
     async setTokenInfo(tokenInfo: Map<string, object>) {
       this.tokenInfo = tokenInfo
@@ -195,6 +205,7 @@ export const userStore = defineStore('embedded', {
       this.setCreateType('')
       this.setTemplateParams('')
       this.setResourceId('')
+      this.setDfId('')
       this.setDvId('')
       this.setJumpInfoParam('')
       this.setOuterUrl('')

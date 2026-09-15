@@ -2,16 +2,23 @@
 import icon_edit_outlined from '@/assets/svg/icon_edit_outlined.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
 import eventBus from '@/utils/eventBus'
+import colorFunctions from 'less/lib/less/functions/color.js'
+import colorTree from 'less/lib/less/tree/color.js'
+import { isISOMobile, isMobile } from '@/utils/utils'
+import { cloneDeep } from 'lodash-es'
 import { ElMessage } from 'element-plus-secondary'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import QueryConditionConfiguration from './QueryConditionConfiguration.vue'
 import type { ComponentInfo } from '@/api/chart'
+import { getDynamicRange, getCustomTime } from '@/custom-component/v-query/time-format'
+import { getCustomRange } from '@/custom-component/v-query/time-format-dayjs'
 import { infoFormat } from './options'
 import {
   onBeforeUnmount,
   reactive,
   ref,
   toRefs,
+  unref,
   watch,
   computed,
   onMounted,
@@ -27,6 +34,7 @@ import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { comInfo } from './com-info'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import StyleInject from './StyleInject.vue'
+import { getKeyList, reRenderAll } from '@/custom-component/v-query/QueryUtils'
 const props = defineProps({
   view: {
     type: Object,
@@ -60,7 +68,8 @@ const { element, view, scale } = toRefs(props)
 const { t } = useI18n()
 const vQueryRef = ref()
 const dvMainStore = dvMainStoreWithOut()
-const { curComponent, canvasViewInfo, mobileInPc, firstLoadMap } = storeToRefs(dvMainStore)
+const { curComponent, canvasViewInfo, mobileInPc, firstLoadMap, editMode } =
+  storeToRefs(dvMainStore)
 const canEdit = ref(false)
 const queryConfig = ref()
 const defaultStyle = {
@@ -75,8 +84,6 @@ const defaultStyle = {
   titleShow: false,
   titleColor: '',
   textColorShow: false,
-  bgColorShow: false,
-  borderShow: false,
   labelShow: true,
   title: '',
   labelColor: '#1f2329',
@@ -89,16 +96,33 @@ const defaultStyle = {
   queryConditionWidth: 227,
   nameboxSpacing: 8,
   queryConditionSpacing: 16,
+  queryConditionHeight: 32,
   btnColor: '#3370ff',
   labelColorBtn: '#ffffff'
 }
 const customStyle = reactive({ ...defaultStyle })
 const snapshotStore = snapshotStoreWithOut()
+let instanceElMessage = null
+let closeTime = null
 
+const closeElMessage = requiredName => {
+  if (instanceElMessage) {
+    instanceElMessage.close()
+  }
+  instanceElMessage = ElMessage({
+    message: `【${requiredName}】${t('v_query.before_querying')}`,
+    type: 'error'
+  })
+
+  if (closeTime) {
+    clearTimeout(closeTime)
+  }
+  closeTime = setTimeout(() => {
+    instanceElMessage.close()
+  }, 2000)
+}
 const btnStyle = computed(() => {
   const style = {
-    backgroundColor: customStyle.btnColor,
-    borderColor: customStyle.btnColor,
     color: customStyle.labelColorBtn
   } as CSSProperties
   if (customStyle.fontSizeBtn) {
@@ -114,6 +138,76 @@ const btnStyle = computed(() => {
   }
 
   return style
+})
+
+function rgbaTo16color(color) {
+  let val = color
+    .replace(/rgba?\(/, '')
+    .replace(/\)/, '')
+    .replace(/[\s+]/g, '')
+    .split(',')
+  let a = parseFloat(val[3] || 1),
+    r = Math.floor(a * parseInt(val[0]) + (1 - a) * 255),
+    g = Math.floor(a * parseInt(val[1]) + (1 - a) * 255),
+    b = Math.floor(a * parseInt(val[2]) + (1 - a) * 255)
+  return (
+    '#' +
+    ('0' + r.toString(16)).slice(-2) +
+    ('0' + g.toString(16)).slice(-2) +
+    ('0' + b.toString(16)).slice(-2)
+  )
+}
+
+const btnHoverStyle = computed(() => {
+  let btnColor = customStyle.btnColor
+  if (customStyle.btnColor.startsWith('rgb')) {
+    btnColor = rgbaTo16color(customStyle.btnColor)
+  }
+
+  if (btnColor.startsWith('#')) {
+    btnColor = btnColor.substr(1)
+  }
+
+  return {
+    rawColor: customStyle.btnColor ?? '#3370ff',
+    hoverColor: customStyle.btnColor
+      ? colorFunctions
+          .mix(new colorTree('ffffff'), new colorTree(btnColor), {
+            value: 15
+          })
+          .toRGB()
+      : '#5285FF',
+    activeColor: customStyle.btnColor
+      ? colorFunctions
+          .mix(new colorTree('000000'), new colorTree(btnColor), {
+            value: 15
+          })
+          .toRGB()
+      : '#2B5FD9'
+  }
+})
+
+const btnPrimaryColor = computed(() => {
+  return btnHoverStyle.value.rawColor
+})
+
+const btnPrimaryHoverColor = computed(() => {
+  return btnHoverStyle.value.hoverColor
+})
+
+const btnPrimaryActiveColor = computed(() => {
+  return btnHoverStyle.value.activeColor
+})
+
+const tagColor = computed(() => {
+  if (customStyle.background && !customStyle.background.toLowerCase().includes('#ffffff')) {
+    return colorFunctions
+      .mix(new colorTree('ffffff'), new colorTree(customStyle.background.substr(1)), {
+        value: 15
+      })
+      .toRGB()
+  }
+  return '#f0f2f5'
 })
 
 const btnPlainStyle = computed(() => {
@@ -140,13 +234,11 @@ const curComponentView = computed(() => {
   return (canvasViewInfo.value[element.value.id] || {}).customStyle
 })
 
-const { datasetFieldList } = comInfo()
+const { datasetFieldList } = comInfo(props.showPosition)
 
 const setCustomStyle = val => {
   const {
-    borderShow,
     borderColor,
-    bgColorShow,
     btnList,
     titleLayout,
     labelColor,
@@ -165,14 +257,15 @@ const setCustomStyle = val => {
     queryConditionWidth,
     nameboxSpacing,
     queryConditionSpacing,
+    queryConditionHeight,
     labelColorBtn,
     btnColor,
     placeholderSize,
     placeholderShow,
     labelShow
   } = val
-  customStyle.background = bgColorShow ? bgColor || '' : ''
-  customStyle.border = borderShow ? borderColor || '' : ''
+  customStyle.background = bgColor || ''
+  customStyle.border = borderColor || ''
   customStyle.btnList = [...btnList]
   customStyle.layout = layout
   customStyle.placeholderShow = placeholderShow ?? true
@@ -198,10 +291,11 @@ const setCustomStyle = val => {
   customStyle.queryConditionWidth = queryConditionWidth ?? 227
   customStyle.nameboxSpacing = nameboxSpacing ?? 8
   customStyle.queryConditionSpacing = queryConditionSpacing ?? 16
+  customStyle.queryConditionHeight = queryConditionHeight ?? 32
   customStyle.labelColorBtn = labelColorBtn || '#ffffff'
   customStyle.labelShow = labelShow ?? true
   customStyle.btnColor = btnColor || '#3370ff'
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('setCustomStyle')
 }
 
 watch(
@@ -228,11 +322,17 @@ watch(
   }
 )
 const list = ref([])
-
+let oldList = []
+let isResetData = false
 watch(
   () => props.element.propValue,
   () => {
     list.value = [...props.element.propValue]
+    if (isResetData) {
+      isResetData = false
+      return
+    }
+    oldList = cloneDeep(props.element.propValue)
   },
   {
     immediate: true
@@ -248,14 +348,61 @@ const { emitter } = useEmitt()
 const unMountSelect = shallowRef([])
 onBeforeMount(() => {
   unMountSelect.value = list.value.map(ele => ele.id)
+  ;(props.element.cascade || []).forEach(ele => {
+    ele.forEach(item => {
+      item.currentSelectValue = item.selectValue
+    })
+  })
 })
 
 const releaseSelect = id => {
   unMountSelect.value = unMountSelect.value.filter(ele => ele !== id)
 }
 
+const fillRequireVal = arr => {
+  element.value.propValue?.forEach(next => {
+    if (arr.some(itx => next.checkedFields.includes(itx)) && next.required) {
+      if (next.displayType === '8') {
+        const { conditionValueF, conditionValueS, conditionType } = next
+        if (conditionType === 0 && conditionValueF === '') {
+          next.conditionValueF = next.defaultConditionValueF
+        } else {
+          if (conditionValueF === '') {
+            next.conditionValueF = next.defaultConditionValueF
+          }
+          if (conditionValueS === '') {
+            next.conditionValueS = next.defaultConditionValueS
+          }
+        }
+      } else if (next.displayType === '22') {
+        if (next.numValueStart !== 0 && !next.numValueStart) {
+          next.numValueStart = next.defaultNumValueStart
+        }
+
+        if (next.numValueEnd !== 0 && !next.numValueEnd) {
+          next.numValueEnd = next.defaultNumValueEnd
+        }
+      } else if (
+        (Array.isArray(next.selectValue) && !next.selectValue.length) ||
+        (next.selectValue !== 0 && !next.selectValue)
+      ) {
+        if (
+          next.optionValueSource === 1 &&
+          (next.defaultMapValue?.length || next.displayId) &&
+          ![1, 7].includes(+next.displayType)
+        ) {
+          next.mapValue = next.defaultMapValue
+          next.selectValue = next.multiple ? next.defaultMapValue : next.defaultMapValue[0]
+        } else {
+          next.selectValue = next.defaultValue
+        }
+      }
+    }
+  })
+}
 const queryDataForId = id => {
   let requiredName = ''
+  let numName = ''
   const emitterList = (element.value.propValue || [])
     .filter(ele => ele.id === id)
     .reduce((pre, next) => {
@@ -288,18 +435,40 @@ const queryDataForId = id => {
           requiredName = next.name
         }
       }
-      const keyList = Object.entries(next.checkedFieldsMap)
-        .filter(ele => next.checkedFields.includes(ele[0]))
-        .filter(ele => !!ele[1])
-        .map(ele => ele[0])
+
+      if (next.displayType === '22') {
+        if (
+          !isNaN(next.numValueEnd) &&
+          !isNaN(next.numValueStart) &&
+          next.numValueEnd < next.numValueStart
+        ) {
+          numName = next.name
+        }
+        if (
+          [next.numValueEnd, next.numValueStart].filter(itx => ![null, undefined, ''].includes(itx))
+            .length === 1
+        ) {
+          requiredName = next.name
+        }
+      }
+
+      const keyList = getKeyList(next)
       pre = [...new Set([...keyList, ...pre])]
       return pre
     }, [])
   if (!!requiredName) {
-    ElMessage.error(`【${requiredName}】查询条件是必填项，请设置选项值后，再进行查询！`)
+    closeElMessage(requiredName)
+    return
+  }
+  if (!!numName) {
+    ElMessage.error(`【${numName}】${t('v_query.the_minimum_value')}`)
     return
   }
   if (!emitterList.length) return
+  if (!(dvMainStore.mobileInPc && !isMobile())) {
+    dvMainStore.setFirstLoadMap([...new Set([...emitterList, ...firstLoadMap.value])])
+  }
+  fillRequireVal(emitterList)
   emitterList.forEach(ele => {
     emitter.emit(`query-data-${ele}`)
   })
@@ -309,7 +478,17 @@ const getQueryConditionWidth = () => {
 }
 
 const getCascadeList = () => {
-  return props.element.cascade
+  const { propValue, cascade = [] } = props.element
+  const defaultValueFirstItemMap = propValue.reduce((pre, next) => {
+    pre[next.id] = next.defaultValueFirstItem
+    return pre
+  }, {})
+  cascade.forEach(itx => {
+    itx.forEach(ele => {
+      ele.defaultValueFirstItem = defaultValueFirstItemMap[ele.datasetId.split('--')[1]]
+    })
+  })
+  return cascade
 }
 
 const getPlaceholder = computed(() => {
@@ -318,20 +497,72 @@ const getPlaceholder = computed(() => {
   }
 })
 
-const isConfirmSearch = id => {
-  if (componentWithSure.value) return
+const isConfirmSearch = (id, disabledFirstItem = false) => {
+  if (componentWithSure.value && !disabledFirstItem) return
   queryDataForId(id)
+}
+
+const isConfirmSearchNoRequiredName = id => {
+  if (componentWithSure.value) return
+  let requiredName = ''
+  let numName = ''
+  const emitterList = (element.value.propValue || [])
+    .filter(ele => ele.id === id)
+    .reduce((pre, next) => {
+      if (next.displayType === '22') {
+        if (
+          !isNaN(next.numValueEnd) &&
+          !isNaN(next.numValueStart) &&
+          next.numValueEnd < next.numValueStart
+        ) {
+          numName = next.name
+        }
+        if (
+          [next.numValueEnd, next.numValueStart].filter(itx => ![null, undefined, ''].includes(itx))
+            .length === 1
+        ) {
+          requiredName = next.name
+        }
+      }
+
+      const keyList = getKeyList(next)
+      pre = [...new Set([...keyList, ...pre])]
+      return pre
+    }, [])
+  if (!!requiredName) {
+    closeElMessage(requiredName)
+    return
+  }
+  if (!!numName) {
+    ElMessage.error(`【${numName}】${t('v_query.the_minimum_value')}`)
+    return
+  }
+  if (!emitterList.length) return
+  if (!(dvMainStore.mobileInPc && !isMobile())) {
+    dvMainStore.setFirstLoadMap([...new Set([...emitterList, ...firstLoadMap.value])])
+  }
+  fillRequireVal(emitterList)
+  emitterList.forEach(ele => {
+    emitter.emit(`query-data-${ele}`)
+  })
 }
 
 provide('is-confirm-search', isConfirmSearch)
 provide('unmount-select', unMountSelect)
 provide('release-unmount-select', releaseSelect)
 provide('query-data-for-id', queryDataForId)
+provide('query-data-for-id-tree', isConfirmSearchNoRequiredName)
 provide('com-width', getQueryConditionWidth)
 provide('cascade-list', getCascadeList)
 provide('placeholder', getPlaceholder)
 
 onBeforeUnmount(() => {
+  if (instanceElMessage) {
+    instanceElMessage.close()
+  }
+  if (closeTime) {
+    clearTimeout(closeTime)
+  }
   emitter.off(`addQueryCriteria${element.value.id}`)
   emitter.off(`editQueryCriteria${element.value.id}`)
   emitter.off(`updateQueryCriteria${element.value.id}`)
@@ -339,8 +570,9 @@ onBeforeUnmount(() => {
 })
 
 const updateQueryCriteria = () => {
+  if (dvMainStore.mobileInPc && !isMobile()) return
   Array.isArray(element.value.propValue) &&
-    element.value.propValue.forEach(ele => {
+    element.value.propValue?.forEach(ele => {
       if (ele.auto) {
         const componentInfo = {
           datasetId: ele.dataset.id,
@@ -380,6 +612,10 @@ onMounted(() => {
   emitter.on(`editQueryCriteria${element.value.id}`, editQueryCriteria)
   emitter.on(`updateQueryCriteria${element.value.id}`, updateQueryCriteria)
   updateQueryCriteria()
+
+  if (dvMainStore.mobileInPc && !isMobile()) {
+    queryData()
+  }
 })
 
 const dragover = () => {
@@ -409,7 +645,7 @@ const drop = e => {
     })
   })
   element.value.propValue = [...list.value]
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('drop')
 }
 
 const editeQueryConfig = (queryId: string) => {
@@ -429,53 +665,109 @@ const addCriteriaConfigOut = () => {
 }
 
 const delQueryConfig = index => {
+  const com = cloneDeep(unref(list))
   list.value.splice(index, 1)
   element.value.propValue = [...list.value]
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('delQueryConfig')
+  reRenderAll(com, cloneDeep(unref(list)))
 }
 
 const resetData = () => {
-  ;(list.value || []).reduce((pre, next) => {
-    next.conditionValueF = next.defaultConditionValueF
-    next.conditionValueOperatorF = next.defaultConditionValueOperatorF
-    next.conditionValueS = next.defaultConditionValueS
-    next.conditionValueOperatorS = next.defaultConditionValueOperatorS
+  isResetData = true
+  element.value.propValue = []
+  nextTick(() => {
+    element.value.propValue = cloneDeep(oldList)
+    ;(element.value.propValue || []).reduce((pre, next) => {
+      next.conditionValueF = next.defaultConditionValueF
+      next.conditionValueOperatorF = next.defaultConditionValueOperatorF
+      next.conditionValueS = next.defaultConditionValueS
+      next.conditionValueOperatorS = next.defaultConditionValueOperatorS
 
-    if (next.displayType === '22') {
-      next.numValueEnd = next.defaultNumValueEnd
-      next.numValueStart = next.defaultNumValueStart
-    }
+      if (next.displayType === '22') {
+        next.numValueEnd = next.defaultNumValueEnd
+        next.numValueStart = next.defaultNumValueStart
+      }
 
-    if (!next.defaultValueCheck) {
-      next.defaultValue = next.multiple || +next.displayType === 7 ? [] : undefined
-    }
-    next.selectValue = Array.isArray(next.defaultValue) ? [...next.defaultValue] : next.defaultValue
-    if (next.optionValueSource === 1 && next.defaultMapValue?.length) {
-      next.mapValue = Array.isArray(next.defaultMapValue)
-        ? [...next.defaultMapValue]
-        : next.defaultMapValue
-    }
+      if (!next.defaultValueCheck) {
+        next.defaultValue = next.multiple || +next.displayType === 7 ? [] : undefined
+      }
+      next.selectValue = Array.isArray(next.defaultValue)
+        ? [...next.defaultValue]
+        : next.defaultValue
+      if (next.optionValueSource === 1 && next.defaultMapValue?.length) {
+        next.mapValue = Array.isArray(next.defaultMapValue)
+          ? [...next.defaultMapValue]
+          : next.defaultMapValue
+      }
 
-    ;(props.element.cascade || []).forEach(ele => {
-      ele.forEach(item => {
-        const comId = item.datasetId.split('--')[1]
-        if (next.id === comId) {
-          item.currentSelectValue = Array.isArray(next.selectValue)
-            ? next.selectValue
-            : [next.selectValue].filter(itx => ![null, undefined].includes(itx))
-          useEmitt().emitter.emit(`${item.datasetId.split('--')[1]}-select`)
+      if (
+        next.defaultValueCheck &&
+        [1, 7].includes(+next.displayType) &&
+        next.timeType === 'dynamic'
+      ) {
+        if (+next.displayType === 1) {
+          let selectValue = getDynamicRange(next) || []
+          next.defaultValue = new Date(selectValue[0])
+          next.selectValue = new Date(selectValue[0])
+        } else {
+          const {
+            timeNum,
+            relativeToCurrentType,
+            around,
+            relativeToCurrentRange,
+            arbitraryTime,
+            timeGranularity,
+            timeNumRange,
+            relativeToCurrentTypeRange,
+            aroundRange,
+            timeGranularityMultiple,
+            arbitraryTimeRange
+          } = next
+
+          let startTime = getCustomTime(
+            timeNum,
+            relativeToCurrentType,
+            timeGranularity,
+            around,
+            arbitraryTime,
+            timeGranularityMultiple,
+            'start-panel'
+          )
+          let endTime = getCustomTime(
+            timeNumRange,
+            relativeToCurrentTypeRange,
+            timeGranularity,
+            aroundRange,
+            arbitraryTimeRange,
+            timeGranularityMultiple,
+            'end-panel'
+          )
+
+          if (!!relativeToCurrentRange && relativeToCurrentRange !== 'custom') {
+            ;[startTime, endTime] = getCustomRange(relativeToCurrentRange)
+          }
+          next.defaultValue = [startTime, endTime]
+          next.selectValue = [startTime, endTime]
         }
-      })
-    })
+      }
 
-    const keyList = Object.entries(next.checkedFieldsMap)
-      .filter(ele => next.checkedFields.includes(ele[0]))
-      .filter(ele => !!ele[1])
-      .map(ele => ele[0])
-    pre = [...new Set([...keyList, ...pre])]
-    return pre
-  }, [])
-  !componentWithSure.value && queryData()
+      ;(props.element.cascade || []).forEach(ele => {
+        ele.forEach(item => {
+          const comId = item.datasetId.split('--')[1]
+          if (next.id === comId) {
+            item.currentSelectValue = Array.isArray(next.selectValue)
+              ? next.selectValue
+              : [next.selectValue].filter(itx => ![null, undefined].includes(itx))
+            useEmitt().emitter.emit(`${item.datasetId.split('--')[1]}-select`)
+          }
+        })
+      })
+      const keyList = getKeyList(next)
+      pre = [...new Set([...keyList, ...pre])]
+      return pre
+    }, [])
+    !componentWithSure.value && queryData()
+  })
 }
 
 const clearData = () => {
@@ -488,6 +780,9 @@ const clearData = () => {
     })
   })
   ;(list.value || []).reduce((pre, next) => {
+    if (!next.visible) {
+      return pre
+    }
     next.selectValue = next.multiple || +next.displayType === 7 ? [] : undefined
     if (next.optionValueSource === 1 && next.defaultMapValue?.length) {
       next.mapValue = next.multiple ? [] : undefined
@@ -499,10 +794,7 @@ const clearData = () => {
       next.numValueEnd = undefined
       next.numValueStart = undefined
     }
-    const keyList = Object.entries(next.checkedFieldsMap)
-      .filter(ele => next.checkedFields.includes(ele[0]))
-      .filter(ele => !!ele[1])
-      .map(ele => ele[0])
+    const keyList = getKeyList(next)
     pre = [...new Set([...keyList, ...pre])]
     return pre
   }, [])
@@ -532,8 +824,13 @@ const boxWidth = computed(() => {
   return `${customStyle.placeholderSize}px`
 })
 
+const boxHeight = computed(() => {
+  return `${customStyle.queryConditionHeight || 32}px`
+})
+
 const queryData = () => {
   let requiredName = ''
+  let numName = ''
   const emitterList = (element.value.propValue || []).reduce((pre, next) => {
     if (next.required) {
       if (!next.defaultValueCheck) {
@@ -564,19 +861,39 @@ const queryData = () => {
         requiredName = next.name
       }
     }
-    const keyList = Object.entries(next.checkedFieldsMap)
-      .filter(ele => next.checkedFields.includes(ele[0]))
-      .filter(ele => !!ele[1])
-      .map(ele => ele[0])
+
+    if (next.displayType === '22') {
+      if (
+        !isNaN(next.numValueEnd) &&
+        !isNaN(next.numValueStart) &&
+        next.numValueEnd < next.numValueStart
+      ) {
+        numName = next.name
+      }
+      if (
+        [next.numValueEnd, next.numValueStart].filter(itx => ![null, undefined, ''].includes(itx))
+          .length === 1
+      ) {
+        requiredName = next.name
+      }
+    }
+    const keyList = getKeyList(next)
     pre = [...new Set([...keyList, ...pre])]
     return pre
   }, [])
   if (!!requiredName) {
-    ElMessage.error(`【${requiredName}】查询条件是必填项，请设置选项值后，再进行查询！`)
+    closeElMessage(requiredName)
+    return
+  }
+
+  if (!!numName) {
+    ElMessage.error(`【${numName}】${t('v_query.the_minimum_value')}`)
     return
   }
   if (!emitterList.length) return
-  dvMainStore.setFirstLoadMap([...new Set([...emitterList, ...firstLoadMap.value])])
+  if (!(dvMainStore.mobileInPc && !isMobile())) {
+    dvMainStore.setFirstLoadMap([...new Set([...emitterList, ...firstLoadMap.value])])
+  }
   emitterList.forEach(ele => {
     emitter.emit(`query-data-${ele}`)
   })
@@ -607,28 +924,35 @@ const labelStyle = computed(() => {
   return style
 })
 
+const comLayout = computed(() => {
+  return customStyle.labelShow ? customStyle.layout : 'horizontal'
+})
+
 const paddingTop = computed<CSSProperties>(() => {
   return {
-    paddingTop: customStyle.layout !== 'horizontal' ? customStyle.nameboxSpacing + 22 + 'px' : '0'
+    paddingTop: comLayout.value !== 'horizontal' ? customStyle.nameboxSpacing + 22 + 'px' : '0'
   }
 })
 
 const marginRight = computed<CSSProperties>(() => {
   return {
-    marginRight: customStyle.layout === 'horizontal' ? customStyle.nameboxSpacing + 'px' : '8px'
+    marginRight: comLayout.value === 'horizontal' ? customStyle.nameboxSpacing + 'px' : '8px'
   }
 })
 
 const autoStyle = computed(() => {
-  return {
-    position: 'absolute',
-    height: 100 / scale.value + '%!important',
-    width: 100 / scale.value + '%!important',
-    left: 50 * (1 - 1 / scale.value) + '%', // 放大余量 除以 2
-    top: 50 * (1 - 1 / scale.value) + '%', // 放大余量 除以 2
-    transform: 'scale(' + scale.value + ') translateZ(0)',
-    opacity: element.value?.style?.opacity || 1
-  } as CSSProperties
+  if (isISOMobile()) {
+    return {
+      position: 'absolute',
+      height: 100 / scale.value + '%!important',
+      width: 100 / scale.value + '%!important',
+      left: 50 * (1 - 1 / scale.value) + '%', // 放大余量 除以 2
+      top: 50 * (1 - 1 / scale.value) + '%', // 放大余量 除以 2
+      transform: 'scale(' + scale.value + ') translateZ(0)'
+    } as CSSProperties
+  } else {
+    return { zoom: scale.value }
+  }
 })
 </script>
 
@@ -638,23 +962,20 @@ const autoStyle = computed(() => {
       {{ customStyle.title }}
     </p>
     <div
-      :class="[
-        'v-query',
-        customStyle.layout,
-        customStyle.titleShow && !!customStyle.title && 'title-show'
-      ]"
+      :class="['v-query', comLayout, customStyle.titleShow && !!customStyle.title && 'title-show']"
       @dragover.prevent.stop="dragover"
       @drop.prevent.stop="drop"
     >
       <div v-if="!listVisible.length" class="no-list-label flex-align-center">
         <div class="container flex-align-center">
-          将右侧的字段拖拽到这里 或 点击
+          {{ t('v_query.here_or_click') }}
           <el-button
             :disabled="showPosition === 'preview' || mobileInPc"
             @click="addCriteriaConfigOut"
+            style="font-family: inherit"
             text
           >
-            添加查询条件
+            {{ t('v_query.add_query_condition') }}
           </el-button>
         </div>
       </div>
@@ -683,14 +1004,22 @@ const autoStyle = computed(() => {
               </div>
               <div
                 class="label-wrapper-tooltip"
-                v-if="showPosition !== 'preview' && !dvMainStore.mobileInPc"
+                v-if="
+                  !['preview', 'edit-preview'].includes(showPosition) &&
+                  !dvMainStore.mobileInPc &&
+                  editMode === 'edit'
+                "
               >
-                <el-tooltip effect="dark" content="设置过滤条件" placement="top">
+                <el-tooltip
+                  effect="dark"
+                  :content="t('v_query.set_filter_condition')"
+                  placement="top"
+                >
                   <el-icon @click="editeQueryConfig(ele.id)">
                     <Icon name="icon_edit_outlined"><icon_edit_outlined class="svg-icon" /></Icon>
                   </el-icon>
                 </el-tooltip>
-                <el-tooltip effect="dark" content="删除条件" placement="top">
+                <el-tooltip effect="dark" :content="t('v_query.delete_condition')" placement="top">
                   <el-icon style="margin-left: 8px" @click="delQueryConfig(index)">
                     <Icon name="icon_delete-trash_outlined"
                       ><icon_deleteTrash_outlined class="svg-icon"
@@ -743,6 +1072,7 @@ const autoStyle = computed(() => {
       :query-element="element"
       @queryData="queryData"
       ref="queryConfig"
+      @reRenderAll="reRenderAll"
     ></QueryConditionConfiguration>
   </Teleport>
 </template>
@@ -755,11 +1085,46 @@ const autoStyle = computed(() => {
   position: relative;
   --ed-font-size-base: v-bind(boxWidth);
 
+  :deep(.ed-select-v2 .ed-select-v2__selection .ed-tag),
+  :deep(.select-trigger .ed-select__tags .ed-tag) {
+    background-color: v-bind(tagColor);
+  }
+
+  :deep(.ed-input),
+  :deep(.ed-date-editor) {
+    --ed-input-height: v-bind(boxHeight);
+  }
+
+  :deep(.ed-select__wrapper),
+  :deep(.text-search-select .ed-input__wrapper),
+  :deep(.text-search-select .ed-select__wrapper) {
+    height: v-bind(boxHeight);
+  }
+
+  .ed-button--primary {
+    --ed-button-bg-color: v-bind(btnHoverStyle.rawColor);
+    --ed-button-border-color: v-bind(btnHoverStyle.rawColor);
+    --ed-button-hover-border-color: v-bind(btnHoverStyle.hoverColor);
+    --ed-button-hover-bg-color: v-bind(btnHoverStyle.hoverColor);
+    background-color: v-bind(btnPrimaryColor);
+  }
+
+  .ed-button--primary.ed-button--primary.ed-button--primary:hover,
+  .ed-button--primary.ed-button--primary.ed-button--primary:focus {
+    background-color: v-bind(btnPrimaryHoverColor);
+  }
+
+  .ed-button--primary.ed-button--primary.ed-button--primary:active {
+    background-color: v-bind(btnPrimaryActiveColor);
+    border-color: v-bind(btnPrimaryHoverColor);
+  }
+
   :deep(.ed-tag) {
     --ed-tag-font-size: v-bind(boxWidth);
   }
 
-  :deep(.ed-select-v2) {
+  :deep(.ed-select-v2),
+  :deep(.ed-select__wrapper) {
     font-size: v-bind(boxWidth);
   }
 
@@ -775,7 +1140,6 @@ const autoStyle = computed(() => {
       justify-content: center;
       color: #646a73;
       text-align: center;
-      font-family: var(--de-custom_font, 'PingFang');
       font-size: 16px;
       font-style: normal;
       font-weight: 400;
@@ -791,7 +1155,6 @@ const autoStyle = computed(() => {
   .title {
     color: #1f2329;
     font-feature-settings: 'clig' off, 'liga' off;
-    font-family: var(--de-custom_font, 'PingFang');
     font-size: 14px;
     font-style: normal;
     font-weight: 500;
@@ -850,7 +1213,6 @@ const autoStyle = computed(() => {
           text-overflow: ellipsis;
           white-space: nowrap;
           color: #1f2329;
-          font-family: var(--de-custom_font, 'PingFang');
           font-size: 14px;
           font-style: normal;
           font-weight: 400;
@@ -873,6 +1235,7 @@ const autoStyle = computed(() => {
           height: 16px;
           line-height: 16px;
           color: #575757;
+          white-space: nowrap;
         }
       }
 
@@ -913,7 +1276,7 @@ const autoStyle = computed(() => {
             padding: 4px 8px;
             height: 26px;
             width: 58px;
-            border-radius: 4px;
+            border-radius: 6px;
             border: 1px solid #dee0e3;
             background: #fff;
             box-shadow: 0px 4px 8px 0px rgba(31, 35, 41, 0.1);
@@ -961,12 +1324,12 @@ const autoStyle = computed(() => {
           .label-wrapper-tooltip {
             position: absolute;
             right: 0;
-            top: -26px;
+            top: -21px;
             z-index: 11;
             padding: 4px 8px;
             height: 26px;
             width: 58px;
-            border-radius: 4px;
+            border-radius: 6px;
             border: 1px solid #dee0e3;
             background: #fff;
             box-shadow: 0px 4px 8px 0px rgba(31, 35, 41, 0.1);

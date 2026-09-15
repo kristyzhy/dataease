@@ -14,6 +14,13 @@ import { useEmbedded } from '@/store/modules/embedded'
 import { useLinkStoreWithOut } from '@/store/modules/link'
 import { config } from './config'
 import { configHandler } from './refresh'
+import { isMobile, getLocale } from '@/utils/utils'
+import { useI18n } from '@/hooks/web/useI18n'
+// 注意：不得在模块顶层 const { t } = useI18n() —— 本模块求值早于 setupI18n，
+// 顶层捕获会永久得到降级透传 t（永远返回 key）。必须在函数体内实时调用 useI18n()。
+import { useRequestStoreWithOut } from '@/store/modules/request'
+import { clearCache } from '@/utils/cacheUtil'
+import { securityConfig } from './hmac'
 
 type AxiosErrorWidthLoading<T> = T & {
   config: {
@@ -30,8 +37,8 @@ import router from '@/router'
 
 const { result_code } = config
 import { useCache } from '@/hooks/web/useCache'
-
 const { wsCache } = useCache()
+const requestStore = useRequestStoreWithOut()
 const embeddedStore = useEmbedded()
 const basePath = import.meta.env.VITE_API_BASEPATH
 
@@ -57,12 +64,15 @@ const getTimeOut = () => {
           if (response.code === 0) {
             time = response.data
           } else {
+            // 模块求值期早于 setupI18n，i18n 未就绪，此处暂不国际化（保留中文）
             ElMessage.error('系统异常，请联系管理员')
           }
         } catch (e) {
+          // 模块求值期早于 setupI18n，i18n 未就绪，此处暂不国际化（保留中文）
           ElMessage.error('系统异常，请联系管理员')
         }
       } else {
+        // 模块求值期早于 setupI18n，i18n 未就绪，此处暂不国际化（保留中文）
         ElMessage.error('网络异常，请联系网管')
       }
     }
@@ -82,8 +92,8 @@ const service: AxiosInstanceWithLoading = axios.create({
 })
 const mapping = {
   'zh-CN': 'zh-CN',
-  en: 'en_US',
-  tw: 'zh_TW'
+  en: 'en-US',
+  tw: 'zh-TW'
 }
 const permissionStore = usePermissionStoreWithOut()
 const linkStore = useLinkStoreWithOut()
@@ -97,6 +107,7 @@ service.interceptors.request.use(
     if (config instanceof Promise) {
       config = await config
     }
+    await securityConfig(config, service.getUri(config))
     if (
       config.method === 'post' &&
       (config.headers as AxiosRequestHeaders)['Content-Type'] ===
@@ -108,19 +119,19 @@ service.interceptors.request.use(
       config.baseURL = PATH_URL
     }
 
+    if (isMobile()) {
+      ;(config.headers as AxiosRequestHeaders)['X-DE-MOBILE'] = true
+    }
     if (linkStore.getLinkToken) {
       ;(config.headers as AxiosRequestHeaders)['X-DE-LINK-TOKEN'] = linkStore.getLinkToken
     } else if (embeddedStore.token) {
       ;(config.headers as AxiosRequestHeaders)['X-EMBEDDED-TOKEN'] = embeddedStore.token
     }
-    if (wsCache.get('user.language')) {
-      const key = wsCache.get('user.language')
-      const val = mapping[key] || key
+    const locale = getLocale()
+    if (locale) {
+      const val = mapping[locale] || locale
       ;(config.headers as AxiosRequestHeaders)['Accept-Language'] = val
     }
-    ;(config.headers as AxiosRequestHeaders)['out_auth_platform'] = wsCache.get('out_auth_platform')
-      ? wsCache.get('out_auth_platform')
-      : 'default'
 
     if (config.method === 'get' && config.params) {
       let url = config.url as string
@@ -135,9 +146,18 @@ service.interceptors.request.use(
       config.params = {}
       config.url = url
     }
-    config.cancelToken = new CancelToken(function executor(c) {
-      cancelMap[config.url] = c
-    })
+
+    if (config.url.endsWith('chartData/getData')) {
+      const chartKey = `chartData/getData/${(config.data as any).id}`
+      config.cancelToken = new CancelToken(function executor(c) {
+        cancelMap[chartKey] = c
+      })
+    } else {
+      config.cancelToken = new CancelToken(function executor(c) {
+        cancelMap[config.url] = c
+      })
+    }
+
     config.loading && tryShowLoading(permissionStore.getCurrentPath)
     return config
   },
@@ -153,10 +173,6 @@ service.interceptors.response.use(
     response: AxiosResponse<any> & { config: InternalAxiosRequestConfig & { loading?: boolean } }
   ) => {
     executeVersionHandler(response)
-    /* if (response.headers['x-de-refresh-token']) {
-      wsCache.set('user.token', response.headers['x-de-refresh-token'])
-      wsCache.set('user.exp', new Date().getTime() + 90000)
-    } */
     if (response.headers['x-de-link-token']) {
       linkStore.setLinkToken(response.headers['x-de-link-token'])
     }
@@ -170,7 +186,10 @@ service.interceptors.response.use(
     } else if (response.config.url.match(/^\/map|geo\/\d{3}\/\d+\.json$/)) {
       //   TODO 处理静态文件
       return response
-    } else if (response.config.url.includes('DEXPack.umd.js')) {
+    } else if (
+      response.config.url.includes('DEXPack.umd.js') ||
+      response.config.url.includes('/i18n/custom_')
+    ) {
       return response
     } else if (response.config.url.startsWith('/xpackComponent/pluginStaticInfo/extensions-')) {
       return response
@@ -179,13 +198,18 @@ service.interceptors.response.use(
         !response?.config?.url.startsWith('/xpackComponent/content') &&
         response?.data?.code !== 60003
       ) {
+        let errMsg = response.data.msg
+        if (errMsg?.includes('rsa info has been changed')) {
+          wsCache.delete('DataEaseKey')
+          errMsg = useI18n().t('common.secret_changed_tips')
+        }
         ElMessage({
           type: 'error',
-          message: response.data.msg,
+          message: errMsg,
           showClose: true
         })
         if (response.data.code === 80001) {
-          localStorage.clear()
+          clearCache()
           let queryRedirectPath = '/workbranch/index'
           if (router.currentRoute.value.fullPath) {
             queryRedirectPath = router.currentRoute.value.fullPath as string
@@ -202,8 +226,26 @@ service.interceptors.response.use(
     }
   },
   (error: AxiosErrorWidthLoading<AxiosError>) => {
+    if (error.message?.includes('timeout of')) {
+      requestStore.resetLoadingMap()
+      ElMessage({
+        type: 'error',
+        message: useI18n().t('common.timeout_tips'),
+        showClose: true
+      })
+    }
+
     if (!error?.response) {
       return Promise.reject(error)
+    }
+
+    if (error?.response.status === 413) {
+      ElMessage({
+        type: 'error',
+        message: useI18n().t('common.file_size_exceed_tips'),
+        showClose: true
+      })
+      return
     }
     const header = error.response?.headers as AxiosHeaders
     if (
@@ -224,9 +266,13 @@ service.interceptors.response.use(
 
     error.config.loading && tryHideLoading(permissionStore.getCurrentPath)
     if (header.has('DE-GATEWAY-FLAG')) {
-      localStorage.clear()
-      const flag = header.get('DE-GATEWAY-FLAG')
-      localStorage.setItem('DE-GATEWAY-FLAG', flag.toString())
+      const userToken = wsCache.get('user.token')
+      const inPlatformClient = !!wsCache.get('de-platform-client')
+      clearCache()
+      if (!(userToken && inPlatformClient)) {
+        const flag = header.get('DE-GATEWAY-FLAG')
+        localStorage.setItem('DE-GATEWAY-FLAG', flag.toString())
+      }
       let queryRedirectPath = '/workbranch/index'
       if (router.currentRoute.value.fullPath) {
         queryRedirectPath = router.currentRoute.value.fullPath as string
@@ -234,8 +280,21 @@ service.interceptors.response.use(
       router.push(`/login?redirect=${queryRedirectPath}`)
     }
     if (header.has('DE-FORBIDDEN-FLAG')) {
-      showMsg('当前用户权限配置已变更，请刷新页面', '-changed-')
+      if (header.get('DE-FORBIDDEN-FLAG') === 'Resource not exist') {
+        // 资源不存在（已删除）：直接错误提示，不弹权限框
+        ElMessage({
+          type: 'error',
+          message: useI18n().t('common.resource_not_exist_tips'),
+          showClose: true
+        })
+      } else {
+        showMsg(useI18n().t('common.permission_denied_tips'), '-changed-')
+      }
     }
+    if (error?.response.status === 400) {
+      return Promise.reject(error)
+    }
+
     return Promise.resolve()
   }
 )
@@ -247,8 +306,8 @@ const showMsg = (msg: string, id: string) => {
   window['cross-permission-' + id] = ElMessageBox.confirm(msg, {
     confirmButtonType: 'primary',
     type: 'warning',
-    confirmButtonText: '刷新',
-    cancelButtonText: '取消',
+    confirmButtonText: useI18n().t('common.refresh'),
+    cancelButtonText: useI18n().t('common.cancel'),
     autofocus: false,
     showClose: false
   })
@@ -270,9 +329,35 @@ const executeVersionHandler = (response: AxiosResponse) => {
     return
   }
   if (executeVersion && executeVersion !== cacheVal) {
-    wsCache.clear()
     wsCache.set(key, executeVersion)
-    showMsg('系统有升级，请点击刷新页面', '-sys-upgrade-')
+    showMsg(useI18n().t('common.system_upgrade_tips'), '-sys-upgrade-')
   }
 }
-export { service, cancelMap }
+
+const cancelRequestBatch = cancelKey => {
+  if (cancelKey) {
+    if (cancelKey.indexOf('/**') > -1) {
+      const cancelKeyPre = cancelKey.split('/**')[0]
+      Object.keys(cancelMap).forEach(key => {
+        if (key.indexOf(cancelKeyPre) > -1) {
+          cancelMap[key]?.(() => {
+            console.warn('Operation canceled by the user,url:' + key)
+          })
+        }
+      })
+    } else {
+      cancelMap[cancelKey]?.(() => {
+        console.warn('Operation canceled by the user,url:' + cancelKey)
+      })
+    }
+  }
+}
+
+const cancelAllRequest = () => {
+  Object.keys(cancelMap).forEach(key => {
+    cancelMap[key]?.(() => {
+      console.warn('Operation canceled by the user,url:' + key)
+    })
+  })
+}
+export { service, cancelMap, cancelRequestBatch, cancelAllRequest }

@@ -1,7 +1,7 @@
 package io.dataease.utils;
 
-
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,8 +13,15 @@ import java.util.List;
 public class JsonUtil {
 
     private static final ObjectMapper objectMapper;
+
     static {
         objectMapper = new ObjectMapper();
+        // 配置更大的 StreamReadConstraints 限制
+        objectMapper.getFactory().setStreamReadConstraints(
+                StreamReadConstraints.builder()
+                        .maxStringLength(50000000)
+                        .build()
+        );
         objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
@@ -34,6 +41,17 @@ public class JsonUtil {
         T t = null;
         try {
             t = objectMapper.readValue(json, classOfT);
+        } catch (JsonProcessingException e) {
+            LogUtil.error(e.getMessage(), e);
+        }
+        return t;
+    }
+
+    public static <T> T parseObject(String json, TypeReference<T> typeReference) {
+        if (json == null) return null;
+        T t = null;
+        try {
+            t = objectMapper.readValue(json, typeReference);
         } catch (JsonProcessingException e) {
             LogUtil.error(e.getMessage(), e);
         }
@@ -60,5 +78,4 @@ public class JsonUtil {
             return null;
         }
     }
-
 }

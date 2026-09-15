@@ -5,6 +5,7 @@ import icon_copy_filled from '@/assets/svg/icon_copy_filled.svg'
 import icon_dataset from '@/assets/svg/icon_dataset.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
 import icon_intoItem_outlined from '@/assets/svg/icon_into-item_outlined.svg'
+import { throttle } from 'lodash-es'
 import icon_rename_outlined from '@/assets/svg/icon_rename_outlined.svg'
 import icon_warning_colorful_red from '@/assets/svg/icon_warning_colorful_red.svg'
 import dvFolder from '@/assets/svg/dv-folder.svg'
@@ -34,6 +35,7 @@ import {
   ElScrollbar,
   ElAside
 } from 'element-plus-secondary'
+import { treeDraggble } from '@/utils/treeDraggble'
 import GridTable from '@/components/grid-table/src/GridTable.vue'
 import ArrowSide from '@/views/common/DeResourceArrow.vue'
 import relationChart from '@/components/relation-chart/index.vue'
@@ -41,12 +43,20 @@ import { HandleMore } from '@/components/handle-more'
 import { Icon } from '@/components/icon-custom'
 import { fieldType } from '@/utils/attr'
 import { useEmitt } from '@/hooks/web/useEmitt'
-import { getHidePwById, listSyncRecord, uploadFile, perDeleteDatasource } from '@/api/datasource'
+import {
+  getHidePwById,
+  listSyncRecord,
+  uploadFile,
+  perDeleteDatasource,
+  getSimpleDs,
+  supportSetKey,
+  getTableStatus
+} from '@/api/datasource'
 import CreatDsGroup from './form/CreatDsGroup.vue'
 import type { Tree } from '../dataset/form/CreatDsGroup.vue'
 import { previewData, getById } from '@/api/datasource'
 import { useI18n } from '@/hooks/web/useI18n'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router_2'
 import DatasetDetail from '@/views/visualized/data/dataset/DatasetDetail.vue'
 import { timestampFormatDate } from '@/views/visualized/data/dataset/form/util'
 import EmptyBackground from '@/components/empty-background/src/EmptyBackground.vue'
@@ -63,10 +73,9 @@ import {
   syncApiDs,
   syncApiTable
 } from '@/api/datasource'
-import { Base64 } from 'js-base64'
 import type { SyncSetting, Node } from './form/option'
 import EditorDatasource from './form/index.vue'
-import ExcelInfo from './ExcelInfo.vue'
+import ExcelInfoBase from './ExcelInfoBase.vue'
 import SheetTabs from './SheetTabs.vue'
 import BaseInfoItem from './BaseInfoItem.vue'
 import BaseInfoContent from './BaseInfoContent.vue'
@@ -80,6 +89,9 @@ import { useEmbedded } from '@/store/modules/embedded'
 import { XpackComponent } from '@/components/plugin'
 import { iconFieldMap } from '@/components/icon-group/field-list'
 import { iconDatasourceMap } from '@/components/icon-group/datasource-list'
+import { symmetricDecrypt } from '@/utils/encryption'
+import { isFreeFolder } from '@/utils/utils'
+import { AnyColumns } from 'element-plus-secondary/es/components/table-v2/src/types'
 const route = useRoute()
 const interactiveStore = interactiveStoreWithOut()
 interface Field {
@@ -123,6 +135,7 @@ const createDataset = (tableName?: string) => {
     useEmitt().emitter.emit('changeCurrentComponent', 'DatasetEditor')
     return
   }
+  wsCache.set('ds-info-id', nodeInfo.id)
   router.push({
     path: '/dataset-form',
     query: {
@@ -139,7 +152,6 @@ const dsTableDetail = reactive({
   name: ''
 })
 const rootManage = ref(false)
-const nodeData = ref({})
 const nickName = ref('')
 const dsName = ref('')
 const userDrawer = ref(false)
@@ -193,7 +205,7 @@ const selectDataset = row => {
   Object.assign(dsTableDetail, row)
   userDrawer.value = true
   dsTableDataLoading.value = true
-  getTableField({ tableName: row.tableName, datasourceId: nodeInfo.id })
+  getTableField({ tableName: row.tableName, datasourceId: nodeInfo.id, isCross: false })
     .then(res => {
       state.dsTableData = res.data
     })
@@ -202,12 +214,17 @@ const selectDataset = row => {
     })
 }
 
-let originResourceTree = []
+const originResourceTree = shallowRef([])
 
-const sortTypeChange = sortType => {
-  state.datasourceTree = treeSort(originResourceTree, sortType)
+const handleSortTypeChange = sortType => {
+  state.datasourceTree = treeSort(originResourceTree.value, sortType)
   state.curSortType = sortType
   wsCache.set('TreeSort-datasource', state.curSortType)
+}
+
+const sortTypeChange = sortType => {
+  state.datasourceTree = treeSort(originResourceTree.value, sortType)
+  state.curSortType = sortType
 }
 const handleSizeChange = pageSize => {
   state.paginationConfig.currentPage = 1
@@ -236,9 +253,9 @@ const scrollbarRef = ref()
 
 const generateColumns = (arr: Field[]) =>
   arr.map(ele => ({
-    key: ele.originName,
+    key: ele.originName === 'id' ? 'ids' : ele.originName,
     deType: ele.deType,
-    dataKey: ele.originName,
+    dataKey: ele.originName === 'id' ? 'ids' : ele.originName,
     title: ele.name,
     width: 150,
     headerCellRenderer: ({ column }) => (
@@ -258,13 +275,16 @@ const generateColumns = (arr: Field[]) =>
   }))
 
 const dataPreviewLoading = ref(false)
-const columns = ref([])
-const handleLoadExcel = data => {
+const columns = ref<any[]>([])
+const handleLoadExcel = (data: Record<string, unknown>) => {
   dataPreviewLoading.value = true
+  let num = +new Date()
   previewData(data)
     .then(res => {
       columns.value = generateColumns((res?.data?.fields as Field[]) || [])
-      tabData.value = (res?.data?.data as Array<{}>) || []
+      tabData.value = ((res?.data?.data as any) || []).map(ele => {
+        return { ...ele, ids: ele.id, id: num++ }
+      })
     })
     .finally(() => {
       dataPreviewLoading.value = false
@@ -272,35 +292,37 @@ const handleLoadExcel = data => {
 }
 
 const validateDS = () => {
-  validateById(nodeInfo.id as number)
+  let nodeTmpInfo = reactive<Node>(cloneDeep(defaultInfo))
+  Object.assign(nodeTmpInfo, cloneDeep(nodeInfo))
+  validateById(nodeTmpInfo.id as number)
     .then(res => {
-      if (res.data.type === 'API') {
+      if (res.data.type.startsWith('API')) {
         let error = 0
-        const status = JSON.parse(res.data.status)
-        for (let i = 0; i < status.length; i++) {
-          if (status[i].status === 'Error') {
+        const dsStatus = JSON.parse(res.data.status)
+        for (let i = 0; i < dsStatus.length; i++) {
+          if (dsStatus[i].status === 'Error') {
             error++
           }
-          for (let i = 0; i < nodeInfo.apiConfiguration.length; i++) {
-            if (nodeInfo.apiConfiguration[i].name === status[i].name) {
-              nodeInfo.apiConfiguration[i].status = status[i].status
+          for (let i = 0; i < nodeTmpInfo.apiConfiguration.length; i++) {
+            if (nodeInfo.apiConfiguration[i].name === dsStatus[i].name) {
+              nodeInfo.apiConfiguration[i].status = dsStatus[i].status
             }
           }
         }
         if (error === 0) {
-          nodeData.value.extraFlag = Math.abs(nodeData.value.extraFlag)
+          changeDsStatus(state.datasourceTree, nodeTmpInfo.id, Math.abs(nodeTmpInfo.extraFlag))
           ElMessage.success(t('data_source.verification_successful'))
         } else {
-          nodeData.value.extraFlag = -Math.abs(nodeData.value.extraFlag)
+          changeDsStatus(state.datasourceTree, nodeTmpInfo.id, -Math.abs(nodeTmpInfo.extraFlag))
           ElMessage.error(t('data_source.verification_failed'))
         }
       } else {
-        nodeData.value.extraFlag = Math.abs(nodeData.value.extraFlag)
+        changeDsStatus(state.datasourceTree, nodeTmpInfo.id, Math.abs(nodeTmpInfo.extraFlag))
         ElMessage.success(t('data_source.verification_successful'))
       }
     })
     .catch(() => {
-      nodeData.value.extraFlag = -Math.abs(nodeData.value.extraFlag)
+      changeDsStatus(state.datasourceTree, nodeTmpInfo.id, -Math.abs(nodeTmpInfo.extraFlag))
     })
 }
 
@@ -412,7 +434,8 @@ const defaultInfo = {
   syncSetting: null,
   apiConfiguration: [],
   weight: 0,
-  enableDataFill: false
+  enableDataFill: false,
+  extraFlag: 0
 }
 const nodeInfo = reactive<Node>(cloneDeep(defaultInfo))
 const infoList = computed(() => {
@@ -455,10 +478,13 @@ const saveDsFolder = (params, successCb, finallyCb, cmd) => {
 
 const dsLoading = ref(false)
 const mounted = ref(false)
+const isSupportSetKey = ref(false)
 
 const listDs = () => {
   rawDatasourceList.value = []
   dsLoading.value = true
+  let curSortType = sortList[Number(wsCache.get('TreeSort-backend')) ?? 1].value
+  curSortType = wsCache.get('TreeSort-datasource') ?? curSortType
   const request = { busiFlag: 'datasource' } as BusiTreeRequest
   interactiveStore
     .setInteractive(request)
@@ -467,13 +493,13 @@ const listDs = () => {
       if (nodeData.length && nodeData[0]['id'] === '0' && nodeData[0]['name'] === 'root') {
         rootManage.value = nodeData[0]['weight'] >= 7
         state.datasourceTree = nodeData[0]['children'] || []
-        originResourceTree = cloneDeep(unref(state.datasourceTree))
-        sortTypeChange(state.curSortType)
+        originResourceTree.value = cloneDeep(unref(state.datasourceTree))
+        sortTypeChange(curSortType)
         return
       }
-      originResourceTree = cloneDeep(unref(state.datasourceTree))
+      originResourceTree.value = cloneDeep(unref(state.datasourceTree))
       state.datasourceTree = nodeData
-      sortTypeChange(state.curSortType)
+      sortTypeChange(curSortType)
     })
     .finally(() => {
       mounted.value = true
@@ -484,10 +510,35 @@ const listDs = () => {
         Object.assign(nodeInfo, cloneDeep(defaultInfo))
         dfsDatasourceTree(state.datasourceTree, id)
         setTimeout(() => {
+          if (dsName.value) {
+            dsListTree.value.filter(dsName.value)
+          }
           dsListTree.value.setCurrentKey(nodeInfo.id, true)
         }, 100)
       }
     })
+}
+
+const setSupportSetKey = () => {
+  supportSetKey()
+    .then(response => {
+      isSupportSetKey.value = response.data
+    })
+    .catch(error => {
+      console.warn(error?.message)
+    })
+}
+const changeDsStatus = (ds, id, extraFlag) => {
+  ds.some(ele => {
+    if (ele.id === id) {
+      ele.extraFlag = extraFlag
+      return true
+    }
+    if (!!ele.children?.length) {
+      changeDsStatus(ele.children, id, extraFlag)
+    }
+    return false
+  })
 }
 
 const dfsDatasourceTree = (ds, id) => {
@@ -506,20 +557,20 @@ const dfsDatasourceTree = (ds, id) => {
 const creatDsFolder = ref()
 const sortList = [
   {
-    name: t('data_source.by_creation_time'),
+    name: t('visualization.time_asc'),
     value: 'time_asc'
   },
   {
-    name: t('data_source.by_creation_time_de'),
+    name: t('visualization.time_desc'),
     value: 'time_desc',
     divided: true
   },
   {
-    name: t('data_source.order_by_name'),
+    name: t('visualization.name_asc'),
     value: 'name_asc'
   },
   {
-    name: t('data_source.order_by_name_de'),
+    name: t('visualization.name_desc'),
     value: 'name_desc'
   }
 ]
@@ -530,12 +581,15 @@ const sortTypeTip = computed(() => {
 const tableData = shallowRef([])
 const tabData = shallowRef([])
 const handleNodeClick = data => {
-  nodeData.value = data
-  if (!data.leaf) {
+  if (!data.leaf || data.weight === 0) {
     dsListTree.value.setCurrentKey(null)
     return
   }
-  return getHidePwById(data.id).then(res => {
+  let method = getHidePwById
+  if (data.weight < 7) {
+    method = getSimpleDs
+  }
+  return method(data.id).then(res => {
     let {
       name,
       createBy,
@@ -555,13 +609,13 @@ const handleNodeClick = data => {
       enableDataFill
     } = res.data
     if (configuration) {
-      configuration = JSON.parse(Base64.decode(configuration))
-    }
-    if (apiConfigurationStr) {
-      apiConfigurationStr = JSON.parse(Base64.decode(apiConfigurationStr))
+      configuration = JSON.parse(symmetricDecrypt(configuration))
     }
     if (paramsStr) {
-      paramsStr = JSON.parse(Base64.decode(paramsStr))
+      paramsStr = JSON.parse(symmetricDecrypt(paramsStr))
+    }
+    if (apiConfigurationStr) {
+      apiConfigurationStr = JSON.parse(symmetricDecrypt(apiConfigurationStr))
     }
     Object.assign(nodeInfo, {
       name,
@@ -580,7 +634,8 @@ const handleNodeClick = data => {
       paramsConfiguration: paramsStr,
       weight: data.weight,
       lastSyncTime,
-      enableDataFill
+      enableDataFill,
+      extraFlag: data.extraFlag
     })
     activeTab.value = ''
     activeName.value = 'config'
@@ -590,7 +645,7 @@ const handleNodeClick = data => {
   })
 }
 const createDatasource = (data?: Tree) => {
-  datasourceEditor.value.init(null, data?.id)
+  datasourceEditor.value.init(null, data?.id, null, isSupportSetKey.value)
 }
 const showRecord = ref(false)
 const dsListTree = ref()
@@ -637,6 +692,24 @@ const updateApiDs = () => {
   })
 }
 
+const syncRemoteExcelDsLoading = ref(false)
+const updateRemoteExcelDs = () => {
+  if (syncRemoteExcelDsLoading.value) {
+    return
+  }
+  syncRemoteExcelDsLoading.value = true
+  syncApiDs({ datasourceId: nodeInfo.id })
+    .then(() => {
+      ElMessage.success(t('datasource.req_completed'))
+      if (showRecord.value) {
+        getRecord()
+      }
+    })
+    .finally(() => {
+      syncRemoteExcelDsLoading.value = false
+    })
+}
+
 const nodeExpand = data => {
   if (data.id) {
     expandedKey.value.push(data.id)
@@ -655,7 +728,7 @@ const filterNode = (value: string, data: BusiTreeNode) => {
 }
 
 const editDatasource = (editType?: number) => {
-  if (nodeInfo.type === 'Excel') {
+  if (nodeInfo.type.startsWith('Excel')) {
     nodeInfo.editType = editType
   }
   return getById(nodeInfo.id).then(res => {
@@ -681,13 +754,13 @@ const editDatasource = (editType?: number) => {
       enableDataFill
     } = res.data
     if (configuration) {
-      configuration = JSON.parse(Base64.decode(configuration))
+      configuration = JSON.parse(symmetricDecrypt(configuration))
     }
     if (paramsStr) {
-      paramsStr = JSON.parse(Base64.decode(paramsStr))
+      paramsStr = JSON.parse(symmetricDecrypt(paramsStr))
     }
     if (apiConfigurationStr) {
-      apiConfigurationStr = JSON.parse(Base64.decode(apiConfigurationStr))
+      apiConfigurationStr = JSON.parse(symmetricDecrypt(apiConfigurationStr))
     }
     let datasource = reactive<Node>(cloneDeep(defaultInfo))
     Object.assign(datasource, {
@@ -710,7 +783,7 @@ const editDatasource = (editType?: number) => {
       isPlugin: arr && arr.length > 0,
       staticMap: arr[0]?.staticMap
     })
-    datasourceEditor.value.init(datasource)
+    datasourceEditor.value.init(datasource, null, null, isSupportSetKey.value)
   })
 }
 
@@ -718,6 +791,14 @@ const handleEdit = async data => {
   await handleNodeClick(data)
   editDatasource()
 }
+
+const { handleDrop, allowDrop, handleDragStart } = treeDraggble(
+  state,
+  'datasourceTree',
+  move,
+  'datasource',
+  originResourceTree
+)
 
 const handleCopy = async data => {
   getById(data.id).then(res => {
@@ -736,16 +817,20 @@ const handleCopy = async data => {
       fileName,
       size,
       description,
-      lastSyncTime
+      lastSyncTime,
+      enableDataFill
     } = res.data
+    let arr = pluginDs.value.filter(ele => {
+      return ele.type == res.data.type
+    })
     if (configuration) {
-      configuration = JSON.parse(Base64.decode(configuration))
+      configuration = JSON.parse(symmetricDecrypt(configuration))
     }
     if (paramsStr) {
-      paramsStr = JSON.parse(Base64.decode(paramsStr))
+      paramsStr = JSON.parse(symmetricDecrypt(paramsStr))
     }
     if (apiConfigurationStr) {
-      apiConfigurationStr = JSON.parse(Base64.decode(apiConfigurationStr))
+      apiConfigurationStr = JSON.parse(symmetricDecrypt(apiConfigurationStr))
     }
     let datasource = reactive<Node>(cloneDeep(defaultInfo))
     Object.assign(datasource, {
@@ -763,16 +848,20 @@ const handleCopy = async data => {
       syncSetting,
       apiConfiguration: apiConfigurationStr,
       paramsConfiguration: paramsStr,
-      lastSyncTime
+      lastSyncTime,
+      enableDataFill,
+      isPlugin: arr && arr.length > 0,
+      staticMap: arr[0]?.staticMap
     })
     datasource.id = ''
+    datasource.copy = true
     datasource.name = t('datasource.copy')
-    if (datasource.type === 'API') {
+    if (datasource.type.startsWith('API')) {
       for (let i = 0; i < datasource.apiConfiguration.length; i++) {
         datasource.apiConfiguration[i].deTableName = ''
       }
     }
-    datasourceEditor.value.init(datasource)
+    datasourceEditor.value.init(datasource, null, null, isSupportSetKey.value)
   })
 }
 
@@ -878,25 +967,50 @@ const operation = (cmd: string, data: Tree, nodeType: string) => {
 const handleClick = (tabName: TabPaneName) => {
   switch (tabName) {
     case 'config':
-      listDatasourceTables({ datasourceId: nodeInfo.id }).then(res => {
-        tabList.value = res.data.map(ele => {
-          const { name, tableName } = ele
-          return {
-            value: name,
-            label: tableName
-          }
-        })
-        if (!!tabList.value.length && !activeTab.value) {
-          activeTab.value = tabList.value[0].value
-          if (nodeInfo.type === 'Excel') {
+      tableData.value = []
+      if (nodeInfo.type.startsWith('Excel')) {
+        listDatasourceTables({ datasourceId: nodeInfo.id }).then(res => {
+          tabList.value = res.data.map(ele => {
+            const { name, tableName } = ele
+            return {
+              value: name,
+              label: tableName
+            }
+          })
+          if (!!tabList.value.length && !activeTab.value) {
+            activeTab.value = tabList.value[0].value
             handleTabClick(activeTab)
           }
-        }
-        tableData.value = res.data
-      })
+          tableData.value = res.data
+        })
+      }
       break
     case 'table':
-      initSearch()
+      tableData.value = []
+      listDatasourceTables({ datasourceId: nodeInfo.id }).then(res => {
+        tableData.value = res.data
+        initSearch()
+        if (nodeInfo.type.startsWith('API') || nodeInfo.type === 'ExcelRemote') {
+          getTableStatus({ datasourceId: nodeInfo.id }).then(res => {
+            for (let i = 0; i < state.filterTable.length; i++) {
+              for (let j = 0; j < res.data.length; j++) {
+                if (state.filterTable[i].tableName === res.data[j].tableName) {
+                  state.filterTable[i].lastUpdateTime = res.data[j].lastUpdateTime
+                  state.filterTable[i].status = res.data[j].status
+                }
+              }
+            }
+            for (let i = 0; i < tableData.value.length; i++) {
+              for (let j = 0; j < res.data.length; j++) {
+                if (tableData.value[i].tableName === res.data[j].tableName) {
+                  tableData.value[i].lastUpdateTime = res.data[j].lastUpdateTime
+                  tableData.value[i].status = res.data[j].status
+                }
+              }
+            }
+          })
+        }
+      })
       break
     default:
       break
@@ -928,7 +1042,7 @@ const uploadExcel = editType => {
         return
       }
       nodeInfo.editType = editType
-      datasourceEditor.value.init(nodeInfo, nodeInfo.id, res)
+      datasourceEditor.value.init(nodeInfo, nodeInfo.id, res, isSupportSetKey.value)
     })
     .finally(() => {
       replaceLoading.value = false
@@ -938,7 +1052,8 @@ const uploadExcel = editType => {
 const activeName = ref('table')
 const defaultProps = {
   children: 'children',
-  label: 'name'
+  label: 'name',
+  disabled: (data: any) => data.weight === 0
 }
 
 const loadInit = () => {
@@ -948,13 +1063,25 @@ const loadInit = () => {
   }
 }
 
+const proxyAllowDrop = throttle((arg1, arg2) => {
+  const flagArray = ['dashboard', 'dataV', 'dataset', 'datasource']
+  const flag = flagArray.findIndex(item => item === 'datasource')
+  if (flag < 0 || !isFreeFolder(arg2, flag + 1)) {
+    return allowDrop(arg1, arg2)
+  }
+  ElMessage.warning(t('free.save_error'))
+  return false
+}, 300)
 onMounted(() => {
-  nodeInfo.id = (route.params.id as string) || (route.query.id as string) || ''
+  const dsId = wsCache.get('ds-info-id') || route.params.id
+  nodeInfo.id = (dsId as string) || (route.query.id as string) || ''
+  wsCache.delete('ds-info-id')
   loadInit()
   listDs()
-  const { opt } = router.currentRoute.value.query
+  setSupportSetKey()
+  const { opt } = router?.currentRoute?.value?.query || {}
   if (opt && opt === 'create') {
-    datasourceEditor.value.init(null, null)
+    datasourceEditor.value.init(null, null, null, isSupportSetKey.value)
   }
 })
 
@@ -1009,7 +1136,12 @@ const getMenuList = (val: boolean) => {
           <div class="icon-methods">
             <span class="title"> {{ t('datasource.datasource') }} </span>
             <div v-if="rootManage" class="flex-align-center">
-              <el-tooltip effect="dark" :content="t('deDataset.new_folder')" placement="top">
+              <el-tooltip
+                offset="14"
+                effect="dark"
+                :content="t('deDataset.new_folder')"
+                placement="top"
+              >
                 <el-icon
                   class="custom-icon btn"
                   :style="{ marginRight: '20px' }"
@@ -1018,7 +1150,12 @@ const getMenuList = (val: boolean) => {
                   <Icon name="dv-new-folder"><dvNewFolder class="svg-icon" /></Icon>
                 </el-icon>
               </el-tooltip>
-              <el-tooltip effect="dark" :content="t('datasource.create')" placement="top">
+              <el-tooltip
+                offset="14"
+                effect="dark"
+                :content="t('datasource.create')"
+                placement="top"
+              >
                 <el-icon class="custom-icon btn" @click="createDatasource">
                   <Icon name="icon_file-add_outlined"
                     ><icon_fileAdd_outlined class="svg-icon"
@@ -1042,19 +1179,16 @@ const getMenuList = (val: boolean) => {
               </el-icon>
             </template>
           </el-input>
-          <el-dropdown @command="sortTypeChange" trigger="click">
+          <el-dropdown @command="handleSortTypeChange" trigger="click">
             <el-icon class="filter-icon-span">
               <el-tooltip :offset="16" effect="dark" :content="sortTypeTip" placement="top">
-                <Icon v-if="state.curSortType.includes('asc')" name="dv-sort-asc" class="opt-icon"
-                  ><dvSortAsc class="svg-icon opt-icon"
+                <Icon name="dv-sort-asc" class="opt-icon"
+                  ><dvSortAsc v-if="state.curSortType.includes('asc')" class="svg-icon opt-icon"
                 /></Icon>
               </el-tooltip>
               <el-tooltip :offset="16" effect="dark" :content="sortTypeTip" placement="top">
-                <Icon
-                  v-show="state.curSortType.includes('desc')"
-                  name="dv-sort-desc"
-                  class="opt-icon"
-                  ><dvSortDesc class="svg-icon opt-icon"
+                <Icon name="dv-sort-desc" class="opt-icon"
+                  ><dvSortDesc v-if="state.curSortType.includes('desc')" class="svg-icon opt-icon"
                 /></Icon>
               </el-tooltip>
             </el-icon>
@@ -1086,10 +1220,18 @@ const getMenuList = (val: boolean) => {
             :default-expanded-keys="expandedKey"
             :data="state.datasourceTree"
             :props="defaultProps"
+            @node-drag-start="handleDragStart"
+            :allow-drop="proxyAllowDrop"
+            @node-drop="handleDrop"
+            draggable
             @node-click="handleNodeClick"
           >
             <template #default="{ node, data }">
-              <span class="custom-tree-node" style="position: relative">
+              <span
+                class="custom-tree-node"
+                style="position: relative"
+                :class="{ 'node-disabled-custom': data.weight === 0 }"
+              >
                 <el-icon :class="data.leaf && 'icon-border'" style="font-size: 18px">
                   <Icon :static-content="getDsIcon(data)"
                     ><component class="svg-icon" :is="getDsIconName(data)"></component
@@ -1101,18 +1243,30 @@ const getMenuList = (val: boolean) => {
                 >
                   <Icon><icon_warning_colorful_red class="svg-icon" /></Icon>
                 </el-icon>
-                <span
-                  :title="node.label"
-                  class="label-tooltip ellipsis"
-                  :class="data.type === 'Excel' && 'excel'"
-                  v-if="data.extraFlag > -1"
-                  >{{ node.label }}</span
-                >
                 <el-tooltip
+                  v-if="data.extraFlag > -1"
                   effect="dark"
+                  :content="t('visualization.no_permission_tips')"
+                  :disabled="data.weight > 0"
+                  placement="top-start"
+                >
+                  <span
+                    :title="node.label"
+                    class="label-tooltip ellipsis"
+                    :class="data.type === 'Excel' && 'excel'"
+                    v-if="data.extraFlag > -1"
+                    >{{ node.label }}</span
+                  >
+                </el-tooltip>
+                <el-tooltip
                   v-else
-                  :content="`${t('data_set.invalid_data_source')}: ${node.label}`"
-                  placement="top"
+                  effect="dark"
+                  :content="
+                    data.weight === 0
+                      ? t('visualization.no_permission_tips')
+                      : `${t('data_set.invalid_data_source')}: ${node.label}`
+                  "
+                  placement="top-start"
                 >
                   <span
                     :title="node.label"
@@ -1303,12 +1457,19 @@ const getMenuList = (val: boolean) => {
               <el-table-column
                 key="tableName"
                 prop="tableName"
+                show-overflow-tooltip
                 :label="t('datasource.table_name')"
+              />
+              <el-table-column
+                key="name"
+                prop="name"
+                show-overflow-tooltip
+                :label="t('datasource.table_remarks')"
               />
               <el-table-column
                 key="status"
                 prop="status"
-                v-if="['api'].includes(nodeInfo.type.toLowerCase())"
+                v-if="nodeInfo.type.startsWith('API')"
                 :label="t('data_source.latest_update_status')"
               >
                 <template #default="scope">
@@ -1338,7 +1499,10 @@ const getMenuList = (val: boolean) => {
               <el-table-column
                 key="lastUpdateTime"
                 prop="lastUpdateTime"
-                v-if="['excel', 'api'].includes(nodeInfo.type.toLowerCase())"
+                v-if="
+                  ['excel', 'api'].includes(nodeInfo.type.toLowerCase()) ||
+                  nodeInfo.type.startsWith('API')
+                "
                 :label="t('data_source.latest_update_time')"
               >
                 <template v-slot:default="scope">
@@ -1384,7 +1548,7 @@ const getMenuList = (val: boolean) => {
             <template v-if="slotProps.active">
               <el-row :gutter="24">
                 <el-col :span="12">
-                  <BaseInfoItem :label="t('auth.datasource') + t('common.name')">{{
+                  <BaseInfoItem :label="t('data_source.data_source_name')">{{
                     nodeInfo.name
                   }}</BaseInfoItem>
                 </el-col>
@@ -1397,16 +1561,34 @@ const getMenuList = (val: boolean) => {
               <el-row :gutter="24">
                 <el-col v-if="nodeInfo.type === 'Excel'" :span="12">
                   <BaseInfoItem :label="t('data_source.document')">
-                    <ExcelInfo :name="nodeInfo.fileName" :size="nodeInfo.size"></ExcelInfo>
+                    <ExcelInfoBase :name="nodeInfo.fileName" :size="nodeInfo.size"></ExcelInfoBase>
                   </BaseInfoItem>
                 </el-col>
-                <el-col v-else :span="24">
+                <el-col v-if="nodeInfo.type === 'ExcelRemote' && nodeInfo.configuration" :span="12">
+                  <BaseInfoItem :label="t('datasource.remote_excel_url')">
+                    {{ nodeInfo.configuration.url }}
+                  </BaseInfoItem>
+                </el-col>
+                <el-col v-if="nodeInfo.type === 'ExcelRemote'" :span="12">
+                  <BaseInfoItem :label="t('data_source.document')">
+                    <ExcelInfoBase :name="nodeInfo.fileName" :size="nodeInfo.size"></ExcelInfoBase>
+                  </BaseInfoItem>
+                </el-col>
+                <el-col v-if="!nodeInfo.type.startsWith('Excel')" :span="24">
                   <BaseInfoItem :label="t('common.description')">{{
-                    nodeInfo.description
+                    nodeInfo.description || '-'
                   }}</BaseInfoItem>
                 </el-col>
               </el-row>
-              <template v-if="!['Excel', 'API', 'es'].includes(nodeInfo.type)">
+              <template
+                v-if="
+                  nodeInfo.configuration &&
+                  !['Excel', 'es'].includes(nodeInfo.type) &&
+                  !nodeInfo.type.startsWith('API') &&
+                  !nodeInfo.type.startsWith('Excel') &&
+                  nodeInfo.weight >= 7
+                "
+              >
                 <el-row :gutter="24" v-show="nodeInfo.configuration.urlType !== 'jdbcUrl'">
                   <el-col :span="12">
                     <BaseInfoItem :label="t('datasource.host')">{{
@@ -1536,8 +1718,14 @@ const getMenuList = (val: boolean) => {
                     </el-col>
                   </el-row>
                 </template>
+
+                <!--    数据填报      -->
+                <XpackComponent
+                  :nodeInfo="nodeInfo"
+                  jsname="L2NvbXBvbmVudC9kYXRhLWZpbGxpbmcvRGF0YXNvdXJjZURhdGFGaWxsaW5nSW5mbw=="
+                />
               </template>
-              <template v-if="['es'].includes(nodeInfo.type)">
+              <template v-if="['es'].includes(nodeInfo.type) && nodeInfo.weight >= 7">
                 <el-row :gutter="24">
                   <el-col :span="12">
                     <BaseInfoItem :label="t('datasource.datasource_url')">{{
@@ -1549,11 +1737,11 @@ const getMenuList = (val: boolean) => {
             </template>
           </BaseInfoContent>
           <BaseInfoContent
-            v-if="nodeInfo.type === 'API'"
+            v-if="nodeInfo.type.startsWith('API') && nodeInfo.weight >= 7"
             v-slot="slotProps"
             :name="t('datasource.data_table')"
           >
-            <div class="api-card-content" v-if="slotProps.active">
+            <div class="api-card-content" v-if="slotProps.active && nodeInfo.apiConfiguration">
               <div v-for="api in nodeInfo.apiConfiguration" :key="api.id" class="api-card">
                 <el-row>
                   <el-col :span="19">
@@ -1577,14 +1765,9 @@ const getMenuList = (val: boolean) => {
                     </el-button>
                   </el-col>
                 </el-row>
-                <el-row>
-                  <el-col :span="19">
-                    <span
-                      >{{ t('data_source.data_time') }}
-                      {{ timestampFormatDate(api['updateTime']) }}</span
-                    >
-                  </el-col>
-                </el-row>
+                <div>
+                  {{ t('data_source.data_time') }} {{ timestampFormatDate(api['updateTime']) }}
+                </div>
 
                 <div class="req-title">
                   <span>{{ t('datasource.method') }}</span>
@@ -1592,7 +1775,7 @@ const getMenuList = (val: boolean) => {
                 </div>
                 <div class="req-value">
                   <span>{{ api.method }}</span>
-                  <el-tooltip w effect="dark" :content="api.url" placement="top">
+                  <el-tooltip effect="dark" :content="api.url" placement="top">
                     <span>{{ api.url }}</span>
                   </el-tooltip>
                 </div>
@@ -1606,44 +1789,11 @@ const getMenuList = (val: boolean) => {
             </el-button>
           </BaseInfoContent>
           <BaseInfoContent
-            v-if="nodeInfo.type === 'API'"
-            v-slot="slotProps"
-            :name="t('dataset.update_setting')"
-            :time="(nodeInfo.lastSyncTime as string)"
-          >
-            <template v-if="slotProps.active">
-              <el-row :gutter="24">
-                <el-col :span="12">
-                  <BaseInfoItem :label="t('dataset.update_type')">{{
-                    t(`dataset.${nodeInfo.syncSetting.updateType}`)
-                  }}</BaseInfoItem>
-                </el-col>
-                <el-col :span="12">
-                  <BaseInfoItem :label="t('dataset.execute_rate')">
-                    <p
-                      class="value"
-                      :key="ele"
-                      v-for="ele in formatSimpleCron(nodeInfo.syncSetting)"
-                    >
-                      {{ ele }}
-                    </p>
-                  </BaseInfoItem>
-                </el-col>
-              </el-row>
-            </template>
-            <el-button @click="getRecord" class="update-records" text>
-              <template #icon>
-                <icon name="icon_describe_outlined"
-                  ><icon_describe_outlined class="svg-icon"
-                /></icon>
-              </template>
-              {{ t('dataset.update_records') }}
-            </el-button>
-          </BaseInfoContent>
-          <BaseInfoContent
-            v-if="nodeInfo.type === 'Excel'"
+            v-if="nodeInfo.type.startsWith('Excel')"
             v-slot="slotProps"
             :name="t('dataset.data_preview')"
+            :time="nodeInfo.lastSyncTime"
+            :showTime="nodeInfo.type === 'ExcelRemote'"
           >
             <template v-if="slotProps.active">
               <div class="excel-table">
@@ -1675,6 +1825,60 @@ const getMenuList = (val: boolean) => {
               </div>
             </template>
           </BaseInfoContent>
+          <BaseInfoContent
+            v-if="
+              (nodeInfo.type.startsWith('API') || nodeInfo.type === 'ExcelRemote') &&
+              nodeInfo.weight >= 7
+            "
+            v-slot="slotProps"
+            :name="t('dataset.update_setting')"
+            :time="(nodeInfo.lastSyncTime as string)"
+          >
+            <template v-if="slotProps.active">
+              <el-row :gutter="24">
+                <el-col :span="12">
+                  <BaseInfoItem :label="t('dataset.update_type')">{{
+                    t(`dataset.${nodeInfo.syncSetting.updateType}`)
+                  }}</BaseInfoItem>
+                </el-col>
+                <el-col :span="12">
+                  <BaseInfoItem :label="t('dataset.execute_rate')">
+                    <p
+                      class="value"
+                      :key="ele"
+                      v-for="ele in formatSimpleCron(nodeInfo.syncSetting)"
+                    >
+                      {{ ele }}
+                    </p>
+                  </BaseInfoItem>
+                </el-col>
+              </el-row>
+            </template>
+            <div class="update-actions">
+              <el-button
+                v-if="nodeInfo.type === 'ExcelRemote'"
+                @click="updateRemoteExcelDs"
+                :loading="syncRemoteExcelDsLoading"
+                class="update-records"
+                text
+              >
+                <template #icon>
+                  <icon name="icon_replace_outlined"
+                    ><icon_replace_outlined class="svg-icon"
+                  /></icon>
+                </template>
+                {{ t('datasource.execute_once') }}
+              </el-button>
+              <el-button @click="getRecord" class="update-records" text>
+                <template #icon>
+                  <icon name="icon_describe_outlined"
+                    ><icon_describe_outlined class="svg-icon"
+                  /></icon>
+                </template>
+                {{ t('dataset.update_records') }}
+              </el-button>
+            </div>
+          </BaseInfoContent>
         </template>
       </template>
       <template v-else-if="mounted">
@@ -1689,24 +1893,26 @@ const getMenuList = (val: boolean) => {
       width="840px"
       top="60px"
     >
-      <el-row :gutter="24">
-        <el-col :span="12">
-          <p class="table-name">
-            {{ t('datasource.table_name') }}
-          </p>
-          <p class="table-value">
-            {{ dsTableDetail.tableName }}
-          </p>
-        </el-col>
-        <el-col :span="12">
-          <p class="table-name">
-            {{ t('datasource.table_description') }}
-          </p>
-          <p class="table-value">
-            {{ dsTableDetail.name || '-' }}
-          </p>
-        </el-col>
-      </el-row>
+      <div style="overflow: hidden">
+        <el-row :gutter="24">
+          <el-col :span="12">
+            <p class="table-name">
+              {{ t('datasource.table_name') }}
+            </p>
+            <p :title="dsTableDetail.tableName" class="table-value">
+              {{ dsTableDetail.tableName }}
+            </p>
+          </el-col>
+          <el-col :span="12">
+            <p class="table-name">
+              {{ t('datasource.table_description') }}
+            </p>
+            <p :title="dsTableDetail.name" class="table-value">
+              {{ dsTableDetail.name || '-' }}
+            </p>
+          </el-col>
+        </el-row>
+      </div>
       <el-scrollbar>
         <el-table
           v-loading="dsTableDataLoading"
@@ -1848,10 +2054,10 @@ const getMenuList = (val: boolean) => {
 @import '@/style/mixin.less';
 
 .filter-icon-span {
-  border: 1px solid #bbbfc4;
+  border: 1px solid #d9dcdf;
   width: 32px;
   height: 32px;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #1f2329;
   padding: 8px;
   margin-left: 8px;
@@ -1922,6 +2128,17 @@ const getMenuList = (val: boolean) => {
 
           &:hover {
             cursor: pointer;
+            &::after {
+              content: '';
+              background-color: var(--ed-color-primary-1a, #3370ff1a);
+              width: 28px;
+              height: 28px;
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              border-radius: 6px;
+              transform: translate(-50%, -50%);
+            }
           }
         }
       }
@@ -1933,10 +2150,17 @@ const getMenuList = (val: boolean) => {
     }
   }
 
-  .update-records {
+  .update-actions {
     position: absolute;
     top: 19px;
     right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .update-records {
+    margin: 0;
   }
 
   .update-info {
@@ -1986,9 +2210,9 @@ const getMenuList = (val: boolean) => {
   .api-card {
     width: calc(50% - 16px);
     height: 140px;
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid var(--deCardStrokeColor, #dee0e3);
-    border-radius: 4px;
+    border-radius: 6px;
     margin: 0 0 16px 16px;
     padding: 16px;
     font-family: var(--de-custom_font, 'PingFang');
@@ -1996,7 +2220,7 @@ const getMenuList = (val: boolean) => {
       font-size: 16px;
       font-weight: 500;
       margin-right: 8px;
-      max-width: 80%;
+      max-width: 70%;
       display: inline-flex;
     }
     .req-title,
@@ -2005,7 +2229,7 @@ const getMenuList = (val: boolean) => {
       font-size: 14px;
       font-weight: 400;
       :nth-child(1) {
-        width: 100px;
+        width: 110px;
       }
 
       :nth-child(2) {
@@ -2129,7 +2353,7 @@ const getMenuList = (val: boolean) => {
 
         .name {
           margin-left: 8px;
-          max-width: 200px;
+          max-width: 400px;
         }
 
         .create-user {
@@ -2167,7 +2391,7 @@ const getMenuList = (val: boolean) => {
       padding: 24px;
       margin: 24px;
       background: #fff;
-      height: calc(100vh - 190px);
+      height: calc(100vh - 200px);
 
       .search-operate {
         width: 280px;
@@ -2187,20 +2411,24 @@ const getMenuList = (val: boolean) => {
 }
 
 .custom-tree-node {
-  width: calc(100% - 30px);
+  width: calc(100% - 34px);
   display: flex;
   align-items: center;
   box-sizing: content-box;
   padding-right: 4px;
 
   .label-tooltip {
-    width: 100%;
+    width: calc(100% - 40px);
     margin-left: 8.75px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 18px;
   }
 
   .icon-more {
     margin-left: auto;
-    display: none;
+    opacity: 0;
   }
 
   &:hover {
@@ -2213,9 +2441,14 @@ const getMenuList = (val: boolean) => {
     }
 
     .icon-more {
-      display: inline-flex;
+      opacity: 1;
     }
   }
+}
+
+.node-disabled-custom {
+  color: rgba(187, 191, 196, 1);
+  cursor: not-allowed;
 }
 </style>
 <style lang="less">
@@ -2249,6 +2482,10 @@ const getMenuList = (val: boolean) => {
     font-size: 14px;
     font-weight: 400;
     margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
   }
 
   .table-name {

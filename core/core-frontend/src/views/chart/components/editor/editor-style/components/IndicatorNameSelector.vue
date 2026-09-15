@@ -6,20 +6,18 @@ import { PropType, computed, onMounted, reactive, watch, nextTick } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import {
   COLOR_PANEL,
-  CHART_FONT_FAMILY,
   CHART_FONT_LETTER_SPACE,
   DEFAULT_INDICATOR_NAME_STYLE,
-  DEFAULT_BASIC_STYLE
+  DEFAULT_BASIC_STYLE,
+  CHART_FONT_FAMILY_ORIGIN
 } from '@/views/chart/components/editor/util/chart'
 import { cloneDeep, defaultsDeep } from 'lodash-es'
 import Icon from '@/components/icon-custom/src/Icon.vue'
-import { hexColorToRGBA } from '@/views/chart/components/js/util'
-import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
-import { storeToRefs } from 'pinia'
+import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
 
 const { t } = useI18n()
-const dvMainStore = dvMainStoreWithOut()
-const { batchOptStatus } = storeToRefs(dvMainStore)
+const appearanceStore = useAppearanceStoreWithOut()
+
 const props = defineProps({
   chart: {
     type: Object,
@@ -36,11 +34,21 @@ const props = defineProps({
 
 const emit = defineEmits(['onIndicatorNameChange'])
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 const predefineColors = COLOR_PANEL
-const fontFamily = CHART_FONT_FAMILY
+const fontFamily = CHART_FONT_FAMILY_ORIGIN.concat(
+  appearanceStore.fontList.map(ele => ({
+    name: ele.name,
+    value: ele.name
+  }))
+)
 const fontLetterSpace = CHART_FONT_LETTER_SPACE
+
+const namePositionList = [
+  { name: t('chart.name_position_top'), value: 'top' },
+  { name: t('chart.name_position_bottom'), value: 'bottom' }
+]
 
 const state = reactive({
   indicatorNameForm: JSON.parse(JSON.stringify(DEFAULT_INDICATOR_NAME_STYLE)),
@@ -50,6 +58,12 @@ const state = reactive({
 const fontSizeList = computed(() => {
   const arr = []
   for (let i = 10; i <= 60; i = i + 2) {
+    arr.push({
+      name: i + '',
+      value: i
+    })
+  }
+  for (let i = 70; i <= 210; i += 10) {
     arr.push({
       name: i + '',
       value: i
@@ -76,12 +90,6 @@ const init = () => {
     cloneDeep(DEFAULT_INDICATOR_NAME_STYLE)
   )
 
-  if (state.basicStyleForm.alpha !== undefined) {
-    const color = hexColorToRGBA(state.basicStyleForm.colors[2], state.basicStyleForm.alpha)
-
-    customText.color = color
-  }
-
   state.indicatorNameForm = cloneDeep(customText)
 
   //第一次颜色可能赋值失败，单独赋值一次
@@ -97,9 +105,7 @@ onMounted(() => {
 watch(
   () => props.chart?.customAttr?.indicatorName,
   () => {
-    if (!batchOptStatus.value) {
-      init()
-    }
+    init()
   },
   { deep: true }
 )
@@ -118,6 +124,7 @@ defineExpose({ getFormData })
       :disabled="!state.indicatorNameForm.show"
       :model="state.indicatorNameForm"
       label-position="top"
+      size="small"
     >
       <el-form-item
         class="form-item"
@@ -153,7 +160,7 @@ defineExpose({ getFormData })
           />
         </el-form-item>
         <el-form-item class="form-item" :class="'form-item-' + themes" style="padding: 0 4px">
-          <el-tooltip content="字号" :effect="toolTip" placement="top">
+          <el-tooltip :content="t('chart.font_size')" :effect="toolTip" placement="top">
             <el-select
               style="width: 56px"
               :effect="themes"
@@ -172,7 +179,11 @@ defineExpose({ getFormData })
           </el-tooltip>
         </el-form-item>
 
-        <el-form-item class="form-item" :class="'form-item-' + themes" style="padding-left: 4px">
+        <el-form-item
+          class="form-item"
+          :class="'form-item-' + themes"
+          style="width: 106px; padding-left: 4px"
+        >
           <el-select
             size="small"
             :effect="themes"
@@ -273,6 +284,27 @@ defineExpose({ getFormData })
           @change="changeTitleStyle('nameValueSpacing')"
         />
       </el-form-item>
+      <el-form-item
+        class="form-item name-value-spacing-input"
+        :class="'form-item-' + themes"
+        :label="t('chart.name_position')"
+      >
+        <el-select
+          :effect="themes"
+          v-model="state.indicatorNameForm.namePosition"
+          size="small"
+          style="width: 100%"
+          @change="changeTitleStyle('namePosition')"
+        >
+          <el-option
+            class="custom-style-option"
+            v-for="option in namePositionList"
+            :key="option.value"
+            :label="option.name"
+            :value="option.value"
+          />
+        </el-select>
+      </el-form-item>
     </el-form>
   </div>
 </template>
@@ -287,7 +319,7 @@ defineExpose({ getFormData })
   width: 24px;
   height: 24px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 6px;
   padding-top: 4px;
 
   color: #1f2329;
@@ -377,7 +409,7 @@ defineExpose({ getFormData })
   }
 }
 .remark-label {
-  color: var(--N600, #646a73);
+  color: @canvas-main-font-color;
   font-family: var(--de-custom_font, 'PingFang');
   font-size: 12px;
   font-style: normal;
@@ -385,7 +417,7 @@ defineExpose({ getFormData })
   line-height: 20px;
 
   &.remark-label--dark {
-    color: var(--N600-Dark, #a6a6a6);
+    color: @canvas-main-font-color-dark;
   }
 }
 .name-value-spacing-input {

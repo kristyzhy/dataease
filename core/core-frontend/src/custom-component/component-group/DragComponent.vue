@@ -4,7 +4,7 @@ import Icon from '@/components/icon-custom/src/Icon.vue'
 
 const props = defineProps({
   icon: {
-    type: String,
+    type: Object,
     required: false
   },
   name: {
@@ -34,9 +34,7 @@ const { icon, name, label, dragInfo, themes } = toRefs(props)
   <div class="drag-component" :class="'drag-' + themes">
     <div draggable="true" :data-id="dragInfo" class="icon-content">
       <span v-if="name" class="label-content">{{ name }}</span>
-      <Icon v-if="icon" class="drag-icon"
-        ><component class="svg-icon drag-icon" :is="icon"></component
-      ></Icon>
+      <Icon v-if="icon"><component class="svg-icon drag-icon" :is="icon"></component></Icon>
     </div>
     <div class="label-content">
       <span>{{ label }}</span>
@@ -54,13 +52,13 @@ const { icon, name, label, dragInfo, themes } = toRefs(props)
   }
 }
 .drag-component {
-  border-radius: 4px;
+  border-radius: 6px;
   width: 88px !important;
   margin-right: 12px;
   .icon-content {
     width: 88px !important;
     height: 64px !important;
-    border-radius: 4px;
+    border-radius: 6px;
     &:hover {
       border: 1px solid var(--ed-color-primary);
       cursor: pointer;
@@ -75,11 +73,10 @@ const { icon, name, label, dragInfo, themes } = toRefs(props)
     .drag-icon {
       height: 40px;
       width: 40px;
-      color: #3370ff;
+      color: var(--ed-color-primary, #3370ff);
     }
   }
   .label-content {
-    color: @canvas-main-font-color;
     text-align: center;
     line-height: 20px;
     font-size: 12px;

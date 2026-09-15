@@ -15,11 +15,14 @@ import { fieldType } from '@/utils/attr'
 import type { ApiConfiguration } from '@/views/visualized/data/datasource/form/option'
 import { cancelMap } from '@/config/axios/service'
 import { iconFieldMap } from '@/components/icon-group/field-list'
+import { PluginComponent } from '@/components/plugin'
 
 export interface Field {
   name: string
+  length: number
   value: Array<{}>
   checked: boolean
+  primaryKey: boolean
   children?: Array<{}>
 }
 
@@ -27,8 +30,12 @@ export interface ApiItem {
   status: string
   name: string
   type: string
+  appToken: string
+  tableId: string
+  viewId: string
   deTableName?: string
   url: string
+  copy: boolean
   method: string
   request: ApiRequest
   fields: Field[]
@@ -46,6 +53,8 @@ export interface JsonField {
   children: null
   name: string
   checked: false
+  primaryKey: false
+  length: string
   extField: number
   jsonPath: string
   type: string
@@ -61,6 +70,7 @@ const originFieldItem = reactive({
 
 let apiItemList = reactive<ApiConfiguration[]>([])
 let paramsList = reactive<ApiConfiguration[]>([])
+let fields = reactive<Field[]>([])
 
 let apiItem = reactive<ApiItem>({
   status: '',
@@ -103,6 +113,8 @@ const columns = shallowRef([])
 const valueList = shallowRef([])
 const tableData = shallowRef([])
 const apiItemBasicInfo = ref<FormInstance>()
+const xpackApiItemBasicInfo = ref<FormInstance>()
+const isSupportSetKey = ref(false)
 const isNumber = (rule, value, callback) => {
   if (!value) {
     callback(new Error(t('datasource.please_input_query_timeout')))
@@ -115,7 +127,7 @@ const isNumber = (rule, value, callback) => {
     callback(new Error(t('datasource.please_input_query_timeout')))
     return
   }
-  if (value <= 0 || value > 300) {
+  if (value <= 0) {
     callback(new Error(t('datasource.please_input_query_timeout')))
     return
   }
@@ -157,13 +169,54 @@ const rule = reactive<FormRules>({
   ]
 })
 const activeName = ref('table')
+const editItem = ref(false)
+const copyItem = ref(false)
+const dsType = ref('API')
+const jsName = ref('')
+const isPlugin = ref(false)
+const pluginDs = ref([])
+const pluginIndex = ref('')
+const copyDs = ref(false)
 provide('api-active-name', activeName)
-const initApiItem = (val: ApiItem, from, name) => {
+const initApiItem = (
+  val: ApiItem,
+  from,
+  name,
+  edit,
+  supportSetKey,
+  pluginDsList,
+  indexPlugin,
+  isPluginDs
+) => {
+  pluginDs.value = pluginDsList
+  pluginIndex.value = indexPlugin
+  if (!isPluginDs) {
+    const arr = pluginDs.value.filter(ele => {
+      return ele.type === from.type
+    })
+    if (arr && arr.length > 0) {
+      isPlugin.value = true
+    }
+  } else {
+    isPlugin.value = isPluginDs
+  }
+
+  copyItem.value = val.copy
+  copyDs.value = from.copy
+  dsType.value = from.type
+  isSupportSetKey.value = supportSetKey
   activeName.value = name
+  editItem.value = edit
   apiItemList = from.apiConfiguration
-  paramsList = from.paramsConfiguration
-  if (val.type !== 'params') {
-    valueList.value = []
+  fields = val.fields
+  if (from.paramsConfiguration) {
+    paramsList = from.paramsConfiguration
+  }
+  if (isPlugin.value) {
+    jsName.value = getPluginStatic()
+  }
+  valueList.value = []
+  if (paramsList) {
     for (let i = 0; i < paramsList.length; i++) {
       valueList.value = valueList.value.concat(paramsList[i].fields)
     }
@@ -172,7 +225,18 @@ const initApiItem = (val: ApiItem, from, name) => {
   edit_api_item.value = true
   active.value = 0
   nextTick(() => {
-    apiItemBasicInfo.value.clearValidate()
+    if (isPlugin.value) {
+      xpackApiItemBasicInfo?.value?.invokeMethod({
+        methodName: 'clearForm',
+        args: []
+      })
+      xpackApiItemBasicInfo?.value?.invokeMethod({
+        methodName: 'initForm',
+        args: []
+      })
+    } else {
+      apiItemBasicInfo.value.clearValidate()
+    }
   })
 }
 
@@ -183,7 +247,7 @@ const showApiData = () => {
       const params = Base64.encode(JSON.stringify(paramsList))
       loading.value = true
       cancelMap['/datasource/checkApiDatasource']?.()
-      checkApiItem({ data: data, type: 'apiStructure', paramsList: params })
+      checkApiItem({ dsType: dsType.value, data: data, type: 'apiStructure', paramsList: params })
         .then(response => {
           originFieldItem.jsonFields = response.data.jsonFields
         })
@@ -236,6 +300,7 @@ const saveItem = () => {
       }
     }
   }
+
   for (let i = 0; i < apiItem.fields.length - 1; i++) {
     for (let j = i + 1; j < apiItem.fields.length; j++) {
       if (apiItem.fields[i].name === apiItem.fields[j].name) {
@@ -244,90 +309,205 @@ const saveItem = () => {
       }
     }
   }
+  if (editItem.value) {
+    let msg = ''
+    for (let i = 0; i < apiItem.fields.length; i++) {
+      if (apiItem.fields[i].primaryKey) {
+        let find = false
+        for (let j = 0; j < fields.length; j++) {
+          if (fields[j].name === apiItem.fields[i].name && fields[j].primaryKey) {
+            find = true
+          }
+        }
+        if (!find) {
+          msg = msg + ' ' + apiItem.fields[i].name
+        }
+      }
+    }
+    for (let i = 0; i < fields.length; i++) {
+      if (fields[i].primaryKey) {
+        let find = false
+        for (let j = 0; j < apiItem.fields.length; j++) {
+          if (fields[i].name === apiItem.fields[j].name && apiItem.fields[j].primaryKey) {
+            find = true
+          }
+        }
+        if (!find) {
+          msg = msg + ' ' + fields[i].name
+        }
+      }
+    }
+    if (msg !== '' && !(copyDs.value || copyItem.value)) {
+      ElMessage.error(t('datasource.primary_key_change') + msg)
+      return
+    }
+    for (let i = 0; i < apiItem.fields.length; i++) {
+      if (
+        apiItem.fields[i].primaryKey &&
+        !apiItem.fields[i].length &&
+        apiItem.fields[i].deExtractType === 0
+      ) {
+        ElMessage.error(t('datasource.primary_key_length') + apiItem.fields[i].name)
+        return
+      }
+    }
+  } else {
+    for (let i = 0; i < apiItem.fields.length; i++) {
+      if (
+        apiItem.fields[i].primaryKey &&
+        !apiItem.fields[i].length &&
+        apiItem.fields[i].deExtractType === 0
+      ) {
+        ElMessage.error(t('datasource.primary_key_length') + apiItem.fields[i].name)
+        return
+      }
+    }
+  }
   returnAPIItem('returnItem', cloneDeep(apiItem))
+  if (isPlugin.value) {
+    xpackApiItemBasicInfo?.value?.invokeMethod({
+      methodName: 'resetForm',
+      args: []
+    })
+  }
   edit_api_item.value = false
 }
 const before = () => {
   active.value -= 1
 }
+
 const next = () => {
-  apiItemBasicInfo.value.validate(val => {
-    if (val) {
-      if (apiItem.useJsonPath && !apiItem.jsonPath) {
-        ElMessage.error(t('datasource.please_input_dataPath'))
-        return
+  if (isPlugin.value) {
+    xpackApiItemBasicInfo?.value?.invokeMethod({
+      methodName: 'submitForm',
+      args: [{ eventName: 'stepNext', args: apiItem }]
+    })
+  } else {
+    apiItemBasicInfo.value.validate(val => {
+      if (val) {
+        stepNext()
       }
-      if (apiItem.type === 'params') {
-        for (let i = 0; i < paramsList.length; i++) {
-          if (
-            paramsList[i].name === apiItem.name &&
-            apiItem.serialNumber !== paramsList[i].serialNumber
-          ) {
-            ElMessage.error(t('data_source.name_already_exists_de'))
-            return
-          }
-        }
-      } else {
-        for (let i = 0; i < apiItemList.length; i++) {
-          if (
-            apiItemList[i].name === apiItem.name &&
-            apiItem.serialNumber !== apiItemList[i].serialNumber
-          ) {
-            ElMessage.error(t('datasource.has_repeat_name'))
-            return
-          }
-        }
-      }
-
-      cancelMap['/datasource/checkApiDatasource']?.()
-
-      const params = Base64.encode(JSON.stringify(paramsList))
-      disabledNext.value = true
-      formLoading.value = true
-      checkApiItem({ data: Base64.encode(JSON.stringify(apiItem)), paramsList: params })
-        .then(response => {
-          disabledNext.value = false
-          formLoading.value = false
-          apiItem.jsonFields = response.data.jsonFields
-          apiItem.fields = []
-          handleFiledChange(apiItem)
-          previewData()
-          active.value += 1
-        })
-        .catch(error => {
-          disabledNext.value = false
-          formLoading.value = false
-          console.warn(error?.message)
-        })
-    }
-  })
+    })
+  }
 }
 
+const stepNext = () => {
+  if (apiItem.useJsonPath && !apiItem.jsonPath) {
+    ElMessage.error(t('datasource.please_input_dataPath'))
+    return
+  }
+  if (apiItem.type === 'params') {
+    for (let i = 0; i < paramsList.length; i++) {
+      if (
+        paramsList[i].name === apiItem.name &&
+        apiItem.serialNumber !== paramsList[i].serialNumber
+      ) {
+        ElMessage.error(t('data_source.name_already_exists_de'))
+        return
+      }
+    }
+  } else {
+    for (let i = 0; i < apiItemList.length; i++) {
+      if (
+        apiItemList[i].name === apiItem.name &&
+        apiItem.serialNumber !== apiItemList[i].serialNumber
+      ) {
+        ElMessage.error(t('datasource.has_repeat_name'))
+        return
+      }
+    }
+  }
+  cancelMap['/datasource/checkApiDatasource']?.()
+  const params = Base64.encode(JSON.stringify(paramsList))
+  disabledNext.value = true
+  formLoading.value = true
+  checkApiItem({
+    dsType: dsType.value,
+    data: Base64.encode(JSON.stringify(apiItem)),
+    paramsList: params
+  })
+    .then(response => {
+      disabledNext.value = false
+      formLoading.value = false
+      apiItem.jsonFields = response.data.jsonFields
+      apiItem.fields = []
+      apiItem.name = response.data.name
+      handleFiledChange(apiItem)
+      previewData()
+      active.value += 1
+    })
+    .catch(error => {
+      disabledNext.value = false
+      formLoading.value = false
+      console.warn(error?.message)
+    })
+}
 const validate = () => {
-  apiItemBasicInfo.value.validate(val => {
-    if (val) {
-      if (apiItem.useJsonPath && !apiItem.jsonPath) {
-        ElMessage.error(t('datasource.please_input_dataPath'))
+  if (isPlugin.value) {
+    xpackApiItemBasicInfo?.value?.invokeMethod({
+      methodName: 'submitForm',
+      args: [{ eventName: 'validateItem', args: apiItem }]
+    })
+  } else {
+    apiItemBasicInfo.value.validate(val => {
+      if (!val) {
         return
+      } else {
+        validateItem()
       }
-      cancelMap['/datasource/checkApiDatasource']?.()
-      const params = Base64.encode(JSON.stringify(paramsList))
-      checkApiItem({ data: Base64.encode(JSON.stringify(apiItem)), paramsList: params })
-        .then(response => {
-          apiItem.jsonFields = response.data.jsonFields
-          apiItem.fields = []
-          handleFiledChange(apiItem)
-          previewData()
-          ElMessage.success(t('datasource.validate_success'))
-        })
-        .catch(() => {
-          ElMessage.error(t('data_source.verification_failed'))
-        })
+    })
+  }
+}
+
+const validateItem = () => {
+  if (apiItem.useJsonPath && !apiItem.jsonPath) {
+    ElMessage.error(t('datasource.please_input_dataPath'))
+    return
+  }
+  cancelMap['/datasource/checkApiDatasource']?.()
+  const params = Base64.encode(JSON.stringify(paramsList))
+  formLoading.value = true
+  checkApiItem({
+    dsType: dsType.value,
+    data: Base64.encode(JSON.stringify(apiItem)),
+    paramsList: params
+  })
+    .then(response => {
+      formLoading.value = false
+      apiItem.jsonFields = response.data.jsonFields
+      apiItem.fields = []
+      apiItem.name = response.data.name
+      handleFiledChange(apiItem)
+      previewData()
+      ElMessage.success(t('datasource.validate_success'))
+    })
+    .catch(() => {
+      formLoading.value = false
+      ElMessage.error(t('data_source.verification_failed'))
+    })
+}
+
+const handleSubmit = param => {
+  const validateFrom = param.validate
+  validateFrom(val => {
+    if (val) {
+      if (param.eventName === 'validateItem') {
+        validateItem()
+      } else {
+        stepNext()
+      }
     }
   })
 }
+
 const closeEditItem = () => {
   cancelMap['/datasource/checkApiDatasource']?.()
+  if (isPlugin.value) {
+    xpackApiItemBasicInfo?.value?.invokeMethod({
+      methodName: 'resetForm',
+      args: []
+    })
+  }
   edit_api_item.value = false
 }
 
@@ -339,6 +519,30 @@ const disabledByChildren = item => {
   }
 }
 
+const disabledFieldLength = item => {
+  if (item.hasOwnProperty('children') && item.children.length > 0) {
+    return true
+  } else {
+    return item.deExtractType !== 0
+  }
+}
+
+const disabledSetKey = item => {
+  if (item.hasOwnProperty('children') && item.children.length > 0) {
+    return true
+  }
+  if (copyItem.value || copyDs.value) {
+    return false
+  }
+  if (editItem.value) {
+    return true
+  }
+  if (!item.checked) {
+    return true
+  }
+  return false
+}
+
 const disabledChangeFieldByChildren = item => {
   if (apiItem.type == 'params') {
     return true
@@ -347,6 +551,12 @@ const disabledChangeFieldByChildren = item => {
     return true
   } else {
     return false
+  }
+}
+
+const deExtractTypeChange = item => {
+  if (item.deExtractType !== 0) {
+    item.length = ''
   }
 }
 const previewData = () => {
@@ -435,6 +645,18 @@ const changeId = (val: string) => {
 
 const activeColumnInfo = ref(true)
 const activeDataPreview = ref(true)
+
+const getPluginStatic = () => {
+  const arr = pluginDs.value.filter(ele => {
+    return ele.type === dsType.value
+  })
+  return pluginIndex.value
+    ? pluginIndex.value
+    : arr && arr.length > 0
+    ? arr[0].staticMap?.index
+    : null
+}
+
 const returnAPIItem = defineEmits(['returnItem'])
 
 defineExpose({
@@ -448,41 +670,31 @@ defineExpose({
       activeName === 'table' ? t('datasource.data_table') : t('data_source.interface_parameters')
     "
     v-model="edit_api_item"
-    custom-class="api-datasource-drawer"
-    size="840px"
+    modal-class="api-datasource-drawer"
+    size="1000px"
     :before-close="closeEditItem"
     direction="rtl"
   >
-    <div class="flex-center">
-      <el-steps :active="active" align-center>
+    <div style="display: flex; width: 100%; justify-content: center">
+      <el-steps custom style="max-width: 400px; flex: 1" :active="active" align-center>
         <el-step>
-          <template #icon>
-            <div class="step-icon">
-              <span class="icon">
-                {{ active <= 0 ? '1' : '' }}
-              </span>
-              <span class="title">{{ t('datasource.api_step_1') }}</span>
-            </div>
+          <template #title>
+            {{ t('datasource.api_step_1') }}
           </template>
         </el-step>
         <el-step>
-          <template #icon>
-            <div class="step-icon">
-              <span class="icon">
-                {{ active <= 1 ? '2' : '' }}
-              </span>
-              <span class="title">{{
-                activeName === 'table'
-                  ? t('datasource.api_step_2')
-                  : t('data_source.extract_parameters')
-              }}</span>
-            </div>
+          <template #title>
+            {{
+              activeName === 'table'
+                ? t('datasource.api_step_2')
+                : t('data_source.extract_parameters')
+            }}
           </template>
         </el-step>
       </el-steps>
     </div>
 
-    <el-row v-show="active === 0">
+    <el-row v-show="active === 0 && dsType === 'API'">
       <el-form
         ref="apiItemBasicInfo"
         :model="apiItem"
@@ -527,7 +739,7 @@ defineExpose({
             <span>{{ t('datasource.req_param') }}</span>
           </div>
           <!-- HTTP 请求参数 -->
-          <el-form-item>
+          <el-form-item class="line-height_18">
             <api-http-request-form
               v-if="edit_api_item"
               :request="apiItem.request"
@@ -587,6 +799,16 @@ defineExpose({
         </div>
       </el-form>
     </el-row>
+    <el-row v-show="active === 0 && dsType !== 'API'">
+      <plugin-component
+        :jsname="jsName"
+        :api-item="apiItem"
+        ref="xpackApiItemBasicInfo"
+        @submitForm="handleSubmit"
+        v-if="dsType !== 'API'"
+      >
+      </plugin-component>
+    </el-row>
     <el-row v-show="active === 1">
       <el-form
         style="width: 100%"
@@ -618,17 +840,22 @@ defineExpose({
               class-name="checkbox-table"
               prop="originName"
               :label="t('datasource.parse_filed')"
-              :show-overflow-tooltip="true"
-              width="255"
+              width="200"
             >
               <template #default="scope">
                 <el-checkbox
+                  style="display: inline-block; max-width: 80px; white-space: nowrap"
                   :key="scope.row.jsonPath"
                   v-model="scope.row.checked"
                   :disabled="apiItem.useJsonPath"
                   @change="handleCheckAllChange(scope.row)"
                 >
-                  {{ scope.row.originName }}
+                  <span
+                    :title="scope.row.originName"
+                    class="ellipsis"
+                    style="display: inline-block; max-width: 80px; line-height: 16px"
+                    >{{ scope.row.originName }}</span
+                  >
                 </el-checkbox>
               </template>
             </el-table-column>
@@ -646,7 +873,7 @@ defineExpose({
             <el-table-column
               prop="deExtractType"
               :label="t('datasource.field_type')"
-              :disabled="apiItem.type == 'params'"
+              :disabled="apiItem.type === 'params'"
             >
               <template #default="scope">
                 <el-select
@@ -654,6 +881,7 @@ defineExpose({
                   :disabled="disabledChangeFieldByChildren(scope.row)"
                   class="select-type"
                   style="display: inline-block; width: 120px"
+                  @change="deExtractTypeChange(scope.row)"
                 >
                   <template #prefix>
                     <el-icon>
@@ -688,6 +916,42 @@ defineExpose({
                     }}</span>
                   </el-option>
                 </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="length"
+              :label="t('datasource.length')"
+              v-if="apiItem.type !== 'params'"
+            >
+              <template #default="scope">
+                <el-input-number
+                  :disabled="disabledFieldLength(scope.row)"
+                  v-model="scope.row.length"
+                  autocomplete="off"
+                  step-strictly
+                  class="text-left edit-all-line"
+                  :min="1"
+                  :max="512"
+                  :placeholder="t('common.inputText')"
+                  controls-position="right"
+                  type="number"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="primaryKey"
+              class-name="checkbox-table"
+              :label="t('datasource.set_key')"
+              v-if="apiItem.type !== 'params' && isSupportSetKey"
+              width="100"
+            >
+              <template #default="scope">
+                <el-checkbox
+                  :key="scope.row.jsonPath"
+                  v-model="scope.row.primaryKey"
+                  :disabled="disabledSetKey(scope.row)"
+                >
+                </el-checkbox>
               </template>
             </el-table-column>
           </el-table>
@@ -730,7 +994,7 @@ defineExpose({
     </el-row>
     <template #footer>
       <el-button secondary @click="closeEditItem">{{ t('common.cancel') }}</el-button>
-      <el-button v-show="active === 0" secondary @click="validate"
+      <el-button v-show="active === 0" :disabled="formLoading" secondary @click="validate"
         >{{ t('commons.validate') }}
       </el-button>
       <el-button type="primary" v-show="active === 0" :disabled="disabledNext" @click="next"
@@ -747,83 +1011,15 @@ defineExpose({
 <style lang="less">
 .api-datasource-drawer {
   .select-type {
-    .ed-select__prefix--light {
-      border-right: none;
-      padding: 0;
+    .ed-select__prefix {
       font-size: 16px;
+      &::after {
+        display: none;
+      }
     }
   }
   .ed-drawer__body {
     padding: 24px 24px 80px 24px !important;
-  }
-  .flex-center {
-    .ed-steps {
-      width: 630px;
-    }
-    .ed-step.is-center .ed-step__line {
-      width: 208px;
-      right: 104px;
-      z-index: 5;
-      left: calc(100% - 104px);
-    }
-
-    .ed-step__icon.is-icon {
-      width: auto;
-      position: relative;
-      z-index: 0;
-    }
-
-    .ed-step__head.is-finish::after {
-      right: calc(100% - 133px);
-      top: 44%;
-    }
-
-    .ed-step__head.is-process .ed-step__icon {
-      background-color: transparent;
-      .step-icon {
-        .icon {
-          background: var(--ed-color-primary);
-        }
-      }
-    }
-
-    .ed-step__head.is-finish .ed-step__icon {
-      background-color: transparent;
-      .step-icon {
-        .icon {
-          border: 1px solid var(--ed-color-primary);
-        }
-      }
-    }
-
-    .ed-step__head.is-wait .ed-step__icon {
-      background-color: transparent;
-      .step-icon {
-        .icon {
-          color: #8f959e;
-          border: 1px solid #8f959e;
-        }
-      }
-    }
-
-    .step-icon {
-      display: flex;
-      padding: 0 48px;
-      align-items: center;
-      .icon {
-        width: 28px;
-        height: 28px;
-        line-height: 27px;
-        border-radius: 50%;
-      }
-      .title {
-        margin-left: 8px;
-        color: #1f2329;
-        font-size: 14px;
-        font-weight: 400;
-        line-height: 22px;
-      }
-    }
   }
 
   .ed-form {
@@ -836,6 +1032,12 @@ defineExpose({
 
   .base-info {
     margin: 24px 0 16px 0;
+  }
+
+  .line-height_18 {
+    .ed-form-item__content {
+      line-height: 18px;
+    }
   }
 
   .request-info {

@@ -12,19 +12,16 @@ import { PropType, computed, onMounted, reactive, watch, nextTick } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import {
   COLOR_PANEL,
-  CHART_FONT_FAMILY,
   CHART_FONT_LETTER_SPACE,
   DEFAULT_INDICATOR_STYLE,
-  DEFAULT_BASIC_STYLE
+  DEFAULT_BASIC_STYLE,
+  CHART_FONT_FAMILY_ORIGIN
 } from '@/views/chart/components/editor/util/chart'
 import { cloneDeep, defaultsDeep } from 'lodash-es'
 import { ElIcon, ElInput } from 'element-plus-secondary'
 import Icon from '@/components/icon-custom/src/Icon.vue'
-import { hexColorToRGBA } from '@/views/chart/components/js/util'
-import { storeToRefs } from 'pinia'
-import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
-const dvMainStore = dvMainStoreWithOut()
-const { batchOptStatus } = storeToRefs(dvMainStore)
+import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
+const appearanceStore = useAppearanceStoreWithOut()
 
 const { t } = useI18n()
 
@@ -44,20 +41,30 @@ const props = defineProps({
 
 const emit = defineEmits(['onIndicatorChange', 'onBasicStyleChange'])
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 const predefineColors = COLOR_PANEL
-const fontFamily = CHART_FONT_FAMILY
+const fontFamily = CHART_FONT_FAMILY_ORIGIN.concat(
+  appearanceStore.fontList.map(ele => ({
+    name: ele.name,
+    value: ele.name
+  }))
+)
 const fontLetterSpace = CHART_FONT_LETTER_SPACE
 
 const state = reactive({
   indicatorValueForm: JSON.parse(JSON.stringify(DEFAULT_INDICATOR_STYLE)),
   basicStyleForm: {} as ChartBasicStyle
 })
-
 const fontSizeList = computed(() => {
   const arr = []
   for (let i = 10; i <= 60; i = i + 2) {
+    arr.push({
+      name: i + '',
+      value: i
+    })
+  }
+  for (let i = 70; i <= 210; i += 10) {
     arr.push({
       name: i + '',
       value: i
@@ -84,14 +91,6 @@ const init = () => {
     cloneDeep(DEFAULT_INDICATOR_STYLE)
   )
 
-  if (state.basicStyleForm.alpha !== undefined) {
-    const color = hexColorToRGBA(state.basicStyleForm.colors[0], state.basicStyleForm.alpha)
-    const suffixColor = hexColorToRGBA(state.basicStyleForm.colors[1], state.basicStyleForm.alpha)
-
-    customText.color = color
-    customText.suffixColor = suffixColor
-  }
-
   state.indicatorValueForm = cloneDeep(customText)
 
   //第一次颜色可能赋值失败，单独赋值一次
@@ -108,9 +107,7 @@ onMounted(() => {
 watch(
   () => props.chart?.customAttr?.indicator,
   () => {
-    if (!batchOptStatus.value) {
-      init()
-    }
+    init()
   },
   { deep: true }
 )
@@ -129,6 +126,7 @@ defineExpose({ getFormData })
       :disabled="!state.indicatorValueForm.show"
       :model="state.indicatorValueForm"
       label-position="top"
+      size="small"
     >
       <el-form-item
         class="form-item"
@@ -164,7 +162,7 @@ defineExpose({ getFormData })
           />
         </el-form-item>
         <el-form-item class="form-item" :class="'form-item-' + themes" style="padding: 0 4px">
-          <el-tooltip content="字号" :effect="toolTip" placement="top">
+          <el-tooltip :content="t('chart.font_size')" :effect="toolTip" placement="top">
             <el-select
               style="width: 56px"
               :effect="themes"
@@ -183,7 +181,11 @@ defineExpose({ getFormData })
           </el-tooltip>
         </el-form-item>
 
-        <el-form-item class="form-item" :class="'form-item-' + themes" style="padding-left: 4px">
+        <el-form-item
+          class="form-item"
+          :class="'form-item-' + themes"
+          style="width: 106px; padding-left: 4px"
+        >
           <el-select
             :effect="themes"
             v-model="state.indicatorValueForm.letterSpace"
@@ -263,7 +265,7 @@ defineExpose({ getFormData })
             v-model="state.indicatorValueForm.hPosition"
             @change="changeLabelTitleStyleStyle('hPosition')"
           >
-            <el-radio :effect="themes" label="left">
+            <el-radio :effect="themes" value="left">
               <el-tooltip :effect="toolTip" placement="top">
                 <template #content>
                   {{ t('chart.text_pos_left') }}
@@ -334,7 +336,7 @@ defineExpose({ getFormData })
           v-model="state.indicatorValueForm.vPosition"
           @change="changeLabelTitleStyleStyle('vPosition')"
         >
-          <el-radio label="top">
+          <el-radio value="top">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_top') }}
@@ -354,7 +356,7 @@ defineExpose({ getFormData })
               </div>
             </el-tooltip>
           </el-radio>
-          <el-radio label="center">
+          <el-radio value="center">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_center') }}
@@ -374,7 +376,7 @@ defineExpose({ getFormData })
               </div>
             </el-tooltip>
           </el-radio>
-          <el-radio label="bottom">
+          <el-radio value="bottom">
             <el-tooltip :effect="toolTip" placement="top">
               <template #content>
                 {{ t('chart.text_pos_bottom') }}
@@ -464,7 +466,7 @@ defineExpose({ getFormData })
             />
           </el-form-item>
           <el-form-item class="form-item" :class="'form-item-' + themes" style="padding: 0 4px">
-            <el-tooltip content="字号" :effect="toolTip" placement="top">
+            <el-tooltip :content="t('chart.font_size')" :effect="toolTip" placement="top">
               <el-select
                 :disabled="!state.indicatorValueForm.suffixEnable"
                 style="width: 56px"
@@ -484,7 +486,11 @@ defineExpose({ getFormData })
             </el-tooltip>
           </el-form-item>
 
-          <el-form-item class="form-item" :class="'form-item-' + themes" style="padding-left: 4px">
+          <el-form-item
+            class="form-item"
+            :class="'form-item-' + themes"
+            style="width: 106px; padding-left: 4px"
+          >
             <el-select
               size="small"
               :disabled="!state.indicatorValueForm.suffixEnable"
@@ -594,7 +600,7 @@ defineExpose({ getFormData })
   width: 24px;
   height: 24px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 6px;
   padding-top: 4px;
 
   color: #1f2329;
@@ -684,7 +690,7 @@ defineExpose({ getFormData })
   }
 }
 .remark-label {
-  color: var(--N600, #646a73);
+  color: @canvas-main-font-color;
   font-family: var(--de-custom_font, 'PingFang');
   font-size: 12px;
   font-style: normal;
@@ -692,7 +698,7 @@ defineExpose({ getFormData })
   line-height: 20px;
 
   &.remark-label--dark {
-    color: var(--N600-Dark, #a6a6a6);
+    color: @canvas-main-font-color-dark;
   }
 }
 .m-divider {

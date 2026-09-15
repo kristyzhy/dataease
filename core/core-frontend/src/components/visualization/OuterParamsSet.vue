@@ -1,8 +1,9 @@
 <template>
   <el-dialog
     class="params-class"
-    :append-to-body="true"
-    title="外部参数设置"
+    append-to-body
+    :before-close="cancelDialog"
+    :title="t('visualization.outer_param_set')"
     v-model="state.outerParamsSetVisible"
     width="80vw"
     top="10vh"
@@ -13,7 +14,7 @@
         <el-row class="preview">
           <el-col :span="6" class="preview-left">
             <el-row class="tree-head">
-              <span class="head-text">参数列表</span>
+              <span class="head-text">{{ t('visualization.params_list') }}</span>
               <span class="head-filter">
                 <el-button type="primary" icon="Plus" text @click="addOuterParamsInfo"> </el-button>
               </span>
@@ -30,8 +31,8 @@
                 @node-click="nodeClick"
               >
                 <template #default="{ node, data }">
-                  <span class="custom-tree-node">
-                    <span>
+                  <span class="custom-tree-node" style="display: flex">
+                    <span v-if="!(curEditDataId === data.paramsInfoId)">
                       <div @click.stop>
                         <span class="auth-span">
                           <el-checkbox
@@ -41,27 +42,33 @@
                         </span>
                       </div>
                     </span>
-                    <span :id="'paramName-' + data.paramsInfoId">
-                      <el-input
+                    <span :id="'paramName-' + data.paramsInfoId" style="flex: 1">
+                      <div
                         v-if="curEditDataId === data.paramsInfoId"
-                        v-model="data.paramName"
-                        size="small"
-                        :placeholder="$t('visualization.input_param_name')"
-                        @blur="closeEdit"
-                      />
+                        style="width: 100%; padding: 0 15px"
+                      >
+                        <el-input
+                          style="width: 100%"
+                          v-model="data.paramName"
+                          :placeholder="$t('visualization.input_param_name')"
+                          @blur="closeEdit(data)"
+                        />
+                      </div>
                       <span class="tree-select-field" v-else-if="data.paramName">
                         {{ data.paramName }}
                       </span>
-                      <span class="tree-select-field" v-else> 未配置参数名 </span>
+                      <span class="tree-select-field" v-else
+                        >{{ t('visualization.no_setting_params_name_tip') }}
+                      </span>
                     </span>
-                    <span class="icon-more">
+                    <span class="icon-more" v-if="!(curEditDataId === data.paramsInfoId)">
                       <handle-more
-                        style="margin-right: 16px"
+                        style="margin-right: 15px"
                         @handle-command="cmd => outerParamsOperation(cmd, node, data)"
                         :menu-list="state.optMenu"
-                        :icon-name="icon_more_outlined"
+                        :icon-name="icon_more_vertical_outlined"
                         placement="bottom-start"
-                      ></handle-more>
+                      />
                     </span>
                   </span>
                 </template>
@@ -70,7 +77,9 @@
           </el-col>
           <el-col :span="13" class="preview-show">
             <el-row v-if="state.curNodeId">
-              <el-row class="new-params-title"> 选择参数关联组件 </el-row>
+              <el-row class="new-params-title">
+                {{ t('visualization.select_params_connect_component') }}
+              </el-row>
               <el-row class="new-params-filter" v-if="state.outerParamsInfo?.filterInfo?.length">
                 <div style="display: flex" class="inner-content">
                   <div style="width: 16px; margin-top: 2px" class="expand-custom-outer">
@@ -81,8 +90,24 @@
                       </el-icon>
                     </div>
                   </div>
-                  <div style="flex: 1">查询组件</div>
-                  <div style="flex: 1">关联条件</div>
+                  <div style="width: 120px">{{ t('visualization.filter_component') }}</div>
+                  <div style="width: 160px">
+                    {{ t('visualization.outer_params_type') }}
+                    <el-tooltip class="item" placement="bottom">
+                      <template #content>
+                        <div>
+                          {{ t('visualization.outer_params_type_tips1') }} <br />
+                          {{ t('visualization.outer_params_type_tips2') }}
+                        </div>
+                      </template>
+                      <el-icon class="hint-icon-type" style="display: inline-block">
+                        <Icon name="icon_info_outlined"
+                          ><icon_info_outlined class="svg-icon"
+                        /></Icon>
+                      </el-icon>
+                    </el-tooltip>
+                  </div>
+                  <div style="flex: 1">{{ t('visualization.connection_condition') }}</div>
                 </div>
                 <div class="outer-filter-content">
                   <div
@@ -93,18 +118,38 @@
                     :key="index"
                   >
                     <div style="width: 16px"></div>
-                    <div style="flex: 1; line-height: 32px">
+                    <div style="width: 120px; line-height: 32px">
                       <Icon name="filter-params"
                         ><filterParams style="margin-top: 4px" class="svg-icon view-type-icon"
                       /></Icon>
                       <span>{{ findFilterName(baseFilter.id) }}</span>
+                    </div>
+                    <div style="width: 152px; margin-right: 12px">
+                      <el-select
+                        v-model="baseFilter.matchMode"
+                        filterable
+                        style="width: 100%"
+                        :placeholder="t('v_query.select_query_condition')"
+                        clearable
+                        @change="matchModeChange(baseFilter)"
+                      >
+                        <el-option
+                          :label="t('visualization.outer_params_type_self')"
+                          value="self"
+                        ></el-option>
+                        <el-option
+                          :label="t('visualization.outer_params_type_filter')"
+                          value="filter"
+                        >
+                        </el-option>
+                      </el-select>
                     </div>
                     <div style="flex: 1">
                       <el-select
                         v-model="baseFilter.filterSelected"
                         filterable
                         style="width: 100%"
-                        placeholder="请选择查询条件"
+                        :placeholder="t('v_query.select_query_condition')"
                         clearable
                       >
                         <el-option
@@ -112,6 +157,11 @@
                           :key="item.id"
                           :label="item.name"
                           :value="item.id"
+                          :disabled="
+                            baseFilter.matchMode === 'filter'
+                              ? !['0', '9', '2'].includes(item.displayType + '')
+                              : false
+                          "
                         >
                           <span style="font-size: 12px"> {{ item.name }}</span>
                         </el-option>
@@ -130,8 +180,8 @@
                       </el-icon>
                     </div>
                   </div>
-                  <div style="flex: 1">图表</div>
-                  <div style="flex: 1">关联字段或参数</div>
+                  <div style="flex: 1">{{ t('visualization.view') }}</div>
+                  <div style="flex: 1">{{ t('visualization.connection_params_fields') }}</div>
                 </div>
                 <div class="outer-dataset-content">
                   <div
@@ -158,7 +208,9 @@
                             <Icon name="icon_dataset"><icon_dataset class="svg-icon" /></Icon>
                           </el-icon>
                         </div>
-                        <span>{{ baseDatasetInfo.name }}</span>
+                        <span :title="baseDatasetInfo.name" class="ellipsis">{{
+                          baseDatasetInfo.name
+                        }}</span>
                       </div>
                       <div style="flex: 1; margin-left: -16px">
                         <el-select
@@ -166,15 +218,21 @@
                           filterable
                           clearable
                           style="width: 100%"
-                          placeholder="请选择"
+                          :placeholder="t('common.selectText')"
                         >
                           <template #header>
                             <el-tabs
                               class="params-select--header"
                               v-model="baseDatasetInfo.activelist"
                             >
-                              <el-tab-pane label="字段" name="dimensionList"></el-tab-pane>
-                              <el-tab-pane label="参数" name="parameterList"></el-tab-pane>
+                              <el-tab-pane
+                                :label="t('visualization.fields')"
+                                name="dimensionList"
+                              ></el-tab-pane>
+                              <el-tab-pane
+                                :label="t('visualization.params')"
+                                name="parameterList"
+                              ></el-tab-pane>
                             </el-tabs>
                           </template>
                           <el-option
@@ -202,7 +260,9 @@
 
                     <div class="ds-view-content" v-show="baseDatasetInfo.viewExpand">
                       <div style="display: flex; width: 100%; height: 22px">
-                        <div class="ds-content-title">选择关联的图表</div>
+                        <div class="ds-content-title">
+                          {{ t('visualization.select_params_connect_view') }}
+                        </div>
                         <div class="custom-view-diver"></div>
                         <div>
                           <el-checkbox
@@ -211,7 +271,7 @@
                             :indeterminate="baseDatasetInfo.checkAllIsIndeterminate"
                             :disabled="!baseDatasetInfo.fieldIdSelected"
                             @change="batchSelectChange($event, baseDatasetInfo)"
-                            >全选</el-checkbox
+                            >{{ t('visualization.select_all') }}</el-checkbox
                           >
                         </div>
                       </div>
@@ -237,7 +297,13 @@
                               ></component
                             ></Icon>
                           </div>
-                          <span style="font-size: 12px"> {{ viewInfo.chartName }}</span>
+                          <span
+                            class="ellipsis"
+                            :title="viewInfo.chartName"
+                            style="font-size: 12px"
+                          >
+                            {{ viewInfo.chartName }}</span
+                          >
                         </div>
                       </div>
                     </div>
@@ -246,22 +312,30 @@
               </el-row>
             </el-row>
             <div v-else class="empty">
-              <empty-background description="请配置参数" img-type="noneWhite" />
+              <empty-background
+                :description="t('visualization.setting_params_tips')"
+                img-type="noneWhite"
+              />
             </div>
           </el-col>
           <el-col :span="5" class="params-attach-setting">
             <el-row v-if="state.curNodeId">
-              <el-row class="new-params-title"> 参数配置 </el-row>
+              <el-row class="new-params-title">{{ t('visualization.setting_params') }} </el-row>
               <el-row class="params-attach-content">
                 <el-row>
-                  <el-checkbox v-model="state.outerParamsInfo.required">必填 </el-checkbox>
+                  <el-checkbox v-model="state.outerParamsInfo.required"
+                    >{{ t('visualization.required') }}
+                  </el-checkbox>
                 </el-row>
                 <el-row>
-                  <el-checkbox v-model="state.outerParamsInfo.enabledDefault">默认值 </el-checkbox>
+                  <el-checkbox v-model="state.outerParamsInfo.enabledDefault"
+                    >{{ t('visualization.default_value') }}
+                  </el-checkbox>
                   <el-tooltip class="item" placement="bottom">
                     <template #content>
                       <div>
-                        请使用JSON数组格式 示例: <br />单值 ["name1"], 多值 ["name1","name2"]
+                        {{ t('visualization.default_value_tips1') }} <br />
+                        {{ t('visualization.default_value_tips2') }}
                       </div>
                     </template>
                     <el-icon class="hint-icon">
@@ -271,7 +345,7 @@
                 </el-row>
                 <el-input
                   :ref="el => setArgRef(el, state.outerParamsInfo.paramsInfoId)"
-                  placeholder='请输入参数,如:["name1"]'
+                  :placeholder="t('visualization.default_value_tips3')"
                   v-model="state.outerParamsInfo.defaultValue"
                   type="textarea"
                   :autosize="{ minRows: 4, maxRows: 8 }"
@@ -289,7 +363,7 @@
         </el-row>
       </el-row>
       <el-row class="root-class">
-        <el-button @click="cancel()">{{ t('commons.cancel') }} </el-button>
+        <el-button @click="cancelDialog">{{ t('commons.cancel') }} </el-button>
         <el-button type="primary" @click="save()">{{ t('commons.confirm') }} </el-button>
       </el-row>
     </el-row>
@@ -297,12 +371,12 @@
 </template>
 
 <script setup lang="ts">
-import _delete from '@/assets/svg/delete.svg'
-import edit from '@/assets/svg/edit.svg'
-import icon_more_outlined from '@/assets/svg/icon_more_outlined.svg'
+import _delete from '@/assets/svg/icon_delete-trash_outlined.svg'
+import edit from '@/assets/svg/icon_rename_outlined.svg'
+import icon_more_vertical_outlined from '@/assets/svg/icon_more-vertical_outlined.svg'
 import filterParams from '@/assets/svg/filter-params.svg'
 import icon_dataset from '@/assets/svg/icon_dataset.svg'
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, reactive, nextTick } from 'vue'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia'
 import { ElCol, ElIcon, ElInput, ElMessage } from 'element-plus-secondary'
@@ -325,6 +399,7 @@ const { t } = useI18n()
 const curEditDataId = ref(null)
 const snapshotStore = snapshotStoreWithOut()
 import icon_info_outlined from '@/assets/svg/icon_info_outlined.svg'
+import dvInfoSvg from '@/assets/svg/dv-info.svg'
 
 const state = reactive({
   filterExpand: true,
@@ -333,12 +408,12 @@ const state = reactive({
   outerParamsSetVisible: false,
   optMenu: [
     {
-      label: '重命名',
+      label: t('visualization.rename'),
       svgName: edit,
       command: 'rename'
     },
     {
-      label: '删除',
+      label: t('visualization.delete'),
       svgName: _delete,
       command: 'delete'
     }
@@ -383,19 +458,32 @@ const state = reactive({
   currentLinkPanelViewArray: [],
   viewIdFieldArrayMap: {},
   widgetSubjectsTrans: {
-    timeYearWidget: '年份过滤组件',
-    timeMonthWidget: '年月过滤组件',
-    timeDateWidget: '日期过滤组件',
-    timeDateRangeWidget: '日期范围过滤组件',
-    textSelectWidget: '文本下拉过滤组件',
-    textSelectGridWidget: '文本列表过滤组件',
-    textInputWidget: '文本搜索过滤组件',
-    textSelectTreeWidget: '下拉树过滤组件',
-    numberSelectWidget: '数字下拉过滤组件',
-    numberSelectGridWidget: '数字列表过滤组件',
-    numberRangeWidget: '数值区间过滤组件'
+    timeYearWidget: t('visualization.time_year_widget'),
+    timeMonthWidget: t('visualization.time_month_widget'),
+    timeDateWidget: t('visualization.time_date_widget'),
+    timeDateRangeWidget: t('visualization.time_date_range_widget'),
+    textSelectWidget: t('visualization.text_select_widget'),
+    textSelectGridWidget: t('visualization.time_year_widget'),
+    textInputWidget: t('visualization.text_input_widget'),
+    textSelectTreeWidget: t('visualization.text_select_tree_widget'),
+    numberSelectWidget: t('visualization.number_select_widget'),
+    numberSelectGridWidget: t('visualization.number_select_grid_widget'),
+    numberRangeWidget: t('visualization.number_range_widget')
   }
 })
+
+const matchModeChange = baseFilter => {
+  if (
+    baseFilter.matchMode === 'filter' &&
+    baseFilter.propValue &&
+    baseFilter.propValue.length > 0
+  ) {
+    const matchedItem = baseFilter.propValue.find(item => item.id === baseFilter.filterSelected)
+    if (matchedItem && !['0', '9', '2'].includes(matchedItem.displayType.toString())) {
+      baseFilter.filterSelected = undefined
+    }
+  }
+}
 
 const argRefs = ref({})
 
@@ -404,7 +492,16 @@ const setArgRef = (el, id) => {
     argRefs.value[id] = el
   }
 }
-
+const cancelDialog = () => {
+  if (state.outerParamsInfo?.filterInfo?.length || state.outerParamsInfo?.datasetInfo?.length) {
+    state.outerParamsInfo.filterInfo = []
+    state.outerParamsInfo.datasetInfo = []
+    state.outerParamsInfoArray = []
+    state.curNodeId = null
+  }
+  state.outerParamsSetVisible = false
+  curEditDataId.value = null
+}
 const validateArgs = (val, id) => {
   const cref = argRefs.value[id]
   const e = cref.input
@@ -433,18 +530,25 @@ const validateArgs = (val, id) => {
     if (!child) {
       const errorDom = document.createElement('div')
       errorDom.className = 'error-msg'
-      errorDom.innerText = '格式错误'
+      errorDom.innerText = t('visualization.format_error')
       e.parentNode.appendChild(errorDom)
     }
     return false
   }
 }
 
-const viewSelectedField = computed(() =>
-  state.outerParamsInfo?.targetViewInfoList?.map(targetViewInfo => targetViewInfo.targetViewId)
-)
-
-const closeEdit = () => {
+const closeEdit = params => {
+  if (!params.paramName || params.paramName.length < 2 || params.paramName.length > 25) {
+    ElMessage({
+      message: t('commons.params_value') + t('common.input_limit', [2, 25]),
+      type: 'warning',
+      showClose: true
+    })
+    if (params.paramName.length > 25) {
+      params.paramName = params.paramName.splice(0.25)
+    }
+    return
+  }
   curEditDataId.value = null
 }
 
@@ -454,18 +558,6 @@ const outerParamsOperation = (cmd, node, data) => {
   } else if (cmd === 'delete') {
     removeOuterParamsInfo(node, data)
   }
-}
-
-const fieldIdDisabledCheck = targetViewInfo => {
-  return (
-    state.viewIdFieldArrayMap[targetViewInfo.targetViewId] &&
-    state.viewIdFieldArrayMap[targetViewInfo.targetViewId].length === 1 &&
-    state.viewIdFieldArrayMap[targetViewInfo.targetViewId][0].id === 'empty'
-  )
-}
-
-const getFieldArray = id => {
-  return state.viewIdFieldArrayMap[id]
 }
 
 const initParams = async () => {
@@ -483,9 +575,15 @@ const initParams = async () => {
       })
     } else if (componentItem.component === 'DeTabs') {
       componentItem.propValue.forEach(tabItem => {
-        tabItem.componentData.forEach(tabComponent => {
+        tabItem.componentData?.forEach(tabComponent => {
           if (tabComponent.component === 'VQuery') {
             state.baseFilterInfo.push(tabComponent)
+          } else if (tabComponent.component === 'Group') {
+            tabComponent.propValue.forEach(groupItem => {
+              if (groupItem.component === 'VQuery') {
+                state.baseFilterInfo.push(groupItem)
+              }
+            })
           }
         })
       })
@@ -540,9 +638,11 @@ const datasetInfoChange = datasetInfo => {
 
 const paramsCheckedAdaptor = (outerParamsInfo, newBaseFilterInfo, newBaseDatasetInfo) => {
   const dsFieldIdSelected = {}
+  const dsFilterMatchMode = {}
   const viewMatchIds = []
   outerParamsInfo.targetViewInfoList.forEach(targetViewInfo => {
     viewMatchIds.push(targetViewInfo.targetViewId)
+    dsFilterMatchMode[targetViewInfo.targetDsId] = targetViewInfo.matchMode || 'self'
     dsFieldIdSelected[targetViewInfo.targetDsId] =
       targetViewInfo.targetFieldId === 'empty'
         ? targetViewInfo.targetViewId
@@ -574,14 +674,11 @@ const paramsCheckedAdaptor = (outerParamsInfo, newBaseFilterInfo, newBaseDataset
   if (newBaseFilterInfo) {
     newBaseFilterInfo.forEach(filterInfo => {
       filterInfo['filterSelected'] = dsFieldIdSelected[filterInfo.id]
+      filterInfo['matchMode'] = dsFilterMatchMode[filterInfo.id] || 'self'
     })
   }
   outerParamsInfo['filterInfo'] = newBaseFilterInfo
   outerParamsInfo['datasetInfo'] = newBaseDatasetInfo
-}
-
-const cancel = () => {
-  state.outerParamsSetVisible = false
 }
 
 const jsonArrayCheck = params => {
@@ -596,8 +693,14 @@ const jsonArrayCheck = params => {
 const save = () => {
   const outerParamsCopy = deepCopy(state.outerParams)
   let checkErrorNum = 0
+  let checkNullErrorNum = 0
   let checkMessage = ''
+  const paramNameArray = []
   outerParamsCopy.outerParamsInfoArray?.forEach(outerParamsInfo => {
+    if (!outerParamsInfo.paramName || paramNameArray.includes(outerParamsInfo.paramName)) {
+      checkNullErrorNum++
+    }
+    paramNameArray.push(outerParamsInfo.paramName)
     if (outerParamsInfo.defaultValue && !jsonArrayCheck(outerParamsInfo.defaultValue)) {
       checkErrorNum++
       checkMessage = checkMessage + `【${outerParamsInfo.paramName}】`
@@ -609,6 +712,7 @@ const save = () => {
         outerParamsInfo.targetViewInfoList.push({
           targetViewId: baseFilterInfo.filterSelected,
           targetDsId: baseFilterInfo.id,
+          matchMode: baseFilterInfo.matchMode,
           targetFieldId: 'empty'
         })
       }
@@ -630,7 +734,15 @@ const save = () => {
   })
   if (checkErrorNum > 0) {
     ElMessage({
-      message: `参数${checkMessage}默认值格式不正确！`,
+      message: t('visualization.params_setting_check_message'),
+      type: 'warning',
+      showClose: true
+    })
+    return
+  }
+  if (checkNullErrorNum > 0) {
+    ElMessage({
+      message: t('visualization.params_setting_check_message_tips'),
       type: 'warning',
       showClose: true
     })
@@ -679,28 +791,6 @@ const getPanelViewList = dvId => {
       }
     })
   })
-}
-
-const addOuterParamsField = () => {
-  state.outerParamsInfo.targetViewInfoList.push({
-    targetViewId: '',
-    targetFieldId: ''
-  })
-}
-const deleteOuterParamsField = index => {
-  state.outerParamsInfo.targetViewInfoList.splice(index, 1)
-}
-
-const viewInfoOnChange = targetViewInfo => {
-  if (
-    state.viewIdFieldArrayMap[targetViewInfo.targetViewId] &&
-    state.viewIdFieldArrayMap[targetViewInfo.targetViewId].length === 1 &&
-    state.viewIdFieldArrayMap[targetViewInfo.targetViewId][0].id === 'empty'
-  ) {
-    targetViewInfo.targetFieldId = 'empty'
-  } else {
-    targetViewInfo.targetFieldId = null
-  }
 }
 
 const initSelected = data => {
@@ -775,7 +865,7 @@ defineExpose({
 .preview {
   margin-top: 5px;
   border: 1px solid #e6e6e6;
-  border-radius: 4px;
+  border-radius: 6px;
   height: 470px !important;
   overflow: hidden;
   background-size: 100% 100% !important;
@@ -839,7 +929,7 @@ defineExpose({
 }
 
 .view-type-icon {
-  color: #3370ff;
+  color: var(--ed-color-primary, #3370ff);
   width: 22px;
   height: 14px;
 }
@@ -863,12 +953,12 @@ defineExpose({
 
   .icon-more {
     margin-left: auto;
-    visibility: visible;
+    display: none;
   }
 
   &:hover .icon-more {
     margin-left: auto;
-    visibility: visible;
+    display: unset;
   }
 }
 
@@ -1036,7 +1126,7 @@ defineExpose({
 .expand-custom {
   width: 16px;
   height: 16px;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0px 1px;
   color: rgba(100, 106, 115, 1);
   &:hover {
@@ -1047,7 +1137,7 @@ defineExpose({
 
 .ds-view-content {
   width: calc(100% - 16px);
-  border-radius: 4px;
+  border-radius: 6px;
   margin: 8px 16px 0 16px;
   padding: 12px;
   background: rgba(245, 246, 247, 1);
@@ -1111,10 +1201,24 @@ defineExpose({
   margin-right: -80px;
 }
 
+.hint-icon-type {
+  cursor: pointer;
+  font-size: 14px;
+  color: #646a73;
+  display: inline-block;
+}
+
 .hint-icon {
   cursor: pointer;
   font-size: 14px;
   color: #646a73;
-  margin: 10px 0 0 4px;
+  margin: 3px 0 0 4px;
+}
+
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 220px;
 }
 </style>

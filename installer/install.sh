@@ -76,13 +76,18 @@ function check_and_prepare_env_params() {
    fi
    set +a
 
-   read available_disk <<< $(df -H --output=avail ${DE_BASE} | tail -1)
-   available_disk=${available_disk%?}
-   available_disk=${available_disk%.*}
-   if [[ $available_disk -lt 20 ]];then
-      log_content "\033[31m[警告] DataEase 运行目录所在磁盘剩余空间不足 20G 可能无法正常启动!\033[0m"
-   fi
-}
+   read available_disk <<< $(df -H --output=avail "${DE_BASE}" | tail -1)
+   disk_num=${available_disk%[KMGTP]}
+   disk_unit=${available_disk##*[0-9.]}
+   case $disk_unit in
+     K) disk_gb=$(awk -v i="$disk_num" 'BEGIN{printf "%.0f\n", i / 1024 / 1024}') ;;
+     M) disk_gb=$(awk -v i="$disk_num" 'BEGIN{printf "%.0f\n", i / 1024}') ;;
+     G) disk_gb=${disk_num%.*} ;;
+     T) disk_gb=$(awk -v i="$disk_num" 'BEGIN{printf "%.0f\n", 1024 * i}') ;;
+     *) disk_gb=${disk_num%.*} ;;
+   esac
+   [[ $disk_gb -lt 20 ]] && log_content "\033[31m[警告] DataEase 运行目录所在磁盘剩余空间不足 20G 可能无法正常启动!\033[0m"
+   }
 
 function set_run_base_path() {
    log_title "设置运行目录"
@@ -104,7 +109,7 @@ function prepare_de_run_base() {
    env | grep DE_ >.env
 
    mkdir -p ${DE_RUN_BASE}/{cache,logs,conf}
-   mkdir -p ${DE_RUN_BASE}/data/{mysql,static-resource,map,etcd_data,geo,appearance,exportData,plugin,font}
+   mkdir -p ${DE_RUN_BASE}/data/{mysql,static-resource,map,etcd_data,geo,appearance,exportData,plugin,font,i18n,report}
    mkdir -p ${DE_RUN_BASE}/apisix/logs
    mkdir -p ${DE_RUN_BASE}/task/logs
    chmod 777 ${DE_RUN_BASE}/apisix/logs ${DE_RUN_BASE}/data/etcd_data ${DE_RUN_BASE}/task/logs
@@ -112,6 +117,7 @@ function prepare_de_run_base() {
    if [ "${DE_EXTERNAL_MYSQL}" = "false" ]; then
       sed -i -e "s/^      DE_MYSQL_HOST/      ${DE_MYSQL_HOST}/g" docker-compose.yml
       sed -i -e "s/^. DE_MYSQL_HOST/  ${DE_MYSQL_HOST}/g" docker-compose-mysql.yml
+      export DE_MYSQL_PORT=3306
    else
       sed -i -e "/^    depends_on/,+2d" docker-compose.yml
    fi
@@ -127,6 +133,8 @@ function prepare_de_run_base() {
          envsubst < $i > $CONF_FOLDER/$i
       fi
    done
+
+   # 内置地图由镜像 map-origin 提供，持久化 map 仅保存用户覆盖文件
 }
 
 function update_dectl() {
@@ -200,14 +208,16 @@ function install_docker() {
 EOF
       fi
 
+      log_content "启动 docker"
+      systemctl enable docker >/dev/null 2>&1; systemctl daemon-reload; systemctl start docker 2>&1 | tee -a ${CURRENT_DIR}/install.log
+
       docker version >/dev/null 2>&1
       if [ $? -ne 0 ]; then
          log_content "docker 安装失败"
          exit 1
       else
          log_content "docker 安装成功"
-         log_content "启动 docker"
-         systemctl enable docker >/dev/null 2>&1; systemctl daemon-reload; systemctl start docker 2>&1 | tee -a ${CURRENT_DIR}/install.log
+
       fi
    fi
 }
@@ -279,6 +289,13 @@ function load_de_images() {
 
 function set_de_service() {
    log_title "配置 DataEase 服务"
+
+   # 判断是否为wsl
+   local is_wsl= false
+   if grep -qE "(Microsoft|microsoft|WLS)" /proc/version; then
+      is_wsl=true
+   fi
+
    if [[ -f /etc/init.d/dataease ]];then
       if which chkconfig >/dev/null 2>&1;then
          chkconfig dataease >/dev/null
@@ -292,6 +309,12 @@ function set_de_service() {
    if [[ ! -f /etc/systemd/system/dataease.service ]];then
       log_content "配置 dataease Service"
       cp ${DE_RUN_BASE}/bin/dataease/dataease.service /etc/systemd/system/
+      #--- 如果是 WSL，则移除 service 文件中对 docker 的依赖 ---
+      if [ "$is_wsl" = true ]; then
+         log_content "检测到 WSL 环境，移除 dataease.service 中的 Docker 依赖配置"
+         sed -i '/docker.service/d' /etc/systemd/system/dataease.service
+      fi
+      #------------------------------------------------------
       chmod 644 /etc/systemd/system/dataease.service
       log_content "配置开机自启动"
       systemctl enable dataease >/dev/null 2>&1; systemctl daemon-reload | tee -a ${CURRENT_DIR}/install.log

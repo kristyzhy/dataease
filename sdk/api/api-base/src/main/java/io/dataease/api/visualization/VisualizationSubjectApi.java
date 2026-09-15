@@ -5,7 +5,9 @@ import io.dataease.api.visualization.request.VisualizationSubjectRequest;
 import io.dataease.api.visualization.vo.VisualizationSubjectVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.List;
 
@@ -25,8 +27,7 @@ public interface VisualizationSubjectApi {
     @Operation(summary = "更新")
     void update(@RequestBody VisualizationSubjectRequest request);
 
-    @DeleteMapping("/delete/{id}")
+    @PostMapping("/delete/{id}")
     @Operation(summary = "删除")
-    void delete(@PathVariable String id);
-
+    void delete(@PathVariable("id") String id);
 }

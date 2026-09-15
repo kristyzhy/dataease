@@ -7,10 +7,11 @@ import { getItemType } from './utils'
 import { Delete, Filter } from '@element-plus/icons-vue'
 import { fieldType } from '@/utils/attr'
 import { iconFieldMap } from '@/components/icon-group/field-list'
+import { getCSSVariable } from '@/utils/color'
 
 const state = reactive({
   formatterItem: formatterItem,
-  tagColor: '#3370ff'
+  tagColor: getCSSVariable()
 })
 
 const props = defineProps({
@@ -113,6 +114,7 @@ onMounted(() => {
           </el-icon>
         </span>
         <span class="item-span-style" :title="item.name">{{ item.name }}</span>
+        <span :data-id="item.id" class="node-id_private"></span>
         <el-icon class="child remove-icon" size="14px">
           <Icon name="icon_delete-trash_outlined" class-name="inner-class"
             ><icon_deleteTrash_outlined @click="removeItem" class="svg-icon inner-class"
@@ -122,7 +124,7 @@ onMounted(() => {
           class="child"
           style="position: absolute; top: 7px; right: 10px; color: #a6a6a6; cursor: pointer"
         >
-          <Icon name="icon_down_outlined-1" class="el-icon-arrow-down el-icon-delete"
+          <Icon name="icon_down_outlined-1"
             ><icon_down_outlined1 class="svg-icon el-icon-arrow-down el-icon-delete"
           /></Icon>
         </el-icon>
@@ -162,7 +164,7 @@ onMounted(() => {
   height: 28px;
   line-height: 28px;
   display: flex;
-  border-radius: 4px;
+  border-radius: 6px;
   box-sizing: border-box;
   white-space: nowrap;
   width: 100%;

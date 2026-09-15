@@ -1,8 +1,8 @@
 package io.dataease.datasource.provider;
+import io.dataease.utils.LogUtil;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
-
 import io.dataease.dataset.utils.FieldUtils;
 import io.dataease.datasource.dto.es.EsResponse;
 import io.dataease.datasource.dto.es.Request;
@@ -11,12 +11,10 @@ import io.dataease.exception.DEException;
 import io.dataease.extensions.datasource.dto.*;
 import io.dataease.extensions.datasource.provider.Provider;
 import io.dataease.i18n.Translator;
-
 import io.dataease.utils.HttpClientConfig;
 import io.dataease.utils.HttpClientUtil;
 import io.dataease.utils.JsonUtil;
 import org.apache.commons.codec.binary.Base64;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpHeaders;
 import org.springframework.stereotype.Service;
@@ -86,7 +84,7 @@ public class EsProvider extends Provider {
             result.put("data", fetchResultData(response));
             result.put("fields", fetchResultField4Sql(response));
         } catch (Exception e) {
-            e.printStackTrace();
+            LogUtil.error(e);
             DEException.throwException(e);
         }
         return result;
@@ -98,7 +96,10 @@ public class EsProvider extends Provider {
         try {
             String sql;
             if (datasourceRequest.getTable() != null) {
-                sql = "select * from  " + datasourceRequest.getTable() + " limit 0";
+                if (!getTables(datasourceRequest).stream().map(DatasetTableDTO::getTableName).collect(Collectors.toList()).contains(datasourceRequest.getTable())) {
+                    DEException.throwException("无效的表名！");
+                }
+                sql = "select * from \"" + datasourceRequest.getTable() + "\" limit 0";
             } else {
                 sql = datasourceRequest.getQuery();
             }
@@ -110,11 +111,9 @@ public class EsProvider extends Provider {
         return tableFields;
     }
 
-
     @Override
     public void hidePW(DatasourceDTO datasourceDTO) {
     }
-
 
     private List<String[]> fetchResultData(String response) throws Exception {
         EsResponse esResponse = new Gson().fromJson(response, EsResponse.class);
@@ -177,7 +176,6 @@ public class EsProvider extends Provider {
         return tables;
     }
 
-
     private String execQuery(DatasourceRequest datasourceRequest, String sql, String uri) {
         Es es = null;
         if (datasourceRequest.getDatasource() == null) {
@@ -212,6 +210,4 @@ public class EsProvider extends Provider {
         }
         return HttpClientUtil.get(es.getUrl(), httpClientConfig);
     }
-
-
 }

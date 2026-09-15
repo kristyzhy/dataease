@@ -1,18 +1,14 @@
 <script setup lang="ts">
 import { onMounted, PropType, reactive, watch, ref } from 'vue'
-import { COLOR_PANEL, DEFAULT_MISC } from '@/views/chart/components/editor/util/chart'
+import { DEFAULT_BASIC_STYLE, DEFAULT_MISC } from '@/views/chart/components/editor/util/chart'
 import { useI18n } from '@/hooks/web/useI18n'
 import CustomColorStyleSelect from '@/views/chart/components/editor/editor-style/components/CustomColorStyleSelect.vue'
 import { cloneDeep, defaultsDeep } from 'lodash-es'
-import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
-import { storeToRefs } from 'pinia'
 import {
   CHART_MIX_DEFAULT_BASIC_STYLE,
   MixChartBasicStyle
 } from '@/views/chart/components/js/panel/charts/others/chart-mix-common'
 
-const dvMainStore = dvMainStoreWithOut()
-const { batchOptStatus } = storeToRefs(dvMainStore)
 const { t } = useI18n()
 const props = defineProps({
   chart: {
@@ -29,7 +25,6 @@ const props = defineProps({
 })
 
 const showProperty = prop => props.propertyInner?.includes(prop)
-const predefineColors = COLOR_PANEL
 const state = reactive({
   basicStyleForm: JSON.parse(JSON.stringify(CHART_MIX_DEFAULT_BASIC_STYLE)) as MixChartBasicStyle,
   miscForm: JSON.parse(JSON.stringify(DEFAULT_MISC)) as ChartMiscAttr,
@@ -75,6 +70,23 @@ const onAlphaChange = v => {
   }
   changeBasicStyle('alpha')
 }
+
+const onColumnWidthRatioChange = v => {
+  const _v = parseInt(v)
+  if (_v >= 1 && _v <= 100) {
+    state.basicStyleForm.columnWidthRatio = _v
+  } else if (_v < 1) {
+    state.basicStyleForm.columnWidthRatio = 1
+  } else if (_v > 100) {
+    state.basicStyleForm.columnWidthRatio = 100
+  } else {
+    const basicStyle = cloneDeep(props.chart.customAttr.basicStyle)
+    const oldForm = defaultsDeep(basicStyle, cloneDeep(DEFAULT_BASIC_STYLE)) as ChartBasicStyle
+    state.basicStyleForm.columnWidthRatio = oldForm.columnWidthRatio
+  }
+  changeBasicStyle('columnWidthRatio')
+}
+
 const onSubAlphaChange = v => {
   const _v = parseInt(v)
   if (_v >= 0 && _v <= 100) {
@@ -107,6 +119,12 @@ const init = () => {
     state.customColor = state.basicStyleForm.colors[0]
     state.colorIndex = 0
   }
+  if (
+    props.chart.type.includes('-stack') &&
+    state.basicStyleForm.radiusColumnBar === 'topRoundAngle'
+  ) {
+    state.basicStyleForm.radiusColumnBar = 'roundAngle'
+  }
 }
 const configCompat = (basicStyle: ChartBasicStyle) => {
   // 悬浮改为图例和缩放按钮
@@ -128,7 +146,7 @@ onMounted(() => {
 })
 </script>
 <template>
-  <div style="width: 100%">
+  <el-form size="small" style="width: 100%">
     <el-tabs v-model="activeName" id="axis-tabs" stretch>
       <el-tab-pane :label="t('chart.yAxisLeft')" name="left">
         <template v-if="showProperty('colors')">
@@ -203,11 +221,53 @@ onMounted(() => {
               :effect="themes"
               v-model="state.basicStyleForm.radiusColumnBar"
               @change="changeBasicStyle('radiusColumnBar')"
+              class="radius-class"
             >
-              <el-radio label="rightAngle" :effect="themes">{{ t('chart.rightAngle') }}</el-radio>
-              <el-radio label="roundAngle" :effect="themes">{{ t('chart.roundAngle') }}</el-radio>
+              <el-radio value="rightAngle" :effect="themes">{{ t('chart.rightAngle') }}</el-radio>
+              <el-radio value="roundAngle" :effect="themes">{{ t('chart.roundAngle') }}</el-radio>
+              <el-radio
+                v-if="!props.chart.type.includes('-stack')"
+                label="topRoundAngle"
+                :effect="themes"
+              >
+                {{ t('chart.topRoundAngle') }}</el-radio
+              >
             </el-radio-group>
           </el-form-item>
+          <div class="alpha-setting" v-if="showProperty('columnWidthRatio')">
+            <label class="alpha-label" :class="{ dark: 'dark' === themes }">
+              {{ t('chart.column_width_ratio') }}
+            </label>
+            <el-row style="flex: 1" :gutter="8">
+              <el-col :span="13">
+                <el-form-item class="form-item alpha-slider" :class="'form-item-' + themes">
+                  <el-slider
+                    :effect="themes"
+                    :min="1"
+                    :max="100"
+                    v-model="state.basicStyleForm.columnWidthRatio"
+                    @change="changeBasicStyle('columnWidthRatio')"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="11" style="padding-top: 2px">
+                <el-form-item class="form-item" :class="'form-item-' + themes">
+                  <el-input
+                    type="number"
+                    :effect="themes"
+                    v-model="state.basicStyleForm.columnWidthRatio"
+                    :min="1"
+                    :max="100"
+                    class="basic-input-number"
+                    :controls="false"
+                    @change="onColumnWidthRatioChange"
+                  >
+                    <template #suffix> % </template>
+                  </el-input>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </div>
         </template>
         <template v-else>
           <el-row :gutter="8">
@@ -407,7 +467,7 @@ onMounted(() => {
         </el-form-item>
       </el-tab-pane>
     </el-tabs>
-  </div>
+  </el-form>
 </template>
 <style scoped lang="less">
 .form-item {
@@ -443,7 +503,7 @@ onMounted(() => {
     min-width: 56px;
 
     &.dark {
-      color: #a6a6a6;
+      color: #ebebeb;
     }
   }
 }
@@ -451,7 +511,7 @@ onMounted(() => {
   .ed-select {
     width: 100px !important;
     :deep(.ed-input__wrapper) {
-      border-radius: 4px 0 0 4px !important;
+      border-radius: 6px 0 0 4px !important;
     }
   }
   .ed-input-group {
@@ -495,6 +555,14 @@ onMounted(() => {
 
   :deep(.ed-tabs__header) {
     border-top: none !important;
+  }
+}
+.radius-class {
+  :deep(.ed-radio) {
+    margin-right: 30px !important;
+  }
+  .ed-radio:last-child {
+    margin-right: 0px !important;
   }
 }
 </style>

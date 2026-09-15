@@ -1,5 +1,5 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
-import type { RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router_2'
+import type { RouteRecordRaw } from 'vue-router_2'
 import type { App } from 'vue'
 
 export const routes: AppRouteRecordRaw[] = [
@@ -21,27 +21,20 @@ export const routes: AppRouteRecordRaw[] = [
     ]
   },
   {
-    path: '/copilot',
-    name: 'copilot',
+    path: '/sqlbot',
+    name: 'sqlbot',
     component: () => import('@/layout/index.vue'),
     hidden: true,
     meta: {},
     children: [
       {
         path: 'index',
-        name: 'cpt',
+        name: 'clt',
         hidden: true,
-        component: () => import('@/views/copilot/index.vue'),
+        component: () => import('@/views/sqlbot/index.vue'),
         meta: { hidden: true }
       }
     ]
-  },
-  {
-    path: '/notSupport',
-    name: 'notSupport',
-    hidden: true,
-    meta: {},
-    component: () => import('@/views/mobile/panel/NotSupport.vue')
   },
   {
     path: '/login',
@@ -139,7 +132,7 @@ export const routes: AppRouteRecordRaw[] = [
     name: 'rich-text',
     hidden: true,
     meta: {},
-    component: () => import('@/custom-component/rich-text/DeRichTextView.vue')
+    component: () => import('@/custom-component/rich-text/DeRichTextViewV3.vue')
   },
   {
     path: '/modify-pwd',
@@ -163,6 +156,13 @@ export const routes: AppRouteRecordRaw[] = [
     hidden: true,
     meta: {},
     component: () => import('@/views/chart/ChartView.vue')
+  },
+  {
+    path: '/template-manage',
+    name: 'template-manage',
+    hidden: true,
+    meta: {},
+    component: () => import('@/views/template/indexInject.vue')
   }
 ]
 

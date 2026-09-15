@@ -8,12 +8,16 @@ import {
 import { MAP_EDITOR_PROPERTY_INNER } from '@/views/chart/components/js/panel/charts/map/common'
 import { hexColorToRGBA, parseJson } from '@/views/chart/components/js/util'
 import { deepCopy } from '@/utils/utils'
-import { GaodeMap } from '@antv/l7-maps'
 import { Scene } from '@antv/l7-scene'
 import { LineLayer } from '@antv/l7-layers'
 import { PointLayer } from '@antv/l7-layers'
-import { mapRendered, mapRendering } from '@/views/chart/components/js/panel/common/common_antv'
-import { DEFAULT_BASIC_STYLE } from '@/views/chart/components/editor/util/chart'
+import {
+  getMapCenter,
+  getMapScene,
+  getMapStyle,
+  mapRendered,
+  qqMapRendered
+} from '@/views/chart/components/js/panel/common/common_antv'
 const { t } = useI18n()
 
 /**
@@ -44,32 +48,32 @@ export class FlowMap extends L7ChartView<Scene, L7Config> {
   axis: AxisType[] = ['xAxis', 'xAxisExt', 'filter', 'flowMapStartName', 'flowMapEndName', 'yAxis']
   axisConfig: AxisConfig = {
     xAxis: {
-      name: `起点经纬度 / ${t('chart.dimension')}`,
+      name: `${t('chart.start_coordinates')} / ${t('chart.dimension')}`,
       type: 'd',
       limit: 2
     },
     xAxisExt: {
-      name: `终点经纬度 / ${t('chart.dimension')}`,
+      name: `${t('chart.end_coordinates')} / ${t('chart.dimension')}`,
       type: 'd',
       limit: 2
     },
     flowMapStartName: {
-      name: `起点名称 / ${t('chart.dimension')}`,
+      name: `${t('chart.start_name')} / ${t('chart.dimension')}`,
       type: 'd',
       limit: 1,
       allowEmpty: true
     },
     flowMapEndName: {
-      name: `终点名称 / ${t('chart.dimension')}`,
+      name: `${t('chart.end_name')} / ${t('chart.dimension')}`,
       type: 'd',
       limit: 1,
       allowEmpty: true
     },
     yAxis: {
-      name: `线条粗细 / ${t('chart.quota')}`,
+      name: `${t('chart.flow_map_line_width')} / ${t('chart.quota')}`,
       type: 'q',
       limit: 1,
-      tooltip: '该指标生效时，样式中线条配置的线条宽度属性将失效',
+      tooltip: t('chart.flow_map_line_width_tip'),
       allowEmpty: true
     }
   }
@@ -79,52 +83,25 @@ export class FlowMap extends L7ChartView<Scene, L7Config> {
 
   async drawChart(drawOption: L7DrawConfig<L7Config>) {
     const { chart, container } = drawOption
+    const containerDom = document.getElementById(container)
+    const rect = containerDom?.getBoundingClientRect()
+    if (rect?.height <= 0) {
+      return new L7Wrapper(drawOption.chartObj?.getScene(), [])
+    }
     const xAxis = deepCopy(chart.xAxis)
     const xAxisExt = deepCopy(chart.xAxisExt)
     const { basicStyle, misc } = deepCopy(parseJson(chart.customAttr))
 
-    let center: [number, number] = [
-      DEFAULT_BASIC_STYLE.mapCenter.longitude,
-      DEFAULT_BASIC_STYLE.mapCenter.latitude
-    ]
-    if (basicStyle.autoFit === false) {
-      center = [basicStyle.mapCenter.longitude, basicStyle.mapCenter.latitude]
-    }
-    let mapStyle = basicStyle.mapStyleUrl
-    if (basicStyle.mapStyle !== 'custom') {
-      mapStyle = `amap://styles/${basicStyle.mapStyle ? basicStyle.mapStyle : 'normal'}`
-    }
     const mapKey = await this.getMapKey()
+    const mapStyle = getMapStyle(mapKey, basicStyle)
     // 底层
     const chartObj = drawOption.chartObj as unknown as L7Wrapper<L7Config, Scene>
     let scene = chartObj?.getScene()
-    if (!scene) {
-      scene = new Scene({
-        id: container,
-        logoVisible: false,
-        map: new GaodeMap({
-          token: mapKey?.key ?? undefined,
-          style: mapStyle,
-          pitch: misc.mapPitch,
-          center,
-          zoom: basicStyle.autoFit === false ? basicStyle.zoomLevel : 2.5,
-          showLabel: !(basicStyle.showLabel === false)
-        })
-      })
-    } else {
-      if (scene.getLayers()?.length) {
-        await scene.removeAllLayer()
-        scene.setCenter(center)
-        scene.setPitch(misc.mapPitch)
-        scene.setZoom(basicStyle.autoFit === false ? basicStyle.zoomLevel : 2.5)
-        scene.setMapStyle(mapStyle)
-        scene.map.showLabel = !(basicStyle.showLabel === false)
-      }
-    }
-    mapRendering(container)
-    scene.once('loaded', () => {
-      mapRendered(container)
-    })
+
+    const center = getMapCenter(basicStyle)
+    scene = await getMapScene(chart, scene, container, mapKey, basicStyle, misc, mapStyle, center)
+
+    this.configZoomButton(chart, scene, mapKey)
     if (xAxis?.length < 2 || xAxisExt?.length < 2) {
       return new L7Wrapper(scene, undefined)
     }
@@ -135,7 +112,11 @@ export class FlowMap extends L7ChartView<Scene, L7Config> {
     configList[0].once('inited', () => {
       mapRendered(container)
     })
-    this.configZoomButton(chart, scene)
+    for (let i = 0; i < configList.length; i++) {
+      configList[i].on('inited', () => {
+        qqMapRendered(scene)
+      })
+    }
     return new L7Wrapper(scene, configList)
   }
 
@@ -172,7 +153,7 @@ export class FlowMap extends L7ChartView<Scene, L7Config> {
     }
     const asteriskField = '*'
     const data = []
-    chart.data?.tableRow.forEach(item => {
+    chart.data?.tableRow?.forEach(item => {
       const newKey = 'f_record'
       const newObj = Object.keys(item).reduce((acc, key) => {
         if (key === asteriskField) {
@@ -263,7 +244,8 @@ export class FlowMap extends L7ChartView<Scene, L7Config> {
           textOffset: [0, 0], // 文本相对锚点的偏移量 [水平, 垂直]
           spacing: 2, // 字符间距
           padding: [1, 1], // 文本包围盒 padding [水平，垂直]，影响碰撞检测结果，避免相邻文本靠的太近
-          textAllowOverlap: true
+          textAllowOverlap: true,
+          fontFamily: chart.fontFamily ? chart.fontFamily : undefined
         })
       configList.push(startTextLayer)
     }
@@ -290,7 +272,8 @@ export class FlowMap extends L7ChartView<Scene, L7Config> {
           textOffset: [0, 0], // 文本相对锚点的偏移量 [水平, 垂直]
           spacing: 2, // 字符间距
           padding: [1, 1], // 文本包围盒 padding [水平，垂直]，影响碰撞检测结果，避免相邻文本靠的太近
-          textAllowOverlap: true
+          textAllowOverlap: true,
+          fontFamily: chart.fontFamily ? chart.fontFamily : undefined
         })
       configList.push(endTextLayer)
     }

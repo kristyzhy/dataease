@@ -1,11 +1,12 @@
 package io.dataease.api.permissions.auth.api;
 
-
 import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
 import com.github.xiaoymin.knife4j.annotations.ApiSupport;
 import io.dataease.api.permissions.auth.dto.*;
 import io.dataease.api.permissions.auth.vo.PermissionVO;
+import io.dataease.api.permissions.auth.vo.ResourceItemVO;
 import io.dataease.api.permissions.auth.vo.ResourceVO;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -71,5 +72,7 @@ public interface AuthApi {
     @PostMapping("/saveMenuTargetPer")
     void saveMenuTargetPer(@RequestBody MenuTargetPerCreator creator);
 
-
+    @Hidden
+    @PostMapping("/busiTargetPermissionAll")
+    List<ResourceItemVO> busiTargetPermissionAll(@RequestBody BusiPermissionRequest request);
 }

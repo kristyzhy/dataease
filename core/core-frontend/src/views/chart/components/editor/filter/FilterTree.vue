@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ElMessage } from 'element-plus-secondary'
 import { inject, computed, ref, nextTick, provide } from 'vue'
-import RowAuth from '@/views/chart/components/editor/filter/auth-tree/RowAuth.vue'
+import RowAuth from '@/views/chart/components/editor/filter/auth-tree-chart/RowAuth.vue'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 
 const emits = defineEmits(['filter-data'])
@@ -40,7 +40,7 @@ const changeFilter = val => {
   }
   dfsTreeDelete(items)
   emits('filter-data', { logic, items })
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('changeFilter')
   dialogVisible.value = false
 }
 
@@ -84,7 +84,7 @@ defineExpose({
   <el-dialog
     width="896px"
     append-to-body
-    title="添加过滤"
+    :title="$t('chart.add_filter')"
     destroy-on-close
     class="de-dialog-form filter-tree-cont"
     v-model="dialogVisible"
@@ -106,7 +106,7 @@ defineExpose({
     min-height: 67px;
     width: 100%;
     padding: 16px;
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid var(--deBorderBase, #dcdfe6);
     overflow: auto;
     max-height: 500px;

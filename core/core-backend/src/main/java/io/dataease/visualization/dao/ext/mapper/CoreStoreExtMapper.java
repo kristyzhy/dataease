@@ -19,9 +19,10 @@ public interface CoreStoreExtMapper {
             v.update_by as editor,
             v.update_time as edit_time,
             v.name,
-            v.mobile_layout as ext_flag
+            v.mobile_layout as ext_flag,
+            v.status as ext_flag1
             from core_store s
-            left join data_visualization_info v on s.resource_id = v.id
+            inner join data_visualization_info v on s.resource_id = v.id
             ${ew.customSqlSegment}
             """)
     IPage<StorePO> query(IPage<StorePO> page, @Param("ew") QueryWrapper<Object> ew);

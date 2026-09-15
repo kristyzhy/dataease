@@ -6,8 +6,17 @@ import type { ScatterOptions, Scatter as G2Scatter } from '@antv/g2plot/esm/plot
 import { flow, parseJson, setUpSingleDimensionSeriesColor } from '../../../util'
 import { valueFormatter } from '@/views/chart/components/js/formatter'
 import { useI18n } from '@/hooks/web/useI18n'
-import { isEmpty, map } from 'lodash-es'
+import { defaults, isEmpty, map } from 'lodash-es'
 import { cloneDeep, defaultTo } from 'lodash-es'
+import {
+  configAxisLabelLengthLimit,
+  configPlotTooltipEvent,
+  configYaxisTitleLengthLimit,
+  getTooltipContainer,
+  TOOLTIP_TPL,
+  getPadding
+} from '../../common/common_antv'
+import { DEFAULT_LEGEND_STYLE } from '@/views/chart/components/editor/util/chart'
 
 const { t } = useI18n()
 /**
@@ -190,25 +199,39 @@ export class Quadrant extends G2PlotChartView<ScatterOptions, G2Scatter> {
     })
     const baseOptions: ScatterOptions = {
       colorField: 'field',
+      meta: {
+        field: {
+          type: 'cat'
+        }
+      },
       quadrant: {
         ...defaultBaselineQuadrant
       },
       data: data,
       xField: 'yAxis',
       yField: 'yAxisExt',
-      appendPadding: 30,
+      appendPadding: getPadding(chart),
       pointStyle: {
         fillOpacity: 0.8,
         stroke: '#bbb'
       }
     }
-
+    chart.container = container
     const options = this.setupOptions(chart, baseOptions)
     const { Scatter: G2Scatter } = await import('@antv/g2plot/esm/plots/scatter')
     const newChart = new G2Scatter(container, options)
     newChart.on('point:click', action)
+    if (options.label) {
+      newChart.on('label:click', action)
+    }
     newChart.on('click', () => quadrantDefaultBaseline(defaultBaselineQuadrant))
     newChart.on('afterrender', () => quadrantDefaultBaseline(defaultBaselineQuadrant))
+    const yAxis = parseJson(chart.customStyle).yAxis
+    if (yAxis?.name) {
+      configYaxisTitleLengthLimit(chart, newChart)
+      configAxisLabelLengthLimit(chart, newChart, 'axis-title')
+    }
+    configPlotTooltipEvent(chart, newChart)
     return newChart
   }
 
@@ -379,7 +402,10 @@ export class Quadrant extends G2PlotChartView<ScatterOptions, G2Scatter> {
           })
         }
         return result
-      }
+      },
+      container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+      itemTpl: TOOLTIP_TPL,
+      enterable: true
     }
     return {
       ...options,
@@ -429,9 +455,16 @@ export class Quadrant extends G2PlotChartView<ScatterOptions, G2Scatter> {
     if (!optionTmp.legend) {
       return optionTmp
     }
+    const customStyle = parseJson(chart.customStyle)
+    let size
+    if (customStyle && customStyle.legend) {
+      size = defaults(JSON.parse(JSON.stringify(customStyle.legend)), DEFAULT_LEGEND_STYLE).size
+    } else {
+      size = DEFAULT_LEGEND_STYLE.size
+    }
     optionTmp.legend.marker.style = style => {
       return {
-        r: 4,
+        r: size,
         fill: style.fill
       }
     }
@@ -447,7 +480,6 @@ export class Quadrant extends G2PlotChartView<ScatterOptions, G2Scatter> {
       this.configLegend,
       this.configXAxis,
       this.configYAxis,
-      this.configAnalyse,
       this.configSlider,
       this.configBasicStyle
     )(chart, options, {}, this)

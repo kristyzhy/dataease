@@ -14,22 +14,31 @@ import CanvasBackground from '@/components/visualization/component-background/Ca
 import SeniorStyleSetting from '@/components/dashboard/subject-setting/dashboard-style/SeniorStyleSetting.vue'
 import Icon from '../icon-custom/src/Icon.vue'
 import CanvasBaseSetting from '@/components/visualization/CanvasBaseSetting.vue'
+import { useI18n } from '@/hooks/web/useI18n'
+import ValueFormatterSetting from '@/components/dashboard/subject-setting/dashboard-style/ValueFormatterSetting.vue'
+import { formatterViewInfo } from '@/views/chart/components/js/formatter'
 const dvMainStore = dvMainStoreWithOut()
 const snapshotStore = snapshotStoreWithOut()
 const { canvasStyleData, canvasViewInfo } = storeToRefs(dvMainStore)
 let canvasAttrInit = false
 
 const canvasAttrActiveNames = ref(['size', 'baseSetting', 'background', 'color'])
-
+const { t } = useI18n()
 const screenAdaptorList = [
-  { label: '宽度优先', value: 'widthFirst' },
-  { label: '高度优先', value: 'heightFirst' },
-  { label: '铺满全屏', value: 'full' }
+  { label: t('visualization.screen_adaptor_width_first'), value: 'widthFirst' },
+  { label: t('visualization.screen_adaptor_height_first'), value: 'heightFirst' },
+  { label: t('visualization.screen_adaptor_full'), value: 'full' },
+  { label: t('visualization.screen_adaptor_keep'), value: 'keep' },
+  { label: t('visualization.screen_adaptor_keep_proportion'), value: 'keepProportion' }
 ]
 const init = () => {
   nextTick(() => {
     canvasAttrInit = true
   })
+}
+
+const onFormatterItemChange = val => {
+  themeAttrChange('formatterCfg', 'formatterCfg', val)
 }
 
 const onColorChange = val => {
@@ -50,7 +59,9 @@ const themeAttrChange = (custom, property, value) => {
     Object.keys(canvasViewInfo.value).forEach(function (viewId) {
       try {
         const viewInfo = canvasViewInfo.value[viewId]
-        if (custom === 'customAttr') {
+        if (custom === 'formatterCfg') {
+          formatterViewInfo(viewInfo, value)
+        } else if (custom === 'customAttr') {
           if (viewInfo.type === 'flow-map') {
             const { customAttr } = viewInfo
             const tmpValue = cloneDeep(value)
@@ -72,6 +83,9 @@ const themeAttrChange = (custom, property, value) => {
           })
         }
         useEmitt().emitter.emit('renderChart-' + viewId, viewInfo)
+        if (viewInfo.type === 'rich-text') {
+          useEmitt().emitter.emit('calcData-' + viewId, viewInfo)
+        }
       } catch (e) {
         console.warn('themeAttrChange-error')
       }
@@ -88,15 +102,15 @@ onMounted(() => {
 <template>
   <div class="attr-container de-collapse-style">
     <el-collapse v-model="canvasAttrActiveNames">
-      <el-collapse-item effect="dark" title="尺寸" name="size">
+      <el-collapse-item effect="dark" :title="t('visualization.size')" name="size">
         <el-form label-position="left" :label-width="14">
           <el-row :gutter="8" class="m-size">
             <el-col :span="12">
               <el-form-item class="form-item form-item-dark" label="W">
                 <el-input-number
                   effect="dark"
-                  size="middle"
-                  :min="600"
+                  size="small"
+                  :min="100"
                   :max="50000"
                   v-model="canvasStyleData.width"
                   @change="onBaseChange"
@@ -108,8 +122,8 @@ onMounted(() => {
               <el-form-item class="form-item form-item-dark" label="H">
                 <el-input-number
                   effect="dark"
-                  size="middle"
-                  :min="600"
+                  size="small"
+                  :min="100"
                   :max="50000"
                   v-model="canvasStyleData.height"
                   @change="onBaseChange"
@@ -119,18 +133,18 @@ onMounted(() => {
             </el-col>
           </el-row>
           <el-row v-if="canvasStyleData.screenAdaptor">
-            <el-form-item style="margin-top: 16px">
-              <span class="form-item-scroll"> 缩放方式 </span>
+            <el-form-item style="margin: 8px 0 16px">
+              <span class="form-item-scroll"> {{ t('visualization.screen_adaptor') }} </span>
               <el-tooltip class="item" effect="dark" placement="top">
                 <template #content>
-                  <div>预览时生效</div>
+                  <div>{{ t('visualization.effective_during_preview') }}</div>
                 </template>
                 <el-icon class="hint-icon--dark">
                   <Icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></Icon>
                 </el-icon>
               </el-tooltip>
               <el-select
-                style="margin: 0 0 0 8px; flex: 1"
+                style="width: 139px; margin: 0 0 0 8px; flex: 1"
                 effect="dark"
                 v-model="canvasStyleData.screenAdaptor"
                 @change="onStyleChange"
@@ -148,21 +162,41 @@ onMounted(() => {
           </el-row>
         </el-form>
       </el-collapse-item>
-      <el-collapse-item effect="dark" title="基础配置" name="baseSetting">
+      <el-collapse-item effect="dark" :title="t('visualization.base_config')" name="baseSetting">
         <canvas-base-setting themes="dark"></canvas-base-setting>
       </el-collapse-item>
-      <el-collapse-item effect="dark" title="背景" name="background">
+      <el-collapse-item effect="dark" :title="t('visualization.background')" name="background">
         <canvas-background themes="dark"></canvas-background>
-      </el-collapse-item>
-      <el-collapse-item effect="dark" title="配色" name="color" class="no-padding no-border-bottom">
-        <component-color-selector themes="dark" @onColorChange="onColorChange" />
-      </el-collapse-item>
-      <el-collapse-item effect="dark" title="刷新配置" name="overallSetting">
-        <overall-setting themes="dark" />
       </el-collapse-item>
       <el-collapse-item
         effect="dark"
-        title="高级样式设置"
+        :title="t('visualization.color_config')"
+        name="color"
+        class="no-padding no-border-bottom"
+      >
+        <component-color-selector themes="dark" @onColorChange="onColorChange" />
+      </el-collapse-item>
+      <el-collapse-item
+        effect="dark"
+        :title="t('visualization.refresh_config')"
+        name="overallSetting"
+      >
+        <overall-setting style="padding-bottom: 8px" themes="dark" />
+      </el-collapse-item>
+      <el-collapse-item
+        effect="dark"
+        :title="t('visualization.number_formatter')"
+        name="formatterItem"
+      >
+        <ValueFormatterSetting
+          :formatter-cfg="canvasStyleData.component.formatterItem"
+          themes="dark"
+          @onFormatterItemChange="onFormatterItemChange"
+        ></ValueFormatterSetting>
+      </el-collapse-item>
+      <el-collapse-item
+        effect="dark"
+        :title="t('visualization.advanced_style_settings')"
         name="seniorStyleSetting"
         class="no-padding no-border-bottom"
       >

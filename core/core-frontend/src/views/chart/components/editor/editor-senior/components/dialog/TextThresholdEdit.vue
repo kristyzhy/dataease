@@ -129,7 +129,7 @@ init()
             </el-select>
           </el-form-item>
         </el-col>
-        <el-col :span="9" style="text-align: center">
+        <el-col :span="8" style="text-align: center">
           <el-form-item class="form-item" v-if="item.term !== 'between'">
             <el-input-number
               controls-position="right"
@@ -170,7 +170,7 @@ init()
           <div class="color-title">{{ t('chart.textColor') }}</div>
           <el-color-picker
             is-custom
-            size="large"
+            :trigger-width="60"
             v-model="item.color"
             show-alpha
             class="color-picker-style"
@@ -182,7 +182,7 @@ init()
           <div class="color-title">{{ t('chart.backgroundColor') }}</div>
           <el-color-picker
             is-custom
-            size="large"
+            :trigger-width="60"
             v-model="item.backgroundColor"
             show-alpha
             class="color-picker-style"
@@ -213,7 +213,7 @@ init()
 <style lang="less" scoped>
 .line-item {
   width: 100%;
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid #dcdfe6;
   padding: 4px 14px;
   margin-bottom: 10px;

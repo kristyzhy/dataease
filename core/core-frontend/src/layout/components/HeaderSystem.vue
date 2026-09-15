@@ -3,15 +3,21 @@ import logo from '@/assets/svg/logo.svg'
 import icon_left_outlined from '@/assets/svg/icon_left_outlined.svg'
 import { computed } from 'vue'
 import { ElHeader } from 'element-plus-secondary'
-import { useRouter } from 'vue-router'
+import { useRouter } from 'vue-router_2'
 import AccountOperator from '@/layout/components/AccountOperator.vue'
-import { propTypes } from '@/utils/propTypes'
 import { useAppearanceStoreWithOut } from '@/store/modules/appearance'
+import { useI18n } from '@/hooks/web/useI18n'
+import { isDesktop } from '@/utils/ModelUtil'
 const appearanceStore = useAppearanceStoreWithOut()
 const { push } = useRouter()
-const props = defineProps({
-  title: propTypes.string.def('系统设置')
-})
+const { t } = useI18n()
+const desktop = isDesktop()
+withDefaults(
+  defineProps<{
+    title: string
+  }>(),
+  {}
+)
 const backToMain = () => {
   push('/workbranch/index')
 }
@@ -25,20 +31,20 @@ const navigate = computed(() => appearanceStore.getNavigate)
     :class="{ 'header-light': navigateBg && navigateBg === 'light' }"
   >
     <img class="logo" v-if="navigate" :src="navigate" alt="" />
-    <Icon class="de-logo" v-else className="logo" name="logo"
-      ><logo class="svg-icon logo de-logo"
-    /></Icon>
+    <Icon class="de-logo" v-else className="logo" name="logo">
+      <logo class="svg-icon logo de-logo" />
+    </Icon>
     <el-divider direction="vertical" />
-    <span class="system">{{ props.title || '系统设置' }}</span>
+    <span class="system">{{ title || t('commons.system_setting') }}</span>
     <div class="operate-setting">
       <span @click="backToMain" class="work-bar flex-align-center">
         <el-icon>
           <Icon name="icon_left_outlined"><icon_left_outlined class="svg-icon" /></Icon>
         </el-icon>
-        <span class="work">返回工作台</span>
+        <span class="work">{{ t('work_branch.back_to_work_branch') }}</span>
       </span>
 
-      <AccountOperator />
+      <AccountOperator v-if="!desktop" />
     </div>
   </el-header>
 </template>
@@ -127,14 +133,14 @@ const navigate = computed(() => appearanceStore.getNavigate)
     .ed-icon {
       cursor: pointer;
       color: rgba(255, 255, 255, 0.8);
-      font-size: 18px;
+      font-size: 20px;
     }
   }
 }
 .header-light {
   .operate-setting {
     .ed-icon {
-      color: var(--ed-color-black) !important;
+      color: #646a73 !important;
     }
   }
 }

@@ -94,7 +94,7 @@
                 class="image-hint"
                 :class="`image-hint_${themes}`"
               >
-                支持JPG、PNG、GIF、SVG，大小不超过 1M
+                {{ t('visualization.pic_import_tips', ['1M']) }}
               </span>
               <el-button
                 size="small"
@@ -104,7 +104,7 @@
                 @click="goFile"
                 :disabled="!canvasStyleData.mobileSetting.backgroundImageEnable"
               >
-                重新上传
+                {{ t('visualization.re_upload') }}
               </el-button>
             </el-row>
           </div>
@@ -159,7 +159,7 @@ const goFile = () => {
 }
 
 const sizeMessage = () => {
-  ElMessage.success('图片大小不符合')
+  ElMessage.success(t('visualization.pic_size_error'))
 }
 
 const reUpload = e => {
@@ -211,7 +211,7 @@ const commitStyle = () => {
     type: 'setCanvasStyle',
     value: JSON.parse(JSON.stringify(unref(canvasStyleDataCopy)))
   })
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('commitStyle')
 }
 
 onMounted(() => {
@@ -228,6 +228,7 @@ watch(
 
 <style scoped lang="less">
 .mobile-background-selector {
+  padding-left: 16px;
   :deep(.ed-form-item) {
     display: block;
     margin-bottom: 8px;
@@ -237,7 +238,7 @@ watch(
     :deep(.ed-upload--picture-card) {
       background: #eff0f1;
       border: 1px dashed #dee0e3;
-      border-radius: 4px;
+      border-radius: 6px;
 
       .ed-icon {
         color: #1f2329;
@@ -290,7 +291,7 @@ watch(
     :deep(.ed-upload--picture-card) {
       background: #eff0f1;
       border: 1px dashed #dee0e3;
-      border-radius: 4px;
+      border-radius: 6px;
 
       .ed-icon {
         color: #1f2329;

@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import icon_searchOutline_outlined from '@/assets/svg/icon_search-outline_outlined.svg'
+import icon_close_outlined from '@/assets/svg/icon_close_outlined.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
-import { ref, inject, computed, watch, onBeforeMount, toRefs, nextTick } from 'vue'
+import { ref, inject, computed, watch, onBeforeMount, toRefs } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
-import type { SelectConfig } from '../TimeDialog.vue'
-import TimeDialog from '@/views/chart/components/editor/filter/TimeDialog.vue'
 import { multFieldValuesForPermissions } from '@/api/dataset'
 import {
   textOptions,
@@ -20,12 +19,11 @@ export interface Item {
   fieldId: string
   filterType: string
   deType: number
-  enumValue: string
+  enumValue: string[]
   name: string
-  value: number
-  filterTypeTime?: string
+  value: number | string | null
   timeValue: string
-  dynamicTimeSetting?: SelectConfig
+  timeType?: string
 }
 
 type Props = {
@@ -40,11 +38,9 @@ const props = withDefaults(defineProps<Props>(), {
     fieldId: '',
     filterType: '',
     deType: 0,
-    enumValue: '',
+    enumValue: [],
     name: '',
-    filterTypeTime: 'dateValue',
     value: null,
-    dynamicTimeSetting: null,
     timeValue: ''
   })
 })
@@ -71,9 +67,6 @@ const filedList = inject('filedList')
 const checkListWithFilter = computed(() => {
   if (!filterFiled.value) return enumList.value
   return enumList.value.filter(ele => ele.includes(filterFiled.value))
-})
-const checkResult = computed(() => {
-  return checklist.value.join(',')
 })
 
 const sysParamsIln = computed(() => {
@@ -109,10 +102,6 @@ const computedFiledList = computed(() => {
   return Object.values(filedList.value || {})
 })
 
-watch(checkResult, () => {
-  cancelfixValue()
-})
-
 const authTargetType = ref('')
 
 watch(
@@ -132,18 +121,34 @@ onBeforeMount(() => {
 })
 
 const confirm = () => {
+  cancelfixValue()
+  enumInput.value.$el.click()
+}
+
+const cancelSelect = () => {
+  const { enumValue } = item.value
+  checklist.value = [...enumValue]
+  checkboxlist.value = checkListWithFilter.value.filter(ele => enumValue.includes(ele))
+  if (checkboxlist.value.length) {
+    checkAll.value = checkboxlist.value.length === checkListWithFilter.value.length
+    isIndeterminate.value = checkboxlist.value.length !== checkListWithFilter.value.length
+  }
+
+  if (!checkboxlist.value.length) {
+    checkAll.value = false
+    isIndeterminate.value = false
+  }
   enumInput.value.$el.click()
 }
 const initNameEnumName = () => {
   const { name, enumValue, fieldId } = item.value
-  const arr = enumValue.trim() ? enumValue.split(',') : []
   if (!name && fieldId) {
-    checklist.value = arr
+    checklist.value = [...enumValue]
   }
   if (!name && !fieldId) return
   initEnumOptions()
   activeName.value = item.value.name
-  checklist.value = arr
+  checklist.value = [...enumValue]
 }
 const cancelKeyDow = () => {
   if (!showTextArea.value && !keydownCanceled.value) {
@@ -157,10 +162,18 @@ const filterTypeChange = () => {
   initEnumOptions()
 }
 
-const filterTypeChangeTime = () => {
-  item.value.term = ''
-  item.value.timeValue = null
+const normalizeNumericValue = (value: string | number) => {
+  const source = String(value ?? '')
+  let normalized = source.replace(/[^\d.-]/g, '')
+  normalized = normalized.replace(/(?!^)-/g, '')
+  const firstDot = normalized.indexOf('.')
+  if (firstDot !== -1) {
+    normalized =
+      normalized.slice(0, firstDot + 1) + normalized.slice(firstDot + 1).replace(/\./g, '')
+  }
+  item.value.value = normalized
 }
+
 const initEnumOptions = () => {
   // 查找枚举值
   if (authTargetType.value === 'sysParams') {
@@ -171,82 +184,18 @@ const initEnumOptions = () => {
   if (filterType === 'enum' && [0, 5, 7].includes(deType)) {
     multFieldValuesForPermissions({ fieldIds: [fieldId] }).then(res => {
       enumList.value = optionData(res.data)
+      checkboxlist.value = enumList.value.filter(ele => checklist.value.includes(ele))
+      if (checkboxlist.value.length) {
+        checkAll.value = checkboxlist.value.length === enumList.value.length
+        isIndeterminate.value = checkboxlist.value.length !== enumList.value.length
+      }
+
+      if (!checkboxlist.value.length) {
+        checkAll.value = false
+        isIndeterminate.value = false
+      }
     })
   }
-}
-
-const dialogVisible = ref(false)
-const timeDialog = ref()
-const handleClick = () => {
-  dialogVisible.value = true
-  nextTick(() => {
-    timeDialog.value.init(item.value.dynamicTimeSetting || {})
-  })
-}
-
-const relativeToCurrentTypeMap = {
-  year: '年',
-  month: '月',
-  date: '日',
-  datetime: '日'
-}
-
-const confirmTimeSelect = () => {
-  item.value.dynamicTimeSetting = { ...timeDialog.value.curComponent }
-  const {
-    timeGranularity,
-    timeNum,
-    relativeToCurrentType,
-    around,
-    arbitraryTime,
-    relativeToCurrent
-  } = item.value.dynamicTimeSetting
-  if (relativeToCurrent !== 'custom') {
-    item.value.timeValue = [
-      {
-        label: '今年',
-        value: 'thisYear'
-      },
-      {
-        label: '去年',
-        value: 'lastYear'
-      },
-      {
-        label: '本月',
-        value: 'thisMonth'
-      },
-      {
-        label: '上月',
-        value: 'lastMonth'
-      },
-      {
-        label: '今天',
-        value: 'today'
-      },
-      {
-        label: '昨天',
-        value: 'yesterday'
-      },
-      {
-        label: '月初',
-        value: 'monthBeginning'
-      },
-      {
-        label: '年初',
-        value: 'yearBeginning'
-      }
-    ].find(ele => ele.value === relativeToCurrent).label
-    dialogVisible.value = false
-    return
-  }
-  item.value.timeValue = `${timeNum}${relativeToCurrentTypeMap[relativeToCurrentType]}${
-    around === 'f' ? '前' : '后'
-  }`
-  if (timeGranularity === 'datetime') {
-    item.value.timeValue += new Date(arbitraryTime).toLocaleString().split(' ')[1]
-  }
-
-  dialogVisible.value = false
 }
 
 const optionData = data => {
@@ -257,10 +206,12 @@ const cancel = () => {
   item.value.name = activeName.value || ''
 }
 const cancelfixValue = () => {
-  item.value.enumValue = checkResult.value || ''
+  item.value.enumValue = [...checklist.value]
 }
-const delChecks = idx => {
+const delChecks = (idx, i) => {
   checklist.value.splice(idx, 1)
+  checkboxlist.value = checkboxlist.value.filter(ele => ele !== i)
+  selectedChange()
 }
 const selectItem = ({ name, id, deType }) => {
   activeName.value = name
@@ -269,12 +220,10 @@ const selectItem = ({ name, id, deType }) => {
     name,
     deType,
     filterType: 'logic',
-    enumValue: '',
+    enumValue: [],
     value: '',
     term: '',
-    filterTypeTime: 'dateValue',
-    timeValue: '',
-    dynamicTimeSetting: {}
+    timeValue: ''
   })
   filterListInit(deType)
   checklist.value = []
@@ -296,18 +245,11 @@ const filterListInit = deType => {
   }
 }
 
-const filterListTime = [
-  {
-    value: 'dateValue',
-    label: '固定值'
-  },
-  {
-    value: 'dynamicDate',
-    label: '动态值'
-  }
-]
 const clearAll = () => {
   checklist.value = []
+  checkboxlist.value = []
+  checkAll.value = false
+  isIndeterminate.value = false
 }
 const selectAll = () => {
   checkListWithFilter.value.forEach(ele => {
@@ -315,6 +257,56 @@ const selectAll = () => {
       checklist.value.push(ele)
     }
   })
+  checkboxlist.value = [...new Set([...checkListWithFilter.value, ...checkboxlist.value])]
+}
+
+const isIndeterminate = ref(false)
+const checkAll = ref(false)
+const checkboxlist = ref([])
+let oldList = []
+watch(
+  () => checkListWithFilter.value,
+  val => {
+    if (!oldList.length && val.length !== enumList.value.length) {
+      oldList = [...checkboxlist.value]
+    }
+
+    if (oldList.length && val.length === enumList.value.length) {
+      oldList = []
+    }
+
+    const result = val.every(ele => checkboxlist.value.includes(ele))
+    isIndeterminate.value = val.length && checkboxlist.value.length && !result
+    checkAll.value = val.length && result
+  }
+)
+const selectedChange = () => {
+  const notSelectList = checkListWithFilter.value.filter(ele => !checkboxlist.value.includes(ele))
+  const newCheckboxlist = [...checkboxlist.value]
+  checklist.value = [...new Set(checklist.value.concat(checkboxlist.value))].filter(
+    ele => !notSelectList.includes(ele)
+  )
+  checkboxlist.value = [...new Set(oldList.concat(checkboxlist.value))].filter(
+    ele => !notSelectList.includes(ele)
+  )
+  if (newCheckboxlist.length) {
+    checkAll.value = newCheckboxlist.length === checkListWithFilter.value.length
+    isIndeterminate.value = newCheckboxlist.length !== checkListWithFilter.value.length
+  }
+
+  if (!newCheckboxlist.length) {
+    checkAll.value = false
+    isIndeterminate.value = false
+  }
+}
+const checkAllChange = val => {
+  if (val) {
+    selectAll()
+  } else {
+    checkboxlist.value = checkboxlist.value.filter(ele => !checkListWithFilter.value.includes(ele))
+    checklist.value = checklist.value.filter(ele => !checkListWithFilter.value.includes(ele))
+  }
+  isIndeterminate.value = false
 }
 const addFields = () => {
   const list = textareaValue.value.split('\n').reduce((pre, next) => {
@@ -328,15 +320,15 @@ const addFields = () => {
   }
   showTextArea.value = false
 }
-const checkItem = i => {
-  const index = checklist.value.findIndex(ele => ele === i)
-  if (index === -1) {
-    checklist.value.push(i)
-  } else {
-    delChecks(index)
-  }
+const timeDialog = ref()
+const showTimeDialog = (obj: any) => {
+  if (obj.deType !== 1) return
+  timeDialog.value.init(obj.timeType, obj.timeValue)
 }
-
+const saveTime = (type, value) => {
+  item.value.timeType = type
+  item.value.timeValue = value
+}
 const emits = defineEmits(['update:item', 'del'])
 </script>
 
@@ -394,42 +386,23 @@ const emits = defineEmits(['update:item', 'del'])
         </template>
       </el-dropdown>
       <div class="white-nowrap flex-align-center" style="position: relative" v-if="item.fieldId">
-        <template v-if="item.deType !== 1">
-          <span class="filed-title">{{ t('auth.screen_method') }}</span>
-          <el-select
-            size="small"
-            @change="filterTypeChange"
-            v-model="item.filterType"
-            :placeholder="t('auth.select')"
+        <span class="filed-title">{{ t('auth.screen_method') }}</span>
+        <el-select
+          size="small"
+          @change="filterTypeChange"
+          v-model="item.filterType"
+          class="w181"
+          :placeholder="t('auth.select')"
+        >
+          <el-option
+            v-for="ele in filterList"
+            :key="ele.value"
+            :label="ele.label"
+            :value="ele.value"
           >
-            <el-option
-              v-for="ele in filterList"
-              :key="ele.value"
-              :label="ele.label"
-              :value="ele.value"
-            >
-            </el-option>
-          </el-select>
-          <span class="filed-title">{{ t('auth.fixed_value') }}</span>
-        </template>
-        <template v-else>
-          <el-select
-            size="small"
-            class="w100"
-            style="margin-left: 16px"
-            @change="filterTypeChangeTime"
-            v-model="item.filterTypeTime"
-            :placeholder="t('auth.select')"
-          >
-            <el-option
-              v-for="ele in filterListTime"
-              :key="ele.value"
-              :label="ele.label"
-              :value="ele.value"
-            >
-            </el-option>
-          </el-select>
-        </template>
+          </el-option>
+        </el-select>
+        <span class="filed-title">{{ t('auth.fixed_value') }}</span>
         <template v-if="item.filterType === 'logic'">
           <el-select
             class="w100"
@@ -463,33 +436,26 @@ const emits = defineEmits(['update:item', 'del'])
               !['null', 'empty', 'not_null', 'not_empty'].includes(item.term)
             "
           >
-            <el-input-number
+            <el-input
               class="w70 mar5"
               size="small"
-              effect="plain"
               v-model="item.value"
-              controls-position="right"
-            ></el-input-number>
+              inputmode="decimal"
+              @input="normalizeNumericValue"
+            />
             <div class="bottom-line"></div>
           </template>
           <template v-else-if="!['null', 'empty', 'not_null', 'not_empty'].includes(item.term)">
-            <el-input
-              v-if="item.deType === 1 && item.filterTypeTime === 'dynamicDate' && !item.timeValue"
-              @click="handleClick"
-              readonly
-              class="w70 mar5"
-              size="small"
-              v-model="item.timeValue"
-            />
             <el-tooltip
               class="item"
-              v-else-if="item.deType === 1 && item.filterTypeTime === 'dynamicDate'"
+              v-if="item.deType === 1"
               effect="light"
               :content="item.timeValue"
+              :disabled="!item.timeValue"
               placement="top"
               ><el-input
-                @click="handleClick"
                 readonly
+                @click="showTimeDialog(item)"
                 class="w70 mar5"
                 size="small"
                 v-model="item.timeValue"
@@ -509,37 +475,40 @@ const emits = defineEmits(['update:item', 'del'])
         >
           <template #reference>
             <el-input
-              v-model="item.enumValue"
+              :value="item.enumValue.join(',')"
               ref="enumInput"
               size="small"
-              @input="cancelfixValue"
+              readonly
               clearable
-              @clear="clearAll"
             >
             </el-input>
           </template>
           <div class="de-panel clearfix">
             <div class="mod-left">
               <el-input :placeholder="t('auth.enter_keywords')" v-model="filterFiled"> </el-input>
-              <ul class="infinite-list autochecker-list" style="height: 231px; overflow: auto">
-                <li
-                  :key="i"
-                  v-for="i in checkListWithFilter"
-                  class="infinite-list-item"
-                  @click="checkItem(i)"
-                >
-                  <i class="el-icon-check" :style="{ opacity: checklist.includes(i) ? 1 : 0 }"></i>
-                  <label>{{ i }}</label>
-                  <span>+</span>
-                </li>
+              <ul class="autochecker-list" style="height: 260px">
+                <div class="select-all">
+                  <el-checkbox
+                    v-model="checkAll"
+                    :indeterminate="isIndeterminate"
+                    :label="t('component.allSelect')"
+                    @change="checkAllChange"
+                  />
+                </div>
+                <el-checkbox-group v-model="checkboxlist" @change="selectedChange">
+                  <el-scrollbar height="230px">
+                    <li :key="i" v-for="i in checkListWithFilter" :title="i">
+                      <el-checkbox :label="i">
+                        {{ i }}
+                      </el-checkbox>
+                    </li>
+                  </el-scrollbar>
+                </el-checkbox-group>
               </ul>
-              <button class="select-all" @click="selectAll">
-                {{ t('auth.select_all') }}
-              </button>
             </div>
             <div class="mod-left right-de">
               <div class="right-top clearfix">
-                {{ t('auth.added') }}{{ checklist.length }}
+                {{ t('common.list_selection') }}
                 <div class="right-btn">
                   <span @click="cancelKeyDow">
                     <i class="el-icon-edit"></i>
@@ -566,37 +535,28 @@ const emits = defineEmits(['update:item', 'del'])
                   </transition>
                 </div>
               </div>
-              <ul class="infinite-list autochecker-list" style="overflow: auto">
-                <li :key="i" v-for="(i, idx) in checklist" class="infinite-list-item">
-                  <el-tooltip
-                    class="item"
-                    effect="light"
-                    :content="i"
-                    placement="top"
-                    :open-delay="1000"
-                  >
-                    <label>{{ i }}</label>
-                  </el-tooltip>
-                  <el-icon @click="delChecks(idx)" style="opacity: 1">
-                    <Icon name="icon_delete-trash_outlined"
-                      ><icon_deleteTrash_outlined class="svg-icon"
-                    /></Icon>
-                  </el-icon>
-                </li>
+              <ul class="autochecker-list">
+                <div class="clear-checkbox__label">
+                  <span>{{ t('auth.added') + ' ' + checklist.length }}</span
+                  ><span @click="clearAll">{{ t('user.clear_button') }}</span>
+                </div>
+                <el-scrollbar height="230px">
+                  <li :key="i" v-for="(i, idx) in checklist">
+                    <div :title="i" class="right-checkbox__label">{{ i }}</div>
+                    <el-icon @click="delChecks(idx, i)" class="remove-hover-icon">
+                      <Icon><icon_close_outlined class="svg-icon" /></Icon>
+                    </el-icon>
+                  </li>
+                </el-scrollbar>
               </ul>
-              <div class="right-menu-foot">
-                <div class="footer-left">&nbsp;</div>
-                <div class="confirm-btn" @click="confirm">
-                  {{ t('auth.sure') }}
-                </div>
-                <div class="footer-right">
-                  <el-icon @click="clearAll">
-                    <Icon name="icon_delete-trash_outlined"
-                      ><icon_deleteTrash_outlined class="svg-icon"
-                    /></Icon>
-                  </el-icon>
-                </div>
-              </div>
+            </div>
+            <div class="right-menu-foot">
+              <el-button secondary @click="cancelSelect">
+                {{ t('common.cancel') }}
+              </el-button>
+              <el-button type="primary" @click="confirm">
+                {{ t('auth.sure') }}
+              </el-button>
             </div>
           </div>
         </el-popover>
@@ -607,22 +567,8 @@ const emits = defineEmits(['update:item', 'del'])
         /></Icon>
       </el-icon>
     </div>
-    <el-dialog
-      class="create-dialog"
-      append-to-body
-      v-model="dialogVisible"
-      title="日期设置"
-      width="420"
-    >
-      <TimeDialog ref="timeDialog"></TimeDialog>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmTimeSelect"> 确定 </el-button>
-        </div>
-      </template>
-    </el-dialog>
   </div>
+  <TimeSetDialog @saveTime="saveTime" ref="timeDialog"></TimeSetDialog>
 </template>
 
 <style lang="less" scoped>
@@ -650,7 +596,7 @@ const emits = defineEmits(['update:item', 'del'])
     word-wrap: break-word;
     line-height: 28px;
     color: #7e7e7e;
-    font-size: 12px;
+    font-size: 14px;
     white-space: nowrap;
     box-sizing: border-box;
     margin-right: 5px;
@@ -660,7 +606,7 @@ const emits = defineEmits(['update:item', 'del'])
   }
 
   .font12 {
-    font-size: 12px;
+    font-size: 14px;
     margin: 0 10px;
     cursor: pointer;
   }
@@ -670,11 +616,15 @@ const emits = defineEmits(['update:item', 'del'])
   }
 
   .w100.ed-select {
-    width: 100px;
+    width: 100px !important;
+  }
+
+  .w181.ed-select {
+    width: 181px !important;
   }
 
   .w70 {
-    width: 70px;
+    width: 70px !important;
   }
 
   .mar5 {
@@ -725,7 +675,7 @@ const emits = defineEmits(['update:item', 'del'])
     text-align: left;
     line-height: 28px;
     color: #7e7e7e;
-    font-size: 12px;
+    font-size: 14px;
     white-space: pre;
     box-sizing: border-box;
     height: 1px;
@@ -760,17 +710,18 @@ const emits = defineEmits(['update:item', 'del'])
     }
   }
 
-  :deep(.ed-input__wrapper) {
+  :deep(.ed-input__wrapper),
+  :deep(.ed-select__wrapper) {
     background-color: #f8f8fa;
     border: none;
     border-radius: 0;
-    box-shadow: none;
+    box-shadow: none !important;
     height: 26px;
     font-family: var(--de-custom_font, 'PingFang');
     word-wrap: break-word;
     text-align: left;
     color: rgba(0, 0, 0, 0.65);
-    font-size: 12px;
+    font-size: 14px;
     list-style: none;
     user-select: none;
     cursor: pointer;
@@ -821,7 +772,7 @@ const emits = defineEmits(['update:item', 'del'])
         padding 0.15s cubic-bezier(0.645, 0.045, 0.355, 1);
       position: relative;
       overflow: hidden;
-      font-size: 12px;
+      font-size: 14px;
       text-overflow: ellipsis;
       padding: 0 16px 0 28px;
       line-height: 32px;
@@ -852,7 +803,7 @@ const emits = defineEmits(['update:item', 'del'])
     height: 28px;
     padding: 4px 7px;
     color: rgba(0, 0, 0, 0.65);
-    font-size: 12px;
+    font-size: 14px;
     line-height: 28px;
     background-color: #fff;
     background-image: none;
@@ -883,7 +834,7 @@ const emits = defineEmits(['update:item', 'del'])
     box-sizing: border-box;
     margin: 0;
     color: rgba(0, 0, 0, 0.65);
-    font-size: 12px;
+    font-size: 14px;
     font-variant: tabular-nums;
     line-height: 1.5;
     list-style: none;
@@ -901,7 +852,7 @@ const emits = defineEmits(['update:item', 'del'])
   border: none !important;
   .de-panel {
     color: rgba(0, 0, 0, 0.65);
-    font-size: 12px;
+    font-size: 14px;
     box-sizing: border-box;
     position: relative;
     padding: 0;
@@ -911,10 +862,22 @@ const emits = defineEmits(['update:item', 'del'])
     background-color: #fff;
     box-shadow: none;
     border: 1px solid rgba(0, 0, 0, 0.05);
+    .right-menu-foot {
+      text-align: right;
+      padding: 5px;
+      float: right;
+      width: 100%;
+      border-top: 1px solid hsla(0, 0%, 59%, 0.1);
+      .ed-button {
+        line-height: 28px;
+        height: 28px;
+        min-width: 70px;
+      }
+    }
     .mod-left {
       font-family: var(--de-custom_font, 'PingFang');
       color: rgba(0, 0, 0, 0.65);
-      font-size: 12px;
+      font-size: 14px;
       vertical-align: top;
       padding: 5px;
       width: 50%;
@@ -929,7 +892,7 @@ const emits = defineEmits(['update:item', 'del'])
         position: relative;
         display: inline-block;
         color: rgba(0, 0, 0, 0.65);
-        font-size: 12px;
+        font-size: 14px;
         line-height: 28px;
         background-color: #fff;
         background-image: none;
@@ -958,122 +921,81 @@ const emits = defineEmits(['update:item', 'del'])
       border-left: 1px solid hsla(0, 0%, 59%, 0.1);
     }
     .autochecker-list {
-      font-family: var(--de-custom_font, 'PingFang');
-      color: rgba(0, 0, 0, 0.65);
-      box-sizing: border-box;
       width: 100%;
-      overflow: hidden;
-      overflow-y: auto;
-      height: 221px;
       position: relative;
-      padding: 0;
 
-      li {
-        direction: ltr;
+      .select-all {
         padding: 0 5px;
-        text-overflow: ellipsis;
-        overflow: hidden;
-        color: #333;
-        white-space: nowrap;
-        list-style: none;
-        line-height: 28px;
-        height: 28px;
-        width: 100%;
-        position: relative;
-        box-sizing: border-box;
-
-        &:hover {
-          background-color: #f8f8fa;
-          color: #2153d4;
-          opacity: 1;
-          span {
-            display: block;
-          }
-        }
-
-        i {
-          color: #333;
-          font-size: 12px;
-          cursor: pointer;
-          vertical-align: top;
-          line-height: 28px;
-          height: 28px;
-          display: inline-block;
-          opacity: 0;
-        }
-
-        label {
-          font-family: var(--de-custom_font, 'PingFang');
-          font-size: 12px;
-          direction: ltr;
-          color: #333;
-          box-sizing: border-box;
-          touch-action: manipulation;
-          width: 87%;
-          height: 28px;
-          line-height: 14px;
-          padding: 8px 20px;
-          cursor: pointer;
-          display: inline-block;
-          position: relative;
-          white-space: nowrap;
-          text-overflow: ellipsis;
-          overflow: hidden;
-        }
-
-        span {
-          display: none;
-          position: absolute;
-          width: 14px;
-          height: 14px;
-          line-height: 11px;
-          top: 6px;
-          right: 5px;
-          font-size: 15px;
-          cursor: pointer;
-          background: #2153d4;
-          color: #fff;
-          text-align: center;
-          border-radius: 999px;
+        .ed-checkbox__label {
+          font-weight: 400;
         }
       }
-    }
 
-    .select-all {
-      box-sizing: border-box;
-      margin: 0;
-      overflow: visible;
-      position: relative;
-      font-weight: 400;
-      white-space: nowrap;
-      border: 1px solid transparent;
-      transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
-      user-select: none;
-      touch-action: manipulation;
-      padding: 0 15px;
-      font-size: 12px;
-      outline: 0;
-      color: #fff;
-      border-color: #2e74ff;
-      text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.12);
-      box-shadow: 0 2px 0 rgba(0, 0, 0, 0.045);
-      align-items: center;
-      justify-content: center;
-      line-height: 1;
-      -webkit-appearance: button;
-      cursor: pointer;
-      border-radius: 0;
-      background: #2153d4;
-      padding-left: 5px;
-      text-align: center;
-      display: inline-block;
-      width: 100%;
-      height: 25px;
+      .clear-checkbox__label {
+        display: flex;
+        align-items: center;
+        line-height: 32px;
+        padding: 0 5px;
+        height: 32px;
+        font-weight: 400;
+        width: 100%;
+        justify-content: space-between;
+        :nth-child(2) {
+          height: 26px;
+          line-height: 26px;
+          border-radius: 6px;
+          padding: 0 4px;
+          color: var(--ed-color-primary, #3370ff);
+          &:hover {
+            background-color: var(--ed-color-primary-1a, #3370ff1a);
+          }
+        }
+      }
 
-      &:hover {
-        border: 1px solid transparent;
-        background: #4794ff;
-        color: #fff;
+      .right-checkbox__label {
+        text-overflow: ellipsis;
+        overflow: hidden;
+        width: 140px;
+        color: #1f2329;
+        white-space: nowrap;
+        font-weight: 400;
+        font-size: 14px;
+      }
+      li {
+        padding: 0 5px;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        line-height: 32px;
+        height: 32px;
+        width: 100%;
+        position: relative;
+        .ed-checkbox__label {
+          text-overflow: ellipsis;
+          overflow: hidden;
+          width: 140px;
+          white-space: nowrap;
+          font-weight: 400;
+        }
+
+        &:hover {
+          background-color: #1f23291a;
+        }
+
+        .remove-hover-icon {
+          width: 16px;
+          height: 16px;
+          cursor: pointer;
+          color: #8f959e;
+          margin: 4px;
+          &:hover {
+            width: 24px;
+            margin: 0px;
+            height: 24px;
+            border-radius: 6px;
+            background-color: #1f23291a;
+          }
+        }
       }
     }
 
@@ -1085,14 +1007,14 @@ const emits = defineEmits(['update:item', 'del'])
       border-bottom: 1px solid #f8f8fa;
       height: 30px;
       width: 100%;
-      font-size: 12px;
-      line-height: 35px;
+      font-size: 14px;
+      line-height: 27px;
       text-overflow: ellipsis;
       white-space: nowrap;
 
       .right-btn {
         color: rgba(0, 0, 0, 0.65);
-        font-size: 12px;
+        font-size: 14px;
         box-sizing: border-box;
         position: relative;
         z-index: 10;
@@ -1106,57 +1028,6 @@ const emits = defineEmits(['update:item', 'del'])
         width: 75px;
       }
     }
-
-    .right-menu-foot {
-      color: rgba(0, 0, 0, 0.65);
-      font-size: 12px;
-      box-sizing: border-box;
-      height: 30px;
-      text-align: right;
-      line-height: 30px;
-      margin-top: 5px;
-      border-top: 1px solid hsla(0, 0%, 59%, 0.1);
-
-      .footer-left {
-        box-sizing: border-box;
-        float: left;
-      }
-
-      .footer-right {
-        float: right;
-        padding-left: 10px;
-        cursor: pointer;
-      }
-
-      .confirm-btn {
-        box-sizing: border-box;
-        position: relative;
-        font-weight: 400;
-        white-space: nowrap;
-        text-align: center;
-        background-image: none;
-        border: 1px solid transparent;
-        transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
-        user-select: none;
-        touch-action: manipulation;
-        height: 28px;
-        padding: 0 15px;
-        font-size: 12px;
-        border-radius: 2px;
-        outline: 0;
-        color: #fff;
-        background-color: #2e74ff;
-        border-color: #2e74ff;
-        text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.12);
-        box-shadow: 0 2px 0 rgba(0, 0, 0, 0.045);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        line-height: 1;
-        -webkit-appearance: button;
-        cursor: pointer;
-      }
-    }
   }
 }
 
@@ -1165,7 +1036,7 @@ const emits = defineEmits(['update:item', 'del'])
   margin: 5px 0;
   background-color: #fff;
   border: 1px solid #ebeef5;
-  border-radius: 4px;
+  border-radius: 6px;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
   margin-top: 12px;
   position: absolute;
@@ -1185,7 +1056,7 @@ const emits = defineEmits(['update:item', 'del'])
       position: relative;
       display: inline-block;
       color: rgba(0, 0, 0, 0.65);
-      font-size: 12px;
+      font-size: 14px;
       background-color: #fff;
       background-image: none;
       max-width: 100%;
@@ -1220,7 +1091,7 @@ const emits = defineEmits(['update:item', 'del'])
         touch-action: manipulation;
         height: 28px;
         padding: 0 15px;
-        font-size: 12px;
+        font-size: 14px;
         color: rgba(0, 0, 0, 0.65);
         background-color: #fff;
         outline: 0;

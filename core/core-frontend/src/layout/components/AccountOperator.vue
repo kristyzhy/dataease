@@ -146,9 +146,9 @@ if (uid.value === '1') {
           <span>{{ link.label }}</span>
         </div>
 
-        <div class="uinfo-main-item de-container de-language">
+        <div class="uinfo-main-item de-container">
           <div class="about-parent" ref="divLanguageRef" v-click-outside="openLanguage">
-            <span>语言</span>
+            <span>{{ $t('commons.language') }}</span>
             <el-icon class="el-icon-animate">
               <ArrowRight />
             </el-icon>
@@ -192,14 +192,14 @@ if (uid.value === '1') {
     color: var(--ed-color-black) !important;
   }
   &:hover {
-    background-color: var(--ed-menu-hover-bg-color) !important;
+    background-color: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1)) !important;
   }
 }
 .top-info-container {
   height: 32px;
   display: flex;
   align-items: center;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
   &:hover {
@@ -224,7 +224,7 @@ if (uid.value === '1') {
   width: 100%;
   height: 100%;
   .de-container {
-    padding: 0 13px 10px;
+    padding: 0 8px 10px;
   }
   .ed-divider--horizontal {
     margin: 0 0 !important;
@@ -250,13 +250,15 @@ if (uid.value === '1') {
   .uinfo-main,
   .uinfo-footer {
     width: 100%;
+    padding: 4px;
     .uinfo-main-item {
       width: 100%;
       height: 40px;
       line-height: 40px;
+      border-radius: 6px;
       cursor: pointer;
       &:hover {
-        background-color: #f2f2f2;
+        background-color: #1f23291a;
       }
       .about-parent {
         display: flex;
@@ -279,13 +281,9 @@ if (uid.value === '1') {
   padding-bottom: 0 !important;
 }
 .language-popover {
-  max-height: 112px;
   .ed-popper__arrow {
     display: none;
   }
-  padding: var(--ed-popover-padding) 0 !important;
-}
-.de-language {
-  display: none !important;
+  padding: 4px !important;
 }
 </style>

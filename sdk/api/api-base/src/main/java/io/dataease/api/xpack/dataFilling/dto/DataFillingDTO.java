@@ -7,7 +7,6 @@ import lombok.Data;
 import java.io.Serial;
 import java.io.Serializable;
 
-
 @Data
 public class DataFillingDTO implements Serializable {
 
@@ -89,5 +88,5 @@ public class DataFillingDTO implements Serializable {
     private String creator;
     private String updater;
 
-
+    private boolean useExistsTable;
 }

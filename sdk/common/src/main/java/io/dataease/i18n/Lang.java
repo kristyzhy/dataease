@@ -1,19 +1,21 @@
 package io.dataease.i18n;
 
+import io.dataease.utils.CacheUtils;
+import lombok.Getter;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import static io.dataease.constant.CacheConstant.UserCacheConstant.USER_COMMUNITY_LANGUAGE;
+
+@Getter
 public enum Lang {
 
     zh_CN("zh-CN"), zh_TW("zh-TW"), en_US("en-US");
 
-    private String desc;
+    private final String desc;
 
     Lang(String desc) {
         this.desc = desc;
-    }
-
-    public String getDesc() {
-        return this.desc;
     }
 
     public static Lang getLang(String lang) {
@@ -45,4 +47,19 @@ public enum Lang {
         return null;
     }
 
+    public static boolean isChinese() {
+        String lang = null;
+        Object langObj = CacheUtils.get(USER_COMMUNITY_LANGUAGE, "de");
+        if (ObjectUtils.isNotEmpty(langObj) && StringUtils.isNotBlank(langObj.toString())) {
+            lang = langObj.toString();
+        }
+
+        if (StringUtils.isBlank(lang)) {
+            return true;
+        }
+        if (StringUtils.startsWithIgnoreCase(lang, "zh")) {
+            return true;
+        }
+        return false;
+    }
 }

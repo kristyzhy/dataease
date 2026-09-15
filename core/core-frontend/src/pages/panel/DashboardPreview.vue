@@ -1,7 +1,8 @@
 <script lang="ts" setup>
 import { ref, reactive, onBeforeMount, nextTick, inject } from 'vue'
-import { initCanvasData, initCanvasDataMobile } from '@/utils/canvasUtils'
+import { initCanvasData, initCanvasDataMobile, onInitReady } from '@/utils/canvasUtils'
 import { interactiveStoreWithOut } from '@/store/modules/interactive'
+import router from '@/router/mobile'
 import { useEmbedded } from '@/store/modules/embedded'
 import { isMobile } from '@/utils/utils'
 import { check } from '@/utils/CrossPermission'
@@ -56,9 +57,15 @@ onBeforeMount(async () => {
   }
   // 添加外部参数
   let attachParams
-  await getOuterParamsInfo(embeddedParams.dvId).then(rsp => {
-    dvMainStore.setNowPanelOuterParamsInfo(rsp.data)
-  })
+  try {
+    await getOuterParamsInfo(embeddedParams.dvId).then(rsp => {
+      dvMainStore.setNowPanelOuterParamsInfoV2(rsp.data, embeddedParams.dvId)
+    })
+  } catch (error) {
+    if (error.status === 401) {
+      return
+    }
+  }
 
   // div嵌入
   if (embeddedParams.outerParams) {
@@ -81,7 +88,7 @@ onBeforeMount(async () => {
 
   req(
     embeddedParams.dvId,
-    embeddedParams.busiFlag,
+    { busiFlag: embeddedParams.busiFlag },
     function ({
       canvasDataResult,
       canvasStyleResult,
@@ -90,10 +97,7 @@ onBeforeMount(async () => {
       curPreviewGap
     }) {
       if (!isPc.value) {
-        if (!dvInfo.mobileLayout) {
-          useEmitt().emitter.emit('changeCurrentComponent', 'DashboardEmpty')
-          return
-        } else {
+        if (dvInfo.mobileLayout) {
           dvMainStore.setMobileInPc(true)
           dvMainStore.setInMobile(true)
         }
@@ -105,6 +109,7 @@ onBeforeMount(async () => {
       state.curPreviewGap = curPreviewGap
       nextTick(() => {
         dashboardPreview.value.restore()
+        onInitReady({ resourceId: embeddedParams.dvId })
       })
       state.initState = false
       dvMainStore.addOuterParamsFilter(attachParams, canvasDataResult, 'outer')

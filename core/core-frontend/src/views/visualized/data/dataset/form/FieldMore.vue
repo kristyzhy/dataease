@@ -112,8 +112,13 @@ const options = computed(() => {
       icon: icon_deleteTrash_outlined
     }
   ]
-  if (props.extField !== 2) {
+  if (![2, 3].includes(props.extField)) {
     optionArr.splice(2, 1)
+  }
+
+  if ([3].includes(props.extField)) {
+    optionArr.splice(0, 1)
+    optionArr.splice(0, 1)
   }
   return optionArr
 })
@@ -141,7 +146,11 @@ const handleChange = () => {
 <template>
   <el-popover
     :popper-class="
-      options.length === 6 ? 'menu-more_popper_one menu-more_popper_six' : 'menu-more_popper_one'
+      options.length === 6
+        ? 'menu-more_popper_one menu-more_popper_six'
+        : extField === 3
+        ? 'menu-more_popper_one menu-more_popper_three'
+        : 'menu-more_popper_one'
     "
     :persistent="false"
     ref="popover"
@@ -189,7 +198,7 @@ const handleChange = () => {
   cursor: pointer;
   height: 24px;
   width: 24px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 16px;
   &:hover {
     background: rgba(31, 35, 41, 0.1);
@@ -200,6 +209,10 @@ const handleChange = () => {
 <style lang="less">
 .menu-more_popper_six > :first-child > :first-child > :first-child {
   height: 210px;
+}
+
+.menu-more_popper_three > :first-child > :first-child > :first-child {
+  height: 145px;
 }
 .menu-more_popper_one {
   padding: 0 !important;
@@ -213,13 +226,12 @@ const handleChange = () => {
   }
   .ed-cascader-panel {
     .ed-cascader-menu {
-      border-radius: 4px;
+      border-radius: 6px;
       border: 1px solid #dee0e3;
       background: #fff;
       box-shadow: 0px 4px 8px 0px rgba(31, 35, 41, 0.1);
       border-right: none;
       &:nth-child(2) {
-        margin-top: 32px;
         > div {
           height: 210px;
         }

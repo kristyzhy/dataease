@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
+import { nextTick, onBeforeUnmount, onMounted } from 'vue'
+import { useEmitt } from '@/hooks/web/useEmitt'
+import ChartCarouselTooltip from '@/views/chart/components/js/g2plot_tooltip_carousel'
 
 const dvMainStore = dvMainStoreWithOut()
-import screenfull from 'screenfull'
-import { onBeforeUnmount, onMounted, toRefs } from 'vue'
-import { useEmitt } from '@/hooks/web/useEmitt'
 
 const props = defineProps({
   themes: {
@@ -21,41 +21,51 @@ const props = defineProps({
     default: 'preview'
   }
 })
-const { themes } = toRefs(props)
 
 const fullscreenChange = () => {
-  if (screenfull.isEnabled) {
-    dvMainStore.setFullscreenFlag(screenfull.isFullscreen)
-    // 编辑界面使用
-    if (props.showPosition === 'edit') {
-      if (screenfull.isFullscreen) {
-        dvMainStore.setEditMode('preview')
-      } else {
-        dvMainStore.setEditMode('edit')
-      }
-    }
-    // 大屏编辑使用
-    if (props.showPosition === 'dvEdit') {
-      useEmitt().emitter.emit('canvasScrollRestore')
+  const isFullscreen = !!document.fullscreenElement
+  dvMainStore.setFullscreenFlag(isFullscreen)
+
+  // 编辑界面使用
+  if (props.showPosition === 'edit') {
+    dvMainStore.setEditMode(isFullscreen ? 'preview' : 'edit')
+  }
+
+  // 大屏编辑使用
+  if (props.showPosition === 'dvEdit') {
+    useEmitt().emitter.emit('canvasScrollRestore')
+    if (!isFullscreen) {
+      nextTick(() => {
+        ChartCarouselTooltip.resume()
+      })
     }
   }
 }
 
 const toggleFullscreen = () => {
-  if (screenfull.isEnabled) {
-    const bodyNode = document.querySelector('body')
-    screenfull.toggle(bodyNode)
+  const bodyNode = document.querySelector('body')
+  if (!document.fullscreenElement) {
+    bodyNode?.requestFullscreen()
+  } else {
+    document.exitFullscreen()
+  }
+}
+
+// 针对钉钉windows版无法退出全屏问题 这里主动退出
+const handleKeydown = event => {
+  if (event.key === 'Escape' && document.fullscreenElement) {
+    document.exitFullscreen()
   }
 }
 
 onMounted(() => {
-  if (screenfull.isEnabled) {
-    screenfull.on('change', fullscreenChange)
-  }
+  document.addEventListener('fullscreenchange', fullscreenChange)
+  document.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
-  screenfull.off('change', fullscreenChange)
+  document.removeEventListener('fullscreenchange', fullscreenChange)
+  document.removeEventListener('keydown', handleKeydown)
 })
 
 defineExpose({

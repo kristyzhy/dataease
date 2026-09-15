@@ -1,17 +1,26 @@
 import { ref, onBeforeUnmount, onMounted } from 'vue'
 import { useCache } from '@/hooks/web/useCache'
+import { useEmitt } from '@/hooks/web/useEmitt'
 
 type Sidebar = 'DATASET' | 'DASHBOARD' | 'DATASOURCE' | 'DATA-FILLING'
 
 export const useMoveLine = (type: Sidebar) => {
   const { wsCache } = useCache('localStorage')
   const width = ref(wsCache.get(type) || 280)
+  wsCache.set('current-collapse_bar', width.value)
 
   const getCoordinates = () => {
-    document.querySelector('.sidebar-move-line').className = 'sidebar-move-line dragging'
+    if (document.querySelector('.sidebar-move-line')) {
+      document.querySelector('.sidebar-move-line').className = 'sidebar-move-line dragging'
+    }
     document.addEventListener('mousemove', setCoordinates)
     document.addEventListener('mouseup', cancelEvent)
     document.querySelector('body').style['user-select'] = 'none'
+  }
+
+  const setCollapseBarWidth = () => {
+    wsCache.set('current-collapse_bar', width.value)
+    useEmitt().emitter.emit('current-collapse_bar')
   }
 
   const setCoordinates = (e: MouseEvent) => {
@@ -19,14 +28,18 @@ export const useMoveLine = (type: Sidebar) => {
     if (x > 401 || x < 279) {
       width.value = Math.max(Math.min(401, x), 279)
       ele.style.left = width.value - 5 + 'px'
+      setCollapseBarWidth()
       return
     }
     ele.style.left = width.value - 5 + 'px'
     width.value = x
+    setCollapseBarWidth()
   }
 
   const cancelEvent = () => {
-    document.querySelector('.sidebar-move-line').className = 'sidebar-move-line'
+    if (document.querySelector('.sidebar-move-line')) {
+      document.querySelector('.sidebar-move-line').className = 'sidebar-move-line'
+    }
     document.querySelector('body').style['user-select'] = 'auto'
     wsCache.set(type, width.value)
     document.removeEventListener('mousemove', setCoordinates)

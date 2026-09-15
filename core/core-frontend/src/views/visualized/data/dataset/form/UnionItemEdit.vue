@@ -223,10 +223,11 @@ init()
 }
 .union-selector {
   width: 180px;
-  :deep(.ed-select__prefix--light) {
-    border-right: none;
+  :deep(.ed-select__prefix) {
     font-size: 22px;
-    padding: 0;
+    &::after {
+      display: none;
+    }
   }
 }
 .union-add {
@@ -261,10 +262,7 @@ init()
   width: 40px;
   text-align: center;
 }
-.union-body-container {
-  height: 180px;
-  overflow-y: auto;
-}
+
 .select-field {
   width: 364px;
   display: inline-block;

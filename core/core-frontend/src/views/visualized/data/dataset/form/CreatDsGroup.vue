@@ -1,10 +1,12 @@
 <script lang="ts" setup>
 import dvFolder from '@/assets/svg/dv-folder.svg'
 import icon_searchOutline_outlined from '@/assets/svg/icon_search-outline_outlined.svg'
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, unref } from 'vue'
+import treeSort from '@/utils/treeSortUtils'
+import { useCache } from '@/hooks/web/useCache'
 import { ElMessage } from 'element-plus-secondary'
+import { cloneDeep } from 'lodash-es'
 import { useI18n } from '@/hooks/web/useI18n'
-import { useEmitt } from '@/hooks/web/useEmitt'
 import {
   getDatasetTree,
   moveDatasetTree,
@@ -14,7 +16,9 @@ import {
 import type { DatasetOrFolder } from '@/api/dataset'
 import nothingTree from '@/assets/img/nothing-tree.png'
 import { BusiTreeRequest } from '@/models/tree/TreeNode'
+import { filterFreeFolder, getHighlightSegments } from '@/utils/utils'
 export interface Tree {
+  isCross: boolean
   name: string
   value?: string | number
   id: string | number
@@ -29,7 +33,7 @@ export interface Tree {
   children?: Tree[]
 }
 const { t } = useI18n()
-
+const { wsCache } = useCache()
 const state = reactive({
   tData: [],
   nameList: []
@@ -44,6 +48,7 @@ const treeRef = ref()
 const filterText = ref('')
 let union = []
 let allfields = []
+let isCross = false
 const datasetForm = reactive({
   pid: '',
   name: ''
@@ -60,13 +65,7 @@ const filterNode = (value: string, data: Tree) => {
 
 watch(filterText, val => {
   showAll.value = !val
-  treeRef.value.filter(val)
-  nextTick(() => {
-    document.querySelectorAll('.node-text').forEach(ele => {
-      const content = ele.getAttribute('title')
-      ele.innerHTML = content.replace(val, `<span class="highLight">${val}</span>`)
-    })
-  })
+  treeRef.value?.filter(val)
 })
 
 const showPid = computed(() => {
@@ -138,6 +137,8 @@ const formatRootMiss = (id: string | number, treeData: Tree[]) => {
   }
   return id
 }
+const originResourceTree = ref([])
+const sortList = ['time_asc', 'time_desc', 'name_asc', 'name_desc']
 const createInit = (type, data: Tree, exec, name: string) => {
   pid.value = ''
   id.value = ''
@@ -151,12 +152,18 @@ const createInit = (type, data: Tree, exec, name: string) => {
   if (type === 'dataset') {
     union = data.union
     allfields = data.allfields
+    isCross = data.isCross
   }
   if (data.id) {
     const request = { leaf: false, weight: 7 } as BusiTreeRequest
     getDatasetTree(request).then(res => {
+      filterFreeFolder(res, 'dataset')
       dfs(res as unknown as Tree[])
       state.tData = (res as unknown as Tree[]) || []
+      let curSortType = sortList[Number(wsCache.get('TreeSort-backend')) ?? 1]
+      curSortType = wsCache.get('TreeSort-dataset') ?? curSortType
+      originResourceTree.value = cloneDeep(unref(state.tData))
+      state.tData = treeSort(originResourceTree.value, curSortType)
       if (state.tData.length && state.tData[0].name === 'root' && state.tData[0].id === '0') {
         state.tData[0].name = t('data_set.data_set')
       }
@@ -254,6 +261,7 @@ const saveDataset = () => {
       if (nodeType.value === 'dataset') {
         params.union = union
         params.allFields = allfields
+        params.isCross = isCross
       }
       if (cmd.value === 'move' && !checkPid(params.pid)) {
         return
@@ -274,7 +282,7 @@ const saveDataset = () => {
               ElMessage.success(t('data_set.rename_successful'))
               break
             default:
-              useEmitt().emitter.emit('onDatasetSave')
+              emits('onDatasetSave')
               ElMessage.success(t('common.save_success'))
               break
           }
@@ -291,7 +299,7 @@ defineExpose({
   editeInit
 })
 
-const emits = defineEmits(['finish'])
+const emits = defineEmits(['finish', 'onDatasetSave'])
 </script>
 
 <template>
@@ -301,6 +309,8 @@ const emits = defineEmits(['finish'])
     class="create-dialog"
     :width="cmd === 'move' ? '600px' : '420px'"
     :before-close="resetForm"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
   >
     <el-form
       label-position="top"
@@ -360,7 +370,15 @@ const emits = defineEmits(['finish'])
                 <el-icon style="font-size: 18px">
                   <Icon name="dv-folder"><dvFolder class="svg-icon" /></Icon>
                 </el-icon>
-                <span class="node-text" :title="data.name">{{ data.name }}</span>
+                <span class="node-text" :title="data.name">
+                  <template
+                    v-for="(segment, index) in getHighlightSegments(data.name, filterText)"
+                    :key="`${data.id}-${index}`"
+                  >
+                    <span v-if="segment.highlight" class="highLight">{{ segment.text }}</span>
+                    <template v-else>{{ segment.text }}</template>
+                  </template>
+                </span>
               </span>
             </template>
           </el-tree>
@@ -385,7 +403,7 @@ const emits = defineEmits(['finish'])
   width: 552px;
   height: 380px;
   border: 1px solid #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 8px;
   overflow-y: auto;
   .custom-tree-node {

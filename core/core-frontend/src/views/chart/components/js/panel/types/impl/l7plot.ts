@@ -5,9 +5,9 @@ import type { Plot as L7Plot } from '@antv/l7plot/dist/esm/core/plot'
 import {
   configL7Label,
   configL7Legend,
+  configL7PlotZoom,
   configL7Style,
-  configL7Tooltip,
-  configL7Zoom
+  configL7Tooltip
 } from '@/views/chart/components/js/panel/common/common_antv'
 import {
   AntVAbstractChartView,
@@ -21,6 +21,9 @@ export interface L7PlotDrawOptions<P> extends AntVDrawOptions<P> {
   areaId?: string
   level?: ViewLevel['level']
   geoJson?: FeatureCollection
+  scope?: string[]
+  // 表示GADM层级关系，name1@name2@name3,用于过滤geojson数据
+  gadmName?: string
 }
 // S2 or others to be defined next
 export abstract class L7PlotChartView<
@@ -51,13 +54,14 @@ export abstract class L7PlotChartView<
     defaultsDeep(options, { legend })
     return options
   }
-  protected configEmptyDataStrategy(chart: Chart, options: O): O {
+
+  protected getDataByEmptyDataStrategy(chart: Chart, sourceData: any[]): any[] {
     const { functionCfg } = parseJson(chart.senior)
     const emptyDataStrategy = functionCfg.emptyDataStrategy
     if (!emptyDataStrategy || emptyDataStrategy === 'breakLine') {
-      return options
+      return sourceData
     }
-    const data = cloneDeep(options.source.data)
+    const data = cloneDeep(sourceData)
     if (emptyDataStrategy === 'setZero') {
       data.forEach(item => {
         item.value === null && (item.value = 0)
@@ -79,12 +83,31 @@ export abstract class L7PlotChartView<
         }
       }
     }
-    options.source.data = data
+    return data
+  }
+
+  protected getIgnoredDataFields(chart: Chart): Set<string> {
+    const { functionCfg } = parseJson(chart.senior)
+    if (functionCfg.emptyDataStrategy !== 'ignoreData') {
+      return new Set()
+    }
+    return (chart.data?.data || []).reduce((fields, item) => {
+      if (item.value === null) {
+        item.field !== undefined && fields.add(String(item.field))
+        item.name !== undefined && fields.add(String(item.name))
+      }
+      return fields
+    }, new Set<string>())
+  }
+
+  protected configEmptyDataStrategy(chart: Chart, options: O): O {
+    // 提前返回的地图渲染分支也复用同一份空值策略处理
+    options.source.data = this.getDataByEmptyDataStrategy(chart, options.source.data)
     return options
   }
 
   protected configZoomButton(chart: Chart, plot: P) {
-    configL7Zoom(chart, plot)
+    configL7PlotZoom(chart, plot)
   }
   protected constructor(name: string, defaultData?: any[]) {
     super(ChartLibraryType.L7_PLOT, name)

@@ -4,6 +4,7 @@ import { dvMainStoreWithOut } from './dvMain'
 import { swap } from '@/utils/utils'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import { getComponentById, getCurInfo } from '@/store/modules/data-visualization/common'
+import ChartCarouselTooltip from '@/views/chart/components/js/g2plot_tooltip_carousel'
 
 const dvMainStore = dvMainStoreWithOut()
 const { curComponentIndex, curComponent } = storeToRefs(dvMainStore)
@@ -60,6 +61,13 @@ export const layerStore = defineStore('layer', {
       }
     },
 
+    hideComponentWithComponent(componentId?) {
+      const targetComponent = getComponentById(componentId)
+      // 隐藏
+      if (targetComponent) {
+        targetComponent.isShow = false
+      }
+    },
     hideComponent(componentId?) {
       const targetComponent = getComponentById(componentId)
       // 隐藏
@@ -74,17 +82,34 @@ export const layerStore = defineStore('layer', {
         targetComponent.isShow = true
         if (targetComponent.component == 'Group') {
           targetComponent.propValue.forEach(item => {
-            if (item.innerType?.indexOf('table') !== -1) {
+            if (item.innerType?.indexOf('table') !== -1 || item?.innerType?.indexOf('map') !== -1) {
               setTimeout(() => {
                 useEmitt().emitter.emit('renderChart-' + item.id)
               }, 400)
             }
           })
-        } else if (targetComponent?.innerType?.indexOf('table') !== -1) {
+        } else if (
+          targetComponent?.innerType?.indexOf('table') !== -1 ||
+          targetComponent?.innerType?.indexOf('map') !== -1
+        ) {
           setTimeout(() => {
             useEmitt().emitter.emit('renderChart-' + curComponent.value.id)
           }, 400)
         }
+      }
+    },
+    pausedTooltipCarousel(componentId?) {
+      const targetComponent = getComponentById(componentId)
+      // 暂停轮播
+      if (targetComponent) {
+        ChartCarouselTooltip.paused(componentId)
+      }
+    },
+    resumeTooltipCarousel(componentId?) {
+      const targetComponent = getComponentById(componentId)
+      // 恢复轮播
+      if (targetComponent) {
+        ChartCarouselTooltip.resume(componentId)
       }
     }
   }

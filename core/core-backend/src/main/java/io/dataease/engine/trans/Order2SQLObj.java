@@ -1,11 +1,12 @@
 package io.dataease.engine.trans;
 
 import io.dataease.api.chart.dto.DeSortField;
-import io.dataease.engine.constant.DeTypeConstants;
+import io.dataease.constant.DeTypeConstants;
 import io.dataease.engine.constant.ExtFieldConstant;
-import io.dataease.engine.constant.SQLConstants;
+import io.dataease.constant.SQLConstants;
 import io.dataease.engine.utils.Utils;
 import io.dataease.extensions.datasource.api.PluginManageApi;
+import io.dataease.extensions.datasource.constant.SqlPlaceholderConstants;
 import io.dataease.extensions.datasource.dto.CalParam;
 import io.dataease.extensions.datasource.dto.DatasetTableFieldDTO;
 import io.dataease.extensions.datasource.dto.DatasourceSchemaDTO;
@@ -14,10 +15,7 @@ import io.dataease.extensions.datasource.model.SQLObj;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * @Author Junjun
@@ -50,15 +48,30 @@ public class Order2SQLObj {
             Map.Entry<Long, DatasourceSchemaDTO> next = dsMap.entrySet().iterator().next();
             dsType = next.getValue().getType();
         }
+        Map<String, String> fieldsDialect = new HashMap<>();
 
         if (ObjectUtils.isNotEmpty(f.getExtField()) && Objects.equals(f.getExtField(), ExtFieldConstant.EXT_CALC)) {
             // 解析origin name中有关联的字段生成sql表达式
-            originField = Utils.calcFieldRegex(f.getOriginName(), tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
+            String calcFieldExp = Utils.calcFieldRegex(f, tableObj, originFields, isCross, dsMap, paramMap, pluginManage);
+            // 给计算字段处加一个占位符，后续SQL方言转换后再替换
+            originField = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, f.getId());
+            fieldsDialect.put(originField, calcFieldExp);
+            if (isCross) {
+                originField = calcFieldExp;
+            }
         } else if (ObjectUtils.isNotEmpty(f.getExtField()) && Objects.equals(f.getExtField(), ExtFieldConstant.EXT_COPY)) {
             if (StringUtils.equalsIgnoreCase(dsType, "es")) {
                 originField = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), f.getOriginName());
             } else {
                 originField = String.format(SQLConstants.FIELD_NAME, tableObj.getTableAlias(), f.getDataeaseName());
+            }
+        } else if (ObjectUtils.isNotEmpty(f.getExtField()) && Objects.equals(f.getExtField(), ExtFieldConstant.EXT_GROUP)) {
+            String groupFieldExp = Utils.transGroupFieldToSql(f, originFields, isCross, dsMap, pluginManage);
+            // 给计算字段处加一个占位符，后续SQL方言转换后再替换
+            originField = String.format(SqlPlaceholderConstants.CALC_FIELD_PLACEHOLDER, f.getId());
+            fieldsDialect.put(originField, groupFieldExp);
+            if (isCross) {
+                originField = groupFieldExp;
             }
         } else {
             if (StringUtils.equalsIgnoreCase(dsType, "es")) {
@@ -91,7 +104,7 @@ public class Order2SQLObj {
                 fieldName = String.format(SQLConstants.CAST, originField, SQLConstants.DEFAULT_FLOAT_FORMAT);
             } else if (Objects.equals(f.getDeType(), DeTypeConstants.DE_TIME)) {
                 fieldName = StringUtils.isEmpty(f.getDateFormat()) ? String.format(SQLConstants.DE_STR_TO_DATE, originField, SQLConstants.DEFAULT_DATE_FORMAT) :
-                        String.format(SQLConstants.DE_DATE_FORMAT, String.format(SQLConstants.DE_STR_TO_DATE, originField, f.getDateFormat()), SQLConstants.DEFAULT_DATE_FORMAT);
+                        String.format(SQLConstants.DE_DATE_FORMAT, String.format(SQLConstants.DE_STR_TO_DATE, originField, Utils.isValidDateFormat(f.getDateFormat()) ? Utils.transValue(f.getDateFormat()) : SQLConstants.DEFAULT_DATE_FORMAT), SQLConstants.DEFAULT_DATE_FORMAT);
             } else {
                 fieldName = originField;
             }
@@ -110,8 +123,7 @@ public class Order2SQLObj {
         SQLObj result = SQLObj.builder()
                 .orderField(String.format(SQLConstants.FIELD_DOT, originField))
                 .orderAlias(String.format(SQLConstants.FIELD_DOT, originField))
-                .orderDirection(f.getOrderDirection()).build();
+                .orderDirection(f.getOrderDirection().equalsIgnoreCase("asc") ? "asc" : "desc").build();
         return result;
     }
-
 }

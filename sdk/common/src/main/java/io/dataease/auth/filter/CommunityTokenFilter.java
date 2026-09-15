@@ -37,13 +37,12 @@ public class CommunityTokenFilter implements Filter {
         if (StringUtils.isNotBlank(token) && ObjectUtils.isNotEmpty(userBO = AuthUtils.getUser()) && ObjectUtils.isNotEmpty(userId = userBO.getUserId()) && !LicenseUtil.licenseValid()) {
             String secret = null;
             if (ObjectUtils.isEmpty(CommonBeanFactory.getBean("loginServer"))) {
-                String pwd = SubstituleLoginConfig.getPwd();
-                secret = Md5Utils.md5(pwd);
+                secret = SubstituleLoginConfig.getTokenSecret();
             } else {
                 Object apisixCacheManage = CommonBeanFactory.getBean("apisixCacheManage");
                 Method method = DeReflectUtil.findMethod(apisixCacheManage.getClass(), "userCacheBO");
                 Object o = ReflectionUtils.invokeMethod(method, apisixCacheManage, userId);
-                Method pwdMethod = DeReflectUtil.findMethod(o.getClass(), "getPwd");
+                Method pwdMethod = DeReflectUtil.findMethod(o.getClass(), "getSecret");
                 Object pwdObj = ReflectionUtils.invokeMethod(pwdMethod, o);
                 secret = pwdObj.toString();
             }
@@ -61,6 +60,7 @@ public class CommunityTokenFilter implements Filter {
                 String msg = URLEncoder.encode(e.getMessage(), StandardCharsets.UTF_8).replace("+", "%20");
                 headers.add(headName, msg);
                 sendResponseEntity(res, new ResponseEntity<>(e.getMessage(), headers, HttpStatus.UNAUTHORIZED));
+                return;
             }
         }
 

@@ -4,13 +4,12 @@ import icon_searchOutline_outlined from '@/assets/svg/icon_search-outline_outlin
 import icon_adjustment_outlined from '@/assets/svg/icon_adjustment_outlined.svg'
 import icon_edit_outlined from '@/assets/svg/icon_edit_outlined.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
-import { ref, reactive, onMounted, onBeforeUnmount, watch, unref, computed, nextTick } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import CodeMirror from '@/views/visualized/data/dataset/form/CodeMirror.vue'
 import { getFunction } from '@/api/dataset'
 import { fieldType } from '@/utils/attr'
 import { cloneDeep } from 'lodash-es'
-import { guid } from '@/views/visualized/data/dataset/form/util'
 import { iconFieldMap } from '@/components/icon-group/field-list'
 
 export interface CalcFieldType {
@@ -59,7 +58,8 @@ const defaultForm = {
 
 const state = reactive({
   functionData: [],
-  quotaData: []
+  quotaData: [],
+  allQuotaNames: []
 })
 const formQuota = reactive({
   id: null,
@@ -78,11 +78,11 @@ const setFieldForm = () => {
 
 const setNameIdTrans = (from, to, originName, name2Auto?: string[]) => {
   let name2Id = originName
-  const nameIdMap = state.quotaData.reduce((pre, next) => {
+  const nameIdMap = [...quotaDataList].reduce((pre, next) => {
     pre[next[from]] = next[to]
     return pre
   }, {})
-  const on = originName.match(/\[(.+?)\]/g)
+  const on = originName.match(/\[(.+?)\]/g) || []
   if (on) {
     on.forEach(itm => {
       const ele = itm.slice(1, -1)
@@ -98,9 +98,15 @@ const setNameIdTrans = (from, to, originName, name2Auto?: string[]) => {
 let quotaDataList = []
 const initEdit = (obj, quotaData) => {
   formQuota.id = null
+  // 每次打开弹窗重置字段和函数搜索关键字
+  searchField.value = ''
+  searchFunction.value = ''
   Object.assign(fieldForm, { ...defaultForm, ...obj })
-  state.quotaData = quotaData.concat(fieldForm.params || [])
-  quotaDataList = cloneDeep(quotaData.concat(fieldForm.params || []))
+  // 初始化全部指标数据（包含原始字段和计算字段）
+  const allFields = quotaData.concat(fieldForm.params || [])
+  state.quotaData = cloneDeep(allFields)
+  quotaDataList = cloneDeep(allFields)
+  state.allQuotaNames = allFields.map(ele => ele.name)
   if (!obj.originName) {
     mirror.value.dispatch({
       changes: {
@@ -154,16 +160,14 @@ watch(
   () => searchField.value,
   val => {
     if (val && val !== '') {
-      state.quotaData = JSON.parse(
-        JSON.stringify(
-          quotaDataList.filter(
-            ele =>
-              ele.name.toLocaleLowerCase().includes(val.toLocaleLowerCase()) && ele.extField === 0
-          )
-        )
+      const keyword = val.toLocaleLowerCase()
+      // 支持按名称搜索全部指标字段（包含计算字段和参数）
+      state.quotaData = cloneDeep(
+        quotaDataList.filter(ele => ele.name?.toLocaleLowerCase().includes(keyword))
       )
     } else {
-      state.quotaData = JSON.parse(JSON.stringify(quotaDataList)).filter(ele => ele.extField === 0)
+      // 清空搜索后恢复显示全部指标字段（保留计算字段）
+      state.quotaData = cloneDeep(quotaDataList)
     }
   }
 )
@@ -172,14 +176,15 @@ watch(
   () => searchFunction.value,
   val => {
     if (val && val !== '') {
-      state.functionData = JSON.parse(
-        JSON.stringify(
-          functions.filter(ele => {
-            return ele.func.toLocaleLowerCase().includes(val.toLocaleLowerCase())
-          })
-        )
+      const keyword = val.toLocaleLowerCase()
+      // 支持按名称搜索函数
+      state.functionData = cloneDeep(
+        functions.filter(ele => {
+          return ele.func?.toLocaleLowerCase().includes(keyword)
+        })
       )
     } else {
+      // 清空搜索后恢复显示全部函数
       state.functionData = cloneDeep(functions)
     }
   }
@@ -190,22 +195,24 @@ defineExpose({
   setFieldForm,
   fieldForm
 })
-const parmasTitle = ref('')
+const paramsTitle = ref('')
 
-const updateParmasToQuota = () => {
+const updateParamsToQuota = () => {
   const [o] = fieldForm.params
-  parmasTitle.value = '编辑计算参数'
+  paramsTitle.value = t('data_set.edit_calculation_parameters')
   Object.assign(formQuota, o || {})
   dialogFormVisible.value = true
 }
 
-const delParmasToQuota = () => {
+const delParamsToQuota = () => {
   const [o] = fieldForm.params
   fieldForm.params = []
   const str = mirror.value.state.doc.toString()
   const name2Auto = []
   fieldForm.originName = setNameIdTrans('name', 'id', str, name2Auto).replaceAll(`[${o.id}]`, '')
   state.quotaData = state.quotaData.filter(ele => ele.id !== o.id)
+  quotaDataList = quotaDataList.filter(ele => ele.id !== o.id)
+  state.allQuotaNames = quotaDataList.map(ele => ele.name)
   mirror.value.dispatch({
     changes: {
       from: 0,
@@ -237,7 +244,7 @@ initFunction()
             </el-tooltip>
           </div>
           <code-mirror
-            :quotaMap="state.quotaData.map(ele => ele.name)"
+            :quotaMap="state.allQuotaNames"
             :dimensionMap="[]"
             ref="myCm"
             height="500px"
@@ -275,42 +282,44 @@ initFunction()
             <span>{{ t('chart.quota') }}</span>
           </div>
           <div class="field-height">
-            <div v-if="state.quotaData.length" class="field-list">
-              <span
-                v-for="item in state.quotaData"
-                :key="item.id"
-                class="item-quota flex-align-center ellipsis"
-                :title="item.name"
-                @click="insertFieldToCodeMirror('[' + item.name + ']')"
-              >
-                <el-icon v-if="!item.groupType">
-                  <Icon name="icon_adjustment_outlined"
-                    ><icon_adjustment_outlined class="svg-icon"
-                  /></Icon>
-                </el-icon>
-                <el-icon v-else>
-                  <Icon :className="`field-icon-${fieldType[item.deType]}`"
-                    ><component
-                      class="svg-icon"
-                      :class="`field-icon-${fieldType[item.deType]}`"
-                      :is="iconFieldMap[fieldType[item.deType]]"
-                    ></component
-                  ></Icon>
-                </el-icon>
-                {{ item.name }}
-                <div v-if="!item.groupType" class="icon-right">
-                  <el-icon @click.stop="updateParmasToQuota" class="hover-icon">
-                    <Icon name="icon_edit_outlined"><icon_edit_outlined class="svg-icon" /></Icon>
-                  </el-icon>
-                  <el-icon @click.stop="delParmasToQuota" class="hover-icon">
-                    <Icon name="icon_delete-trash_outlined"
-                      ><icon_deleteTrash_outlined class="svg-icon"
+            <el-scrollbar>
+              <div v-if="state.quotaData.length" class="field-list">
+                <span
+                  v-for="item in state.quotaData"
+                  :key="item.id"
+                  class="item-quota flex-align-center ellipsis"
+                  :title="item.name"
+                  @click="insertFieldToCodeMirror('[' + item.name + ']')"
+                >
+                  <el-icon v-if="!item.groupType">
+                    <Icon name="icon_adjustment_outlined"
+                      ><icon_adjustment_outlined class="svg-icon"
                     /></Icon>
                   </el-icon>
-                </div>
-              </span>
-            </div>
-            <div v-else class="class-na">{{ t('dataset.na') }}</div>
+                  <el-icon v-else>
+                    <Icon :className="`field-icon-${fieldType[item.deType]}`"
+                      ><component
+                        class="svg-icon"
+                        :class="`field-icon-${fieldType[item.deType]}`"
+                        :is="iconFieldMap[fieldType[item.deType]]"
+                      ></component
+                    ></Icon>
+                  </el-icon>
+                  {{ item.name }}
+                  <div v-if="!item.groupType" class="icon-right">
+                    <el-icon @click.stop="updateParamsToQuota" class="hover-icon">
+                      <Icon name="icon_edit_outlined"><icon_edit_outlined class="svg-icon" /></Icon>
+                    </el-icon>
+                    <el-icon @click.stop="delParamsToQuota" class="hover-icon">
+                      <Icon name="icon_delete-trash_outlined"
+                        ><icon_deleteTrash_outlined class="svg-icon"
+                      /></Icon>
+                    </el-icon>
+                  </div>
+                </span>
+              </div>
+              <div v-else class="class-na">{{ t('dataset.na') }}</div>
+            </el-scrollbar>
           </div>
         </div>
       </div>
@@ -396,37 +405,8 @@ initFunction()
   .mr0 {
     margin-right: 0;
 
-    :deep(.ed-select__prefix--light) {
-      padding: 0;
-      border: none;
-      margin: 0;
-    }
-  }
-
-  .btn-select {
-    width: 100px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #ffffff;
-    border: 1px solid #bbbfc4;
-    border-radius: 4px;
-
-    .is-active {
-      background: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
-    }
-
-    .ed-button:not(.is-active) {
-      color: #1f2329;
-    }
-    .ed-button.is-text {
-      height: 24px;
-      width: 44px;
-      line-height: 24px;
-    }
-    .ed-button + .ed-button {
-      margin-left: 4px;
+    :deep(.ed-select__prefix::after) {
+      display: none;
     }
   }
 
@@ -463,12 +443,12 @@ initFunction()
     border: 1px solid var(--deCardStrokeColor, #dee0e3);
     box-sizing: border-box;
     height: 500px;
-    border-radius: 4px;
+    border-radius: 6px;
   }
 }
 .hover-icon_quota {
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 16px;
   position: relative;
 
@@ -479,7 +459,7 @@ initFunction()
       width: 24px;
       height: 24px;
       background: rgba(31, 35, 41, 0.1);
-      border-radius: 4px;
+      border-radius: 6px;
       transform: translate(-50%, -50%);
       top: 50%;
       left: 50%;
@@ -493,7 +473,7 @@ initFunction()
       width: 24px;
       height: 24px;
       background: rgba(31, 35, 41, 0.1);
-      border-radius: 4px;
+      border-radius: 6px;
       transform: translate(-50%, -50%);
       top: 50%;
       left: 50%;
@@ -507,7 +487,7 @@ initFunction()
       width: 24px;
       height: 24px;
       background: rgba(31, 35, 41, 0.2);
-      border-radius: 4px;
+      border-radius: 6px;
       transform: translate(-50%, -50%);
       top: 50%;
       left: 50%;
@@ -549,7 +529,7 @@ initFunction()
   height: 28px;
   margin-top: 4px;
   word-break: break-all;
-  border-radius: 4px;
+  border-radius: 6px;
 
   .icon-right {
     display: none;
@@ -586,7 +566,7 @@ initFunction()
   min-height: 28px;
   padding: 0px 8px;
   margin-bottom: 4px;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #1f2329;
   &:hover {
     background: rgba(31, 35, 41, 0.1);
@@ -613,7 +593,7 @@ initFunction()
 }
 .pop-info {
   margin: 6px 0 0 0;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .class-na {
@@ -628,8 +608,8 @@ initFunction()
 .calcu-field {
   .cm-scroller {
     height: 320px;
-    border: 1px solid #bbbfc4;
-    border-radius: 4px;
+    border: 1px solid #d9dcdf;
+    border-radius: 6px;
     overflow-y: auto;
     background: #fff;
   }

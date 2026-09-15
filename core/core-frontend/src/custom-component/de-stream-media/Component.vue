@@ -19,7 +19,7 @@
   </el-row>
 </template>
 <script lang="ts" setup>
-import flvjs from 'flv.js'
+import flvjs from 'flv-h265'
 import '@/style/custom-theme.css'
 import { onMounted, reactive, toRefs, getCurrentInstance, nextTick, onBeforeUnmount } from 'vue'
 import { useEmitt } from '@/hooks/web/useEmitt'
@@ -55,7 +55,7 @@ const props = defineProps({
   }
 })
 
-const { propValue, element, editMode } = toRefs(props)
+const { element } = toRefs(props)
 let currentInstance
 
 const state = reactive({

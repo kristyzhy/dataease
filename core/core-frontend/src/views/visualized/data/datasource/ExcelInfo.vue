@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import icon_excel from '@/assets/svg/icon_excel.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
-const props = withDefaults(
+withDefaults(
   defineProps<{
     name?: string
     size?: number
@@ -41,9 +41,8 @@ const del = () => {
   align-items: center;
   width: 100%;
   height: 58px;
-  padding: 0 16px 0 12px;
-  border-radius: 4px;
-  border: 1px solid #dee0e3;
+  padding: 0 0 0 0;
+  border-radius: 6px;
   .excel {
     font-size: 32px;
     margin-right: 14.67px;

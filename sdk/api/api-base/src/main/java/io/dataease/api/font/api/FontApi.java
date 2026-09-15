@@ -1,8 +1,6 @@
 package io.dataease.api.font.api;
 
 import com.github.xiaoymin.knife4j.annotations.ApiSupport;
-
-import io.dataease.api.ds.vo.ExcelFileData;
 import io.dataease.api.font.dto.FontDto;
 import io.dataease.exception.DEException;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,7 +11,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
-
 /**
  * @Author Junjun
  */
@@ -22,8 +19,8 @@ import java.util.List;
 public interface FontApi {
 
     @Operation(summary = "预览数据")
-    @PostMapping("listFont")
-    public List<FontDto> list(@RequestBody FontDto fontDto) throws Exception;
+    @GetMapping("listFont")
+    List<FontDto> list() throws Exception;
 
     @Operation(summary = "创建")
     @PostMapping("/create")

@@ -14,7 +14,12 @@ const { curComponent } = storeToRefs(dvMainStore)
 </script>
 
 <template>
-  <el-collapse-item :effect="themes" title="位置" name="position" v-if="!dashboardActive">
+  <el-collapse-item
+    :effect="themes"
+    :title="t('visualization.position')"
+    name="position"
+    v-if="!dashboardActive"
+  >
     <component-position :themes="themes" />
   </el-collapse-item>
 </template>
@@ -63,7 +68,7 @@ const { curComponent } = storeToRefs(dvMainStore)
 :deep(.ed-upload--picture-card) {
   background: #eff0f1;
   border: 1px dashed #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
 
   .ed-icon {
     color: #1f2329;

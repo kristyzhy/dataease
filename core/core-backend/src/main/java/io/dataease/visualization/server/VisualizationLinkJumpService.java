@@ -6,21 +6,19 @@ import io.dataease.api.visualization.dto.VisualizationLinkJumpDTO;
 import io.dataease.api.visualization.dto.VisualizationLinkJumpInfoDTO;
 import io.dataease.api.visualization.request.VisualizationLinkJumpBaseRequest;
 import io.dataease.api.visualization.response.VisualizationLinkJumpBaseResponse;
+import io.dataease.api.visualization.vo.VisualizationOutParamsJumpVO;
 import io.dataease.api.visualization.vo.VisualizationViewTableVO;
+import io.dataease.auth.DeLinkPermit;
 import io.dataease.chart.dao.auto.entity.CoreChartView;
 import io.dataease.chart.dao.auto.mapper.CoreChartViewMapper;
+import io.dataease.constant.CommonConstants;
 import io.dataease.extensions.datasource.dto.DatasetTableFieldDTO;
 import io.dataease.utils.AuthUtils;
 import io.dataease.utils.BeanUtils;
 import io.dataease.utils.IDUtils;
-import io.dataease.visualization.dao.auto.entity.DataVisualizationInfo;
-import io.dataease.visualization.dao.auto.entity.VisualizationLinkJump;
-import io.dataease.visualization.dao.auto.entity.VisualizationLinkJumpInfo;
-import io.dataease.visualization.dao.auto.entity.VisualizationLinkJumpTargetViewInfo;
-import io.dataease.visualization.dao.auto.mapper.DataVisualizationInfoMapper;
-import io.dataease.visualization.dao.auto.mapper.VisualizationLinkJumpInfoMapper;
-import io.dataease.visualization.dao.auto.mapper.VisualizationLinkJumpMapper;
-import io.dataease.visualization.dao.auto.mapper.VisualizationLinkJumpTargetViewInfoMapper;
+import io.dataease.utils.ModelUtils;
+import io.dataease.visualization.dao.auto.entity.*;
+import io.dataease.visualization.dao.auto.mapper.*;
 import io.dataease.visualization.dao.ext.mapper.ExtVisualizationLinkJumpMapper;
 import io.dataease.visualization.dao.ext.mapper.ExtVisualizationLinkageMapper;
 import jakarta.annotation.Resource;
@@ -57,7 +55,19 @@ public class VisualizationLinkJumpService implements VisualizationLinkJumpApi {
     private VisualizationLinkJumpTargetViewInfoMapper visualizationLinkJumpTargetViewInfoMapper;
 
     @Resource
+    private SnapshotVisualizationLinkJumpMapper snapshotVisualizationLinkJumpMapper;
+
+    @Resource
+    private SnapshotVisualizationLinkJumpInfoMapper snapshotVisualizationLinkJumpInfoMapper;
+
+    @Resource
+    private SnapshotVisualizationLinkJumpTargetViewInfoMapper snapshotVisualizationLinkJumpTargetViewInfoMapper;
+
+    @Resource
     private CoreChartViewMapper coreChartViewMapper;
+
+    @Resource
+    private SnapshotCoreChartViewMapper snapshotCoreChartViewMapper;
 
     @Resource
     private DataVisualizationInfoMapper dataVisualizationInfoMapper;
@@ -67,11 +77,17 @@ public class VisualizationLinkJumpService implements VisualizationLinkJumpApi {
         return extVisualizationLinkageMapper.queryTableFieldWithViewId(viewId);
     }
 
+    @DeLinkPermit
     //获取仪表板的跳转信息
     @Override
-    public VisualizationLinkJumpBaseResponse queryVisualizationJumpInfo(Long dvId) {
+    public VisualizationLinkJumpBaseResponse queryVisualizationJumpInfo(Long dvId, String resourceTable) {
         Map<String, VisualizationLinkJumpInfoDTO> resultBase = new HashMap<>();
-        List<VisualizationLinkJumpDTO> resultLinkJumpList = extVisualizationLinkJumpMapper.queryWithDvId(dvId, AuthUtils.getUser().getUserId());
+        List<VisualizationLinkJumpDTO> resultLinkJumpList = null;
+        if (CommonConstants.RESOURCE_TABLE.SNAPSHOT.equals(resourceTable)) {
+            resultLinkJumpList = extVisualizationLinkJumpMapper.queryWithDvIdSnapshot(dvId, AuthUtils.getUser().getUserId(), ModelUtils.isDesktop());
+        } else {
+            resultLinkJumpList = extVisualizationLinkJumpMapper.queryWithDvId(dvId, AuthUtils.getUser().getUserId(), ModelUtils.isDesktop());
+        }
         Optional.ofNullable(resultLinkJumpList).orElse(new ArrayList<>()).forEach(resultLinkJump -> {
             if (resultLinkJump.getChecked()) {
                 Long sourceViewId = resultLinkJump.getSourceViewId();
@@ -96,7 +112,7 @@ public class VisualizationLinkJumpService implements VisualizationLinkJumpApi {
 
     @Override
     public VisualizationLinkJumpDTO queryWithViewId(Long dvId, Long viewId) {
-        return extVisualizationLinkJumpMapper.queryWithViewId(dvId, viewId, AuthUtils.getUser().getUserId());
+        return extVisualizationLinkJumpMapper.queryWithViewId(dvId, viewId, AuthUtils.getUser().getUserId(), ModelUtils.isDesktop());
     }
 
     @Transactional
@@ -107,37 +123,43 @@ public class VisualizationLinkJumpService implements VisualizationLinkJumpApi {
         Assert.notNull(dvId, "dvId cannot be null");
         Assert.notNull(viewId, "viewId cannot be null");
         //清理原有数据
-        extVisualizationLinkJumpMapper.deleteJumpTargetViewInfo(dvId, viewId);
-        extVisualizationLinkJumpMapper.deleteJumpInfo(dvId, viewId);
-        extVisualizationLinkJumpMapper.deleteJump(dvId, viewId);
+        extVisualizationLinkJumpMapper.deleteJumpTargetViewInfoSnapshot(dvId, viewId);
+        extVisualizationLinkJumpMapper.deleteJumpInfoSnapshot(dvId, viewId);
+        extVisualizationLinkJumpMapper.deleteJumpSnapshot(dvId, viewId);
 
         // 插入新的数据
         Long linkJumpId = IDUtils.snowID();
         jumpDTO.setId(linkJumpId);
-        VisualizationLinkJump insertParam = new VisualizationLinkJump();
+        SnapshotVisualizationLinkJump insertParam = new SnapshotVisualizationLinkJump();
         BeanUtils.copyBean(insertParam, jumpDTO);
-        visualizationLinkJumpMapper.insert(insertParam);
+        snapshotVisualizationLinkJumpMapper.insert(insertParam);
         Optional.ofNullable(jumpDTO.getLinkJumpInfoArray()).orElse(new ArrayList<>()).forEach(linkJumpInfo -> {
             Long linkJumpInfoId = IDUtils.snowID();
             linkJumpInfo.setId(linkJumpInfoId);
             linkJumpInfo.setLinkJumpId(linkJumpId);
-            VisualizationLinkJumpInfo insertJumpInfoParam = new VisualizationLinkJumpInfo();
+            SnapshotVisualizationLinkJumpInfo insertJumpInfoParam = new SnapshotVisualizationLinkJumpInfo();
             BeanUtils.copyBean(insertJumpInfoParam, linkJumpInfo);
-            visualizationLinkJumpInfoMapper.insert(insertJumpInfoParam);
+            snapshotVisualizationLinkJumpInfoMapper.insert(insertJumpInfoParam);
             Optional.ofNullable(linkJumpInfo.getTargetViewInfoList()).orElse(new ArrayList<>()).forEach(targetViewInfo -> {
                 Long targetViewInfoId = IDUtils.snowID();
                 targetViewInfo.setTargetId(targetViewInfoId);
                 targetViewInfo.setLinkJumpInfoId(linkJumpInfoId);
-                VisualizationLinkJumpTargetViewInfo insertTargetViewInfoParam = new VisualizationLinkJumpTargetViewInfo();
+                SnapshotVisualizationLinkJumpTargetViewInfo insertTargetViewInfoParam = new SnapshotVisualizationLinkJumpTargetViewInfo();
                 BeanUtils.copyBean(insertTargetViewInfoParam, targetViewInfo);
-                visualizationLinkJumpTargetViewInfoMapper.insert(insertTargetViewInfoParam);
+                snapshotVisualizationLinkJumpTargetViewInfoMapper.insert(insertTargetViewInfoParam);
             });
         });
     }
 
+    @DeLinkPermit("#p0.targetDvId")
     @Override
     public VisualizationLinkJumpBaseResponse queryTargetVisualizationJumpInfo(VisualizationLinkJumpBaseRequest request) {
-        List<VisualizationLinkJumpDTO> result = extVisualizationLinkJumpMapper.getTargetVisualizationJumpInfo(request);
+        List<VisualizationLinkJumpDTO> result = null;
+        if (CommonConstants.RESOURCE_TABLE.SNAPSHOT.equals(request.getResourceTable())) {
+            result = extVisualizationLinkJumpMapper.getTargetVisualizationJumpInfoSnapshot(request);
+        } else {
+            result = extVisualizationLinkJumpMapper.getTargetVisualizationJumpInfo(request);
+        }
         return new VisualizationLinkJumpBaseResponse(null, Optional.ofNullable(result).orElse(new ArrayList<>()).stream().filter(item -> StringUtils.isNotEmpty(item.getSourceInfo())).collect(Collectors.toMap(VisualizationLinkJumpDTO::getSourceInfo, VisualizationLinkJumpDTO::getTargetInfoList)));
     }
 
@@ -145,33 +167,35 @@ public class VisualizationLinkJumpService implements VisualizationLinkJumpApi {
     public VisualizationComponentDTO viewTableDetailList(Long dvId) {
         DataVisualizationInfo dvInfo = dataVisualizationInfoMapper.selectById(dvId);
         List<VisualizationViewTableVO> result;
+        List<VisualizationOutParamsJumpVO> outParamsJumpInfo;
         String componentData;
         if (dvInfo != null) {
             result = extVisualizationLinkJumpMapper.getViewTableDetails(dvId).stream().filter(viewTableInfo -> dvInfo.getComponentData().indexOf(viewTableInfo.getId().toString()) > -1).collect(Collectors.toList());
             componentData = dvInfo.getComponentData();
+            outParamsJumpInfo = extVisualizationLinkJumpMapper.queryOutParamsTargetWithDvId(dvId);
         } else {
             result = new ArrayList<>();
+            outParamsJumpInfo = new ArrayList<>();
             componentData = "[]";
         }
-        return new VisualizationComponentDTO(componentData,result);
+        return new VisualizationComponentDTO(componentData, result, outParamsJumpInfo);
 
     }
 
     @Override
     public VisualizationLinkJumpBaseResponse updateJumpSetActive(VisualizationLinkJumpBaseRequest request) {
-        CoreChartView coreChartView = new CoreChartView();
+        SnapshotCoreChartView coreChartView = new SnapshotCoreChartView();
         coreChartView.setId(Long.valueOf(request.getSourceViewId()));
         coreChartView.setJumpActive(request.getActiveStatus());
-        coreChartViewMapper.updateById(coreChartView);
-        return queryVisualizationJumpInfo(request.getSourceDvId());
+        snapshotCoreChartViewMapper.updateById(coreChartView);
+        return queryVisualizationJumpInfo(request.getSourceDvId(), CommonConstants.RESOURCE_TABLE.SNAPSHOT);
     }
 
     @Override
     public void removeJumpSet(VisualizationLinkJumpDTO jumpDTO) {
         //清理原有数据
-        extVisualizationLinkJumpMapper.deleteJumpTargetViewInfo(jumpDTO.getSourceDvId(), jumpDTO.getSourceViewId());
-        extVisualizationLinkJumpMapper.deleteJumpInfo(jumpDTO.getSourceDvId(), jumpDTO.getSourceViewId());
-        extVisualizationLinkJumpMapper.deleteJump(jumpDTO.getSourceDvId(), jumpDTO.getSourceViewId());
+        extVisualizationLinkJumpMapper.deleteJumpTargetViewInfoSnapshot(jumpDTO.getSourceDvId(), jumpDTO.getSourceViewId());
+        extVisualizationLinkJumpMapper.deleteJumpInfoSnapshot(jumpDTO.getSourceDvId(), jumpDTO.getSourceViewId());
+        extVisualizationLinkJumpMapper.deleteJumpSnapshot(jumpDTO.getSourceDvId(), jumpDTO.getSourceViewId());
     }
-
 }

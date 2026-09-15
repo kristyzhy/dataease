@@ -41,7 +41,7 @@ const yAxisTypes = [
 const state = reactive({
   lineArr: [],
   lineObj: {
-    name: '辅助线',
+    name: t('chart.assist_line'),
     field: '0', // 固定值
     fieldId: '',
     summary: 'avg',
@@ -269,10 +269,11 @@ onMounted(() => {
             <el-option key="avg" value="avg" label="平均值" />
             <el-option key="max" value="max" :label="t('chart.max')" />
             <el-option key="min" value="min" :label="t('chart.min')" />
+            <el-option key="last_item" value="last_item" :label="t('chart.last_item')" />
           </el-select>
         </el-col>
         <el-col :span="useQuotaExt ? 2 : 3">
-          <el-tooltip effect="dark" content="字号" placement="top">
+          <el-tooltip effect="dark" :content="t('chart.font_size')" placement="top">
             <el-select
               v-model="item.fontSize"
               class="select-item"
@@ -298,10 +299,10 @@ onMounted(() => {
             />
           </el-select>
         </el-col>
-        <el-col :span="2" style="text-align: center">
+        <el-col :span="2">
           <el-color-picker
             is-custom
-            size="large"
+            :trigger-width="60"
             v-model="item.color"
             class="color-picker-style"
             :predefine="state.predefineColors"
@@ -335,7 +336,7 @@ onMounted(() => {
 <style lang="less" scoped>
 .line-item {
   width: 100%;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 4px;
   display: flex;
   justify-content: left;
@@ -375,6 +376,6 @@ span {
 
 .ed-select-dropdown__item {
   padding: 0 20px;
-  font-size: 12px;
+  font-size: 14px;
 }
 </style>

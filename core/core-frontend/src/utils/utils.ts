@@ -1,6 +1,9 @@
 import { BusiTreeNode } from '@/models/tree/TreeNode'
 import { useCache } from '@/hooks/web/useCache'
 import { loadScript } from '@/utils/RemoteJs'
+import { ElMessage } from 'element-plus-secondary'
+import * as dd from 'dingtalk-jsapi'
+import DOMPurify from 'dompurify'
 
 const { wsCache } = useCache()
 export function deepCopy(target) {
@@ -54,6 +57,46 @@ export function checkAddHttp(url) {
   }
 }
 
+export const sanitizeHtml = (html: string): string => {
+  return DOMPurify.sanitize(html)
+}
+
+const TOOLTIP_ALLOWED_TAGS = [
+  'div',
+  'span',
+  'br',
+  'p',
+  'b',
+  'strong',
+  'i',
+  'em',
+  'u',
+  's',
+  'small',
+  'sub',
+  'sup',
+  'ul',
+  'ol',
+  'li',
+  'table',
+  'thead',
+  'tbody',
+  'tr',
+  'th',
+  'td',
+  'code',
+  'pre'
+]
+
+export const sanitizeTooltipHtml = (html: string): string => {
+  // 提示框仅保留格式标签，避免自定义内容携带事件、外链或动态样式
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: TOOLTIP_ALLOWED_TAGS,
+    ALLOWED_ATTR: [],
+    ALLOW_DATA_ATTR: false
+  })
+}
+
 export const setColorName = (obj, keyword: string, key?: string, colorKey?: string) => {
   key = key || 'name'
   colorKey = colorKey || 'colorName'
@@ -70,10 +113,38 @@ export const setColorName = (obj, keyword: string, key?: string, colorKey?: stri
       keyword +
       '</span>' +
       name.substring(index + keyword.length, name.length)
-    obj[colorKey] = textCode
+    obj[colorKey] = DOMPurify.sanitize(textCode, {
+      ALLOWED_TAGS: ['span'],
+      ALLOWED_ATTR: ['class']
+    })
     return
   }
   obj[colorKey] = null
+}
+
+export interface HighlightSegment {
+  text: string
+  highlight: boolean
+}
+
+export const getHighlightSegments = (text: string, keyword: string): HighlightSegment[] => {
+  if (!keyword) {
+    return [{ text, highlight: false }]
+  }
+  const index = text.indexOf(keyword)
+  if (index < 0) {
+    return [{ text, highlight: false }]
+  }
+  const segments: HighlightSegment[] = []
+  if (index > 0) {
+    segments.push({ text: text.slice(0, index), highlight: false })
+  }
+  segments.push({ text: keyword, highlight: true })
+  const suffix = text.slice(index + keyword.length)
+  if (suffix) {
+    segments.push({ text: suffix, highlight: false })
+  }
+  return segments
 }
 
 export const getQueryString = (name: string) => {
@@ -136,6 +207,10 @@ export function isMobile() {
   )
 }
 
+export function isISOMobile() {
+  return navigator.userAgent.match(/(iPhone|iPad|iPod)/i) && !isTablet()
+}
+
 export const isDingTalk = window.navigator.userAgent.toLowerCase().includes('dingtalk')
 
 export const setTitle = (title?: string) => {
@@ -145,8 +220,8 @@ export const setTitle = (title?: string) => {
   }
   const jsUrl = 'https://g.alicdn.com/dingding/dingtalk-jsapi/3.0.25/dingtalk.open.js'
   const jsId = 'fit2cloud-dataease-v2-platform-client-dingtalk'
-  if (window['dd'] && window['dd'].biz?.navigation?.setTitle) {
-    window['dd'].biz.navigation.setTitle({
+  if (dd && dd.biz?.navigation?.setTitle) {
+    dd.biz.navigation.setTitle({
       title: title
     })
     return
@@ -154,8 +229,8 @@ export const setTitle = (title?: string) => {
   const awaitMethod = loadScript(jsUrl, jsId)
   awaitMethod
     .then(() => {
-      window['dd'].ready(() => {
-        window['dd'].biz.navigation.setTitle({
+      dd.ready(() => {
+        dd.biz.navigation.setTitle({
           title: title
         })
       })
@@ -187,4 +262,118 @@ export const isLink = () => {
 
 export const isNull = arg => {
   return typeof arg === 'undefined' || arg === null || arg === 'null'
+}
+
+export const exportPermission = (weight, ext) => {
+  const result = [0, 0, 0]
+  if (!weight || weight === 1) {
+    return result
+  } else if (weight === 9) {
+    return [1, 1, 1]
+  }
+  if (!ext) {
+    return result
+  }
+  const extArray = formatExt(ext) || []
+  for (let index = 0; index < extArray.length; index++) {
+    result[index] = extArray[index]
+  }
+  return result
+}
+
+export const formatExt = (num: number): number[] | null => {
+  if (!num) {
+    return null
+  }
+  const reversedStr = num.toString().split('').reverse().join('')
+  const reversedNumArray = reversedStr?.split('')?.map(Number) ?? []
+  return reversedNumArray
+}
+
+export const getBrowserLocale = () => {
+  const language = navigator.language
+  if (!language) {
+    return 'zh-CN'
+  }
+  if (language.startsWith('en')) {
+    return 'en'
+  }
+  if (language.toLowerCase().startsWith('zh')) {
+    const temp = language.toLowerCase().replace('_', '-')
+    return temp === 'zh' ? 'zh-CN' : temp === 'zh-cn' ? 'zh-CN' : 'tw'
+  }
+  return language
+}
+export const getLocale = () => {
+  return wsCache.get('user.language') || getBrowserLocale() || 'zh-CN'
+}
+
+export const isFreeFolder = (node, flag) => {
+  const oid = wsCache.get('user.oid')
+  if (!oid) {
+    return false
+  }
+  const freeRootId = (Number(oid) + flag).toString()
+  let cNode = node
+  while (cNode) {
+    const data = cNode.data
+    const id = data['id']
+    if (id === freeRootId) {
+      return true
+    }
+    cNode = cNode['parent']
+  }
+  return false
+}
+
+export const filterFreeFolder = (list, flagText) => {
+  const flagArray = ['dashboard', 'dataV', 'dataset', 'datasource']
+  const index = flagArray.findIndex(item => item === flagText)
+  const oid = wsCache.get('user.oid')
+  if (!oid || index < 0) {
+    return
+  }
+  const freeRootId = (Number(oid) + index + 1).toString()
+  let len = list.length
+  while (len--) {
+    const node = list[len]
+    if (node['id'] === freeRootId) {
+      list.splice(len, 1)
+      return
+    }
+    if (node['id'] === '0') {
+      const children = node['children']
+      let innerLen = children?.length
+      while (innerLen--) {
+        const kid = children[innerLen]
+        if (kid['id'] === freeRootId) {
+          children.splice(innerLen, 1)
+          return
+        }
+      }
+    }
+  }
+}
+export const nameTrim = (target: {}, msg = '名称字段长度1-64个字符') => {
+  if (target.name) {
+    target.name = target.name.trim()
+    if (target.name.length < 1 || target.name.length > 64) {
+      ElMessage.warning(msg)
+      throw new Error(msg)
+    }
+  }
+}
+
+export const getActiveCategories = contents => {
+  const result = ['最近使用']
+  if (contents) {
+    contents.forEach(item => {
+      if (item.showFlag) {
+        item.categories.forEach(category => {
+          result.push(category.name)
+        })
+      }
+    })
+  }
+  return new Set(result)
 }

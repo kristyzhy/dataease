@@ -1,10 +1,19 @@
 <script lang="ts" setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, PropType } from 'vue'
 import { ElMessage, ElLoading } from 'element-plus-secondary'
 import { useI18n } from '@/hooks/web/useI18n'
 import type { FormInstance, FormRules } from 'element-plus-secondary'
 import request from '@/config/axios'
+import dvInfo from '@/assets/svg/dv-info.svg'
 const { t } = useI18n()
+
+const props = defineProps({
+  labelTooltips: {
+    type: Array as PropType<any[]>,
+    default: () => []
+  }
+})
+
 const dialogVisible = ref(false)
 const loadingInstance = ref(null)
 const basicForm = ref<FormInstance>()
@@ -19,7 +28,20 @@ const pvpOptions = [
   { value: '3', label: t('commons.date.three_months') },
   { value: '4', label: t('commons.date.one_month') }
 ]
-
+const embeddedExportModeOptions = [
+  { value: 'sync', label: t('setting_basic.exportModeSync') },
+  { value: 'async', label: t('setting_basic.exportModeAsync') }
+]
+const requireKeys = [
+  'logLiveTime',
+  'thresholdLogLiveTime',
+  'exportFileLiveTime',
+  'dataFillingLogLiveTime',
+  'frontTimeOut',
+  'loginLimitTime',
+  'loginLimitRate',
+  'thresholdLimit'
+]
 const state = reactive({
   form: reactive({
     dsIntervalTime: '30',
@@ -34,9 +56,28 @@ const state = reactive({
     { value: '1', label: 'LDAP' },
     { value: '2', label: 'OIDC' },
     { value: '3', label: 'CAS' },
-    { value: '9', label: 'OAUTH2' }
+    { value: '9', label: 'OAuth2' },
+    { value: '10', label: 'Saml2' }
+  ],
+  sortOptions: [
+    { value: '0', label: t('resource_sort.time_asc') },
+    { value: '1', label: t('resource_sort.time_desc') },
+    { value: '2', label: t('resource_sort.name_asc') },
+    { value: '3', label: t('resource_sort.name_desc') }
+  ],
+  openOptions: [
+    { value: '0', label: t('open_opt.new_page') },
+    { value: '1', label: t('open_opt.local_page') }
   ]
 })
+
+const tooltipItem = ref({})
+const formatLabel = () => {
+  props.labelTooltips?.length &&
+    props.labelTooltips.forEach(tooltip => {
+      tooltipItem.value[tooltip.key] = tooltip.val
+    })
+}
 
 const rule = reactive<FormRules>({
   dsIntervalTime: [
@@ -103,6 +144,7 @@ const submitForm = async (formEl: FormInstance | undefined) => {
 
 const resetForm = (formEl: FormInstance | undefined) => {
   state.settingList = []
+  settingList.value = []
   if (!formEl) return
   formEl.resetFields()
   dialogVisible.value = false
@@ -118,23 +160,27 @@ const showLoading = () => {
 const closeLoading = () => {
   loadingInstance.value?.close()
 }
-
-const edit = (list, orgOptions, roleOptions, loginOptions) => {
+const title = ref()
+const settingList = ref([])
+const edit = (
+  list,
+  orgOptions,
+  roleOptions,
+  loginOptions,
+  sortOptions,
+  openOptions,
+  titleVal,
+  settingListVal
+) => {
+  title.value = titleVal
   state.orgOptions = orgOptions || []
   state.roleOptions = roleOptions || []
   state.loginOptions = loginOptions || []
+  state.sortOptions = sortOptions || []
+  state.openOptions = openOptions || []
   state.settingList = list.map(item => {
     const pkey = item.pkey
-    if (pkey === 'basic.logLiveTime' || pkey === 'basic.thresholdLogLiveTime') {
-      rule[pkey.split('.')[1]] = [
-        {
-          required: true,
-          message: t('common.require'),
-          trigger: ['blur', 'change']
-        }
-      ]
-    }
-    if (pkey === 'basic.exportFileLiveTime' || pkey === 'basic.frontTimeOut') {
+    if (requireKeys.some(requireKey => `basic.${requireKey}` === pkey)) {
       rule[pkey.split('.')[1]] = [
         {
           required: true,
@@ -173,6 +219,8 @@ const edit = (list, orgOptions, roleOptions, loginOptions) => {
     state.form[item['pkey']] = pval || state.form[item['pkey']]
     return item
   })
+
+  settingList.value = state.settingList.filter(ele => settingListVal.includes(ele.pkey))
   dialogVisible.value = true
 }
 const loadRoleOptions = async () => {
@@ -203,6 +251,7 @@ const oidChange = () => {
   state.form['platformRid'] = []
   loadRoleOptions()
 }
+formatLabel()
 defineExpose({
   edit
 })
@@ -210,9 +259,9 @@ defineExpose({
 
 <template>
   <el-drawer
-    :title="t('system.basic_settings')"
+    :title="title"
     v-model="dialogVisible"
-    custom-class="basic-param-drawer"
+    modal-class="basic-param-drawer"
     size="600px"
     direction="rtl"
   >
@@ -225,12 +274,26 @@ defineExpose({
       label-position="top"
     >
       <el-form-item
-        v-for="item in state.settingList"
+        v-for="item in settingList"
         :key="item.pkey"
         :prop="item.pkey"
         :class="{ 'setting-hidden-item': item.pkey === 'dsExecuteTime' }"
-        :label="t(item.label)"
       >
+        <template v-slot:label>
+          <div class="basic-form-info-tips">
+            <span class="custom-form-item__label">{{ t(item.label) }}</span>
+            <el-tooltip
+              v-if="tooltipItem[`setting_basic.${item.pkey}`]"
+              effect="dark"
+              :content="tooltipItem[`setting_basic.${item.pkey}`]"
+              placement="top"
+            >
+              <el-icon
+                ><Icon name="dv-info"><dvInfo class="svg-icon" /></Icon
+              ></el-icon>
+            </el-tooltip>
+          </div>
+        </template>
         <el-switch
           class="de-basic-switch"
           v-if="
@@ -238,7 +301,8 @@ defineExpose({
             item.pkey === 'pwdStrategy' ||
             item.pkey === 'dip' ||
             item.pkey === 'shareDisable' ||
-            item.pkey === 'sharePeRequire'
+            item.pkey === 'sharePeRequire' ||
+            item.pkey === 'loginLimit'
           "
           active-value="true"
           inactive-value="false"
@@ -278,7 +342,28 @@ defineExpose({
             type="number"
           />
         </div>
-        <div v-else-if="item.pkey === 'logLiveTime' || item.pkey === 'thresholdLogLiveTime'">
+        <div v-else-if="item.pkey === 'thresholdLimit'">
+          <el-input-number
+            v-model="state.form.thresholdLimit"
+            autocomplete="off"
+            step-strictly
+            class="text-left edit-all-line"
+            :min="1"
+            :max="50"
+            :placeholder="t('common.inputText')"
+            controls-position="right"
+            type="number"
+          />
+        </div>
+        <div
+          v-else-if="
+            item.pkey === 'logLiveTime' ||
+            item.pkey === 'thresholdLogLiveTime' ||
+            item.pkey === 'dataFillingLogLiveTime' ||
+            item.pkey === 'loginLimitRate' ||
+            item.pkey === 'loginLimitTime'
+          "
+        >
           <el-input-number
             v-model="state.form[item.pkey]"
             autocomplete="off"
@@ -344,6 +429,31 @@ defineExpose({
             </el-radio>
           </el-radio-group>
         </div>
+        <div v-else-if="item.pkey === 'defaultSort'">
+          <el-radio-group v-model="state.form[item.pkey]">
+            <el-radio v-for="item in state.sortOptions" :key="item.value" :label="item.value">
+              {{ item.label }}
+            </el-radio>
+          </el-radio-group>
+        </div>
+        <div v-else-if="item.pkey === 'defaultOpen'">
+          <el-radio-group v-model="state.form[item.pkey]">
+            <el-radio v-for="item in state.openOptions" :key="item.value" :label="item.value">
+              {{ item.label }}
+            </el-radio>
+          </el-radio-group>
+        </div>
+        <div v-else-if="item.pkey === 'embeddedExportMode'">
+          <el-radio-group v-model="state.form[item.pkey]">
+            <el-radio
+              v-for="item in embeddedExportModeOptions"
+              :key="item.value"
+              :label="item.value"
+            >
+              {{ item.label }}
+            </el-radio>
+          </el-radio-group>
+        </div>
         <v-else />
       </el-form-item>
     </el-form>
@@ -371,6 +481,35 @@ defineExpose({
   .ed-form-item__label {
     line-height: 22px !important;
     height: 22px !important;
+
+    .basic-form-info-tips {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      column-gap: 4px;
+    }
+  }
+
+  .ed-form-item {
+    &.is-required.asterisk-right {
+      .ed-form-item__label:after {
+        display: none;
+      }
+      .basic-form-info-tips {
+        .custom-form-item__label:after {
+          content: '*';
+          color: var(--ed-color-danger);
+          margin-left: 2px;
+          font-family: var(--de-custom_font, 'PingFang');
+          font-size: 14px;
+          font-style: normal;
+          font-weight: 400;
+        }
+      }
+    }
+  }
+  .ed-radio__label {
+    font-weight: 400;
   }
 }
 </style>

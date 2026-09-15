@@ -6,26 +6,31 @@ import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia'
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
-import { changeSizeWithScale } from '@/utils/changeComponentsSizeWithScale'
+import {
+  changeSizeWithScale,
+  changeSizeWithScaleAdaptor
+} from '@/utils/changeComponentsSizeWithScale'
 import { useEmitt } from '@/hooks/web/useEmitt'
+import { useI18n } from '@/hooks/web/useI18n'
 const dvMainStore = dvMainStoreWithOut()
 const { canvasStyleData, editMode } = storeToRefs(dvMainStore)
 const snapshotStore = snapshotStoreWithOut()
 const scale = ref(60)
 const scaleChangeReady = ref(true)
-
+const { t } = useI18n()
 const handleScaleChange = () => {
   if (scaleChangeReady.value) {
     scaleChangeReady.value = false
     setTimeout(() => {
-      snapshotStore.recordSnapshotCache()
+      snapshotStore.recordSnapshotCache('handleScaleChange')
       // 画布比例设一个最小值，不能为 0
       scale.value = ~~scale.value || 10
       scale.value = scale.value < 10 ? 10 : scale.value
       scale.value = scale.value > 200 ? 200 : scale.value
       changeSizeWithScale(scale.value)
+      changeSizeWithScaleAdaptor(scale.value)
       scaleChangeReady.value = true
-    }, 0)
+    }, 150)
   }
 }
 
@@ -48,8 +53,6 @@ const reposition = () => {
 }
 
 // 记录瞬时wheel值 防止放大操作和滚动操作冲突
-let lastWheelNum = 0
-
 // 检查当前页面是否有弹框
 const checkDialog = () => {
   let haveDialog = false
@@ -140,7 +143,7 @@ onUnmounted(() => {
         v-model="scale"
         :min="10"
         :max="200"
-        tooltip-theme="ndark"
+        tooltip-theme="light"
         @change="handleScaleChange()"
         size="small"
       />
@@ -148,7 +151,7 @@ onUnmounted(() => {
         <Icon name="dv-max"><dvMax class="svg-icon"></dvMax></Icon
       ></el-icon>
       <el-divider direction="vertical" class="custom-divider_scale" />
-      <el-tooltip effect="ndark" content="定位到中心点" placement="top">
+      <el-tooltip effect="light" :content="t('visualization.locate_tips')" placement="top">
         <el-icon @click="reposition" class="hover-icon-custom" style="margin-right: 12px">
           <Icon name="dv-reposition"><dvReposition class="svg-icon"></dvReposition></Icon
         ></el-icon>
@@ -171,6 +174,10 @@ onUnmounted(() => {
   .scale-area {
     display: flex;
     align-items: center;
+
+    :deep(.ed-input-number__decrease) {
+      --ed-input-number-controls-height: 12px;
+    }
   }
 }
 :deep(.ed-input--dark .ed-input__wrapper),
@@ -192,12 +199,15 @@ onUnmounted(() => {
 
   :deep(.ed-input__wrapper) {
     position: relative;
-    padding: 0 38px 0 8px;
+    padding-left: 8px !important;
+    padding-right: 38px !important;
     &::after {
       position: absolute;
       content: '%';
       right: 35px;
       top: 1px;
+      height: 24px;
+      line-height: 24px;
     }
   }
 }
@@ -212,7 +222,7 @@ onUnmounted(() => {
   height: 24px !important;
   width: 24px !important;
   font-size: 16px !important;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #646a73 !important;
 
   &[aria-expanded='true'] {

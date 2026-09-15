@@ -1,14 +1,16 @@
 <script lang="ts" setup>
 import dvFolder from '@/assets/svg/dv-folder.svg'
 import icon_searchOutline_outlined from '@/assets/svg/icon_search-outline_outlined.svg'
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, shallowRef, unref } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import { checkRepeat, listDatasources, save, update } from '@/api/datasource'
 import { ElMessage, ElMessageBox, ElMessageBoxOptions } from 'element-plus-secondary'
+import treeSort from '@/utils/treeSortUtils'
 import type { DatasetOrFolder } from '@/api/dataset'
+import { cloneDeep } from 'lodash-es'
 import nothingTree from '@/assets/img/nothing-tree.png'
 import { useCache } from '@/hooks/web/useCache'
-
+import { filterFreeFolder, getHighlightSegments } from '@/utils/utils'
 export interface Tree {
   name: string
   value?: string | number
@@ -53,13 +55,7 @@ const filterNode = (value: string, data: Tree) => {
 
 watch(filterText, val => {
   showAll.value = !val
-  treeRef.value.filter(val)
-  nextTick(() => {
-    document.querySelectorAll('.node-text').forEach(ele => {
-      const content = ele.getAttribute('title')
-      ele.innerHTML = content.replace(val, `<span class="highLight">${val}</span>`)
-    })
-  })
+  treeRef.value?.filter(val)
 })
 
 const showPid = computed(() => {
@@ -118,7 +114,11 @@ const filterMethod = (value, data) => {
 const resetForm = () => {
   createDataset.value = false
 }
+const originResourceTree = shallowRef([])
 
+const sortTypeChange = sortType => {
+  state.tData = treeSort(originResourceTree.value, sortType)
+}
 const dfs = (arr: Tree[]) => {
   arr.forEach(ele => {
     ele.value = ele.id
@@ -129,6 +129,7 @@ const dfs = (arr: Tree[]) => {
 }
 let request = null
 let dsType = ''
+const sortList = ['time_asc', 'time_desc', 'name_asc', 'name_desc']
 const createInit = (type, data: Tree, exec, name: string) => {
   pid.value = ''
   id.value = ''
@@ -146,11 +147,16 @@ const createInit = (type, data: Tree, exec, name: string) => {
   if (data.id) {
     if (exec !== 'rename') {
       listDatasources({ leaf: false, id: data.id, weight: 7 }).then(res => {
+        filterFreeFolder(res, 'datasource')
         dfs(res as unknown as Tree[])
         state.tData = (res as unknown as Tree[]) || []
         if (state.tData.length && state.tData[0].name === 'root' && state.tData[0].id === '0') {
           state.tData[0].name = t('data_source.data_source')
         }
+        originResourceTree.value = cloneDeep(unref(state.tData))
+        let curSortType = sortList[Number(wsCache.get('TreeSort-backend')) ?? 1]
+        curSortType = wsCache.get('TreeSort-datasource') ?? curSortType
+        sortTypeChange(curSortType)
       })
     }
     if (exec) {
@@ -239,7 +245,7 @@ const saveDataset = () => {
     if (result) {
       const params: Omit<DatasetOrFolder, 'nodeType'> & { nodeType: 'folder' | 'datasource' } = {
         nodeType: nodeType.value as 'folder' | 'datasource',
-        name: datasetForm.name
+        name: datasetForm.name.trim()
       }
       switch (cmd.value) {
         case 'move':
@@ -279,6 +285,9 @@ const saveDataset = () => {
         request.apiConfiguration = ''
         checkRepeat(request).then(res => {
           let method = request.id === '' ? save : update
+          if (!request.type.startsWith('API') && request.type !== 'ExcelRemote') {
+            request.syncSetting = null
+          }
           if (res) {
             ElMessageBox.confirm(t('datasource.has_same_ds'), options as ElMessageBoxOptions)
               .then(() => {
@@ -396,7 +405,15 @@ const emits = defineEmits(['finish', 'handleShowFinishPage'])
                 <el-icon style="font-size: 18px">
                   <Icon name="dv-folder"><dvFolder class="svg-icon" /></Icon>
                 </el-icon>
-                <span class="node-text" :title="data.name">{{ data.name }}</span>
+                <span class="node-text" :title="data.name">
+                  <template
+                    v-for="(segment, index) in getHighlightSegments(data.name, filterText)"
+                    :key="`${data.id}-${index}`"
+                  >
+                    <span v-if="segment.highlight" class="highLight">{{ segment.text }}</span>
+                    <template v-else>{{ segment.text }}</template>
+                  </template>
+                </span>
               </span>
             </template>
           </el-tree>
@@ -419,7 +436,7 @@ const emits = defineEmits(['finish', 'handleShowFinishPage'])
   width: 552px;
   height: 380px;
   border: 1px solid #dee0e3;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 8px;
   overflow-y: auto;
   .custom-tree-node {

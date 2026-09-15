@@ -9,7 +9,7 @@ import deDelete from '@/assets/svg/de-delete.svg'
 import icon_warning_filled from '@/assets/svg/icon_warning_filled.svg'
 import icon_deleteTrash_outlined from '@/assets/svg/icon_delete-trash_outlined.svg'
 import icon_edit_outlined from '@/assets/svg/icon_edit_outlined.svg'
-import { ref, reactive, h, computed, toRefs, nextTick, watch } from 'vue'
+import { ref, reactive, computed, toRefs, nextTick, watch } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import type { FormInstance, FormRules } from 'element-plus-secondary'
 import EmptyBackground from '@/components/empty-background/src/EmptyBackground.vue'
@@ -18,7 +18,7 @@ import ApiHttpRequestDraw from './ApiHttpRequestDraw.vue'
 import type { Configuration, ApiConfiguration, SyncSetting } from './option'
 import { fieldType, fieldTypeText } from '@/utils/attr'
 import { Icon } from '@/components/icon-custom'
-import { getSchema } from '@/api/datasource'
+import { getSchema, previewCronNextTimes } from '@/api/datasource'
 import { Base64 } from 'js-base64'
 import { CustomPassword } from '@/components/custom-password'
 import { ElForm, ElMessage, ElMessageBox } from 'element-plus-secondary'
@@ -26,6 +26,8 @@ import Cron from '@/components/cron/src/Cron.vue'
 import { ComponentPublicInstance } from 'vue'
 import { XpackComponent } from '@/components/plugin'
 import { iconFieldMap } from '@/components/icon-group/field-list'
+import { boolean } from 'mathjs'
+import dayjs from 'dayjs'
 const { t } = useI18n()
 const prop = defineProps({
   form: {
@@ -51,21 +53,49 @@ const prop = defineProps({
     },
     type: Object
   },
-
   activeStep: {
     required: false,
     default: 1,
     type: Number
+  },
+  isSupportSetKey: {
+    type: boolean,
+    required: true
+  },
+  pluginDs: {
+    type: [],
+    required: true
+  },
+  pluginIndex: {
+    type: String,
+    required: true
+  },
+  isPlugin: {
+    type: boolean,
+    required: true
   }
 })
 
-const { form, activeStep } = toRefs(prop)
+const { form, activeStep, isSupportSetKey, pluginDs, pluginIndex, isPlugin } = toRefs(prop)
 
 const state = reactive({
   itemRef: []
 })
 
 const schemas = ref([])
+const targetCharset = ref(['GBK', 'UTF-8'])
+const charset = ref([
+  'US7ASCII',
+  'GBK',
+  'BIG5',
+  'ISO-8859-1',
+  'UTF-8',
+  'UTF-16',
+  'CP850',
+  'EUC_JP',
+  'EUC_KR'
+])
+
 const loading = ref(false)
 const dsForm = ref<FormInstance>()
 
@@ -105,17 +135,27 @@ const defaultApiItem = {
       raw: '',
       kvs: []
     },
+    page: {
+      pageType: 'empty',
+      requestData: [],
+      responseData: []
+    },
     authManager: {
       verification: '',
       username: '',
       password: ''
     }
   },
-  fields: []
+  fields: [],
+  useJsonPath: false,
+  jsonPath: ''
 }
-
-const initForm = type => {
-  if (type !== 'API') {
+let time
+const initForm = (type, pluginDsList, indexPlugin, isPluginDs) => {
+  pluginDs.value = pluginDsList
+  pluginIndex.value = indexPlugin
+  isPlugin.value = isPluginDs
+  if (!type.startsWith('API')) {
     form.value.configuration = {
       dataBase: '',
       jdbcUrl: '',
@@ -127,16 +167,19 @@ const initForm = type => {
       host: '',
       authMethod: '',
       port: '',
+      sslCA: '',
+      sslCert: '',
+      sslKey: '',
       initialPoolSize: 5,
       minPoolSize: 5,
-      maxPoolSize: 5,
+      maxPoolSize: 100,
       queryTimeout: 30
     }
     schemas.value = []
     rule.value = cloneDeep(defaultRule)
     setRules()
   }
-  if (type === 'API') {
+  if (type.startsWith('API')) {
     form.value.syncSetting = {
       updateType: 'all_scope',
       syncRate: 'SIMPLE_CRON',
@@ -151,14 +194,16 @@ const initForm = type => {
   if (type === 'oracle') {
     form.value.configuration.connectionType = 'sid'
   }
-
   form.value.type = type
-  setTimeout(() => {
-    dsForm?.value?.clearValidate()
+
+  time = setTimeout(() => {
+    clearTimeout(time)
+    dsApiForm.value && dsApiForm.value.clearValidate()
+    dsForm.value && dsForm.value.clearValidate()
   }, 0)
 }
 
-const notapiexcelconfig = computed(() => form.value.type !== 'API')
+const notapiexcelconfig = computed(() => form.value && !form.value.type.startsWith('API'))
 
 const authMethodList = [
   {
@@ -212,6 +257,35 @@ const validateSshkey = (_: any, value: any, callback: any) => {
     callback(new Error(t('data_source.cannot_be_empty_de_key')))
   }
   return callback()
+}
+
+const handleSSLFileChange = (e: Event, field: 'sslCA' | 'sslCert' | 'sslKey') => {
+  const target = e.target as HTMLInputElement
+  const file = target?.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = event => {
+    form.value.configuration[field] = (event.target?.result as string) || ''
+  }
+  reader.onerror = () => {
+    ElMessage.error(t('datasource.ck_ssl_read_failed'))
+  }
+  reader.readAsText(file)
+  target.value = ''
+}
+
+const sslCAInput = ref<HTMLInputElement>()
+const sslCertInput = ref<HTMLInputElement>()
+const sslKeyInput = ref<HTMLInputElement>()
+
+const chooseSSLFile = (field: 'sslCA' | 'sslCert' | 'sslKey') => {
+  if (field === 'sslCA') {
+    sslCAInput.value?.click()
+  } else if (field === 'sslCert') {
+    sslCertInput.value?.click()
+  } else {
+    sslKeyInput.value?.click()
+  }
 }
 
 const setRules = () => {
@@ -275,28 +349,28 @@ const setRules = () => {
     'configuration.initialPoolSize': [
       {
         required: true,
-        message: t('common.inputText') + t('datasource.initial_pool_size'),
+        message: t('common.inputText') + ' ' + t('datasource.initial_pool_size'),
         trigger: 'blur'
       }
     ],
     'configuration.minPoolSize': [
       {
         required: true,
-        message: t('common.inputText') + t('datasource.min_pool_size'),
+        message: t('common.inputText') + ' ' + t('datasource.min_pool_size'),
         trigger: 'blur'
       }
     ],
     'configuration.maxPoolSize': [
       {
         required: true,
-        message: t('common.inputText') + t('datasource.max_pool_size'),
+        message: t('common.inputText') + ' ' + t('datasource.max_pool_size'),
         trigger: 'blur'
       }
     ],
     'configuration.queryTimeout': [
       {
         required: true,
-        message: t('common.inputText') + t('datasource.query_timeout'),
+        message: t('common.inputText') + ' ' + t('datasource.query_timeout'),
         trigger: 'blur'
       }
     ],
@@ -325,13 +399,23 @@ const setRules = () => {
       }
     ]
   }
+
+  if (form.value.type === 'es') {
+    configRules['configuration.url'] = [
+      {
+        required: true,
+        message: t('datasource.please_input_datasource_url'),
+        trigger: 'change'
+      }
+    ]
+  }
   rule.value = { ...cloneDeep(configRules), ...cloneDeep(defaultRule) }
 }
 
 watch(
   () => form.value.type,
   val => {
-    if (val !== 'API') {
+    if (!val.startsWith('API')) {
       rule.value = cloneDeep(defaultRule)
       setRules()
     }
@@ -357,6 +441,7 @@ const copyItem = (item?: ApiConfiguration) => {
   newItem.deTableName = ''
   newItem.serialNumber =
     form.value.apiConfiguration[form.value.apiConfiguration.length - 1].serialNumber + 1
+  newItem.copy = true
   const reg = new RegExp(item.name + '_copy_' + '([0-9]*)', 'gim')
   let number = 0
   for (let i = 1; i < form.value.apiConfiguration.length; i++) {
@@ -379,9 +464,11 @@ const copyItem = (item?: ApiConfiguration) => {
 }
 const addApiItem = item => {
   let apiItem = null
+  let editItem = false
   api_table_title.value = t('datasource.data_table')
   if (item) {
     apiItem = cloneDeep(item)
+    editItem = true
   } else {
     apiItem = cloneDeep(defaultApiItem)
     apiItem.type = activeName.value
@@ -390,14 +477,22 @@ const addApiItem = item => {
         ? form.value.apiConfiguration[form.value.apiConfiguration.length - 1].serialNumber + 1
         : 0
     let serialNumber2 =
-      form.value.paramsConfiguration.length > 0
+      form.value.paramsConfiguration && form.value.paramsConfiguration.length > 0
         ? form.value.paramsConfiguration[form.value.paramsConfiguration.length - 1].serialNumber + 1
         : 0
-
     apiItem.serialNumber = serialNumber1 + serialNumber2
   }
   nextTick(() => {
-    editApiItem.value.initApiItem(apiItem, form.value, activeName.value)
+    editApiItem.value.initApiItem(
+      apiItem,
+      form.value,
+      activeName.value,
+      editItem,
+      isSupportSetKey.value,
+      pluginDs.value,
+      pluginIndex.value,
+      isPlugin.value
+    )
   })
 }
 
@@ -415,6 +510,11 @@ const cancelItem = (index: number) => {
 const submitForm = () => {
   dsForm.value.clearValidate()
   return dsForm.value.validate
+}
+
+const submitApiForm = () => {
+  dsApiForm.value.clearValidate()
+  return dsApiForm.value.validate
 }
 
 const clearForm = () => {
@@ -440,14 +540,18 @@ const returnItem = apiItem => {
       form.value.apiConfiguration.push(apiItem)
     }
   } else {
-    for (let i = 0; i < form.value.paramsConfiguration.length; i++) {
-      if (form.value.paramsConfiguration[i].serialNumber === apiItem.serialNumber) {
-        find = true
-        form.value.paramsConfiguration[i] = apiItem
-        if (apiItem.serialNumber === activeParamsID.value) {
-          setActiveName(apiItem)
+    if (form.value.paramsConfiguration) {
+      for (let i = 0; i < form.value.paramsConfiguration.length; i++) {
+        if (form.value.paramsConfiguration[i].serialNumber === apiItem.serialNumber) {
+          find = true
+          form.value.paramsConfiguration[i] = apiItem
+          if (apiItem.serialNumber === activeParamsID.value) {
+            setActiveName(apiItem)
+          }
         }
       }
+    } else {
+      form.value.paramsConfiguration = []
     }
     if (!find) {
       state.itemRef = []
@@ -457,6 +561,9 @@ const returnItem = apiItem => {
 }
 
 const showCron = ref(false)
+const cronPreviewVisible = ref(false)
+const cronPreviewLoading = ref(false)
+const cronPreviewTimes = ref<string[]>([])
 
 const onRateChange = () => {
   if (form.value.syncSetting.syncRate === 'SIMPLE') {
@@ -503,6 +610,43 @@ const onSimpleCronChange = () => {
   }
 }
 
+const normalizeTimeValue = value => {
+  if (value === undefined || value === null || value === '') {
+    return undefined
+  }
+  const time = new Date(value).getTime()
+  return Number.isNaN(time) ? undefined : time
+}
+
+const cronPreviewRows = computed(() => {
+  return cronPreviewTimes.value.map((time, index) => ({
+    index: index + 1,
+    time
+  }))
+})
+
+const previewNextCronTimes = () => {
+  if (!form.value.syncSetting?.cron?.trim()) {
+    dsApiForm.value?.validateField('syncSetting.cron')
+    return
+  }
+  cronPreviewLoading.value = true
+  previewCronNextTimes({
+    cron: form.value.syncSetting.cron,
+    startTime: normalizeTimeValue(form.value.syncSetting.startTime) ?? Date.now(),
+    endTime: normalizeTimeValue(form.value.syncSetting.endTime)
+  })
+    .then(res => {
+      cronPreviewTimes.value = (res || []).map(time =>
+        dayjs(Number(time)).format('YYYY-MM-DD HH:mm:ss')
+      )
+      cronPreviewVisible.value = true
+    })
+    .finally(() => {
+      cronPreviewLoading.value = false
+    })
+}
+
 const showSchema = ref(false)
 
 const getDsSchema = () => {
@@ -516,7 +660,10 @@ const getDsSchema = () => {
       loading.value = true
       getSchema(request)
         .then(res => {
-          schemas.value = res.data
+          schemas.value = (res.data || []).map(ele => ({
+            value: ele,
+            label: ele
+          }))
           ElMessage.success(t('commons.success'))
         })
         .finally(() => {
@@ -563,7 +710,7 @@ const apiRule = {
   'syncSetting.startTime': [
     {
       required: true,
-      message: t('datasource.start_time'),
+      message: t('sync_task.please_choose_start_time'),
       trigger: 'change'
     }
   ]
@@ -686,10 +833,6 @@ const handleApiParams = (cmd: string, data) => {
   }
 }
 
-const editParams = data => {
-  dialogEditParams.value = true
-}
-
 const delParams = data => {
   ElMessageBox.confirm(t('data_source.sure_to_delete'), {
     confirmButtonType: 'danger',
@@ -714,6 +857,7 @@ const datasetTypeList = [
 ]
 defineExpose({
   submitForm,
+  submitApiForm,
   resetForm,
   initForm,
   clearForm
@@ -723,7 +867,7 @@ defineExpose({
 <template>
   <div class="editor-detail">
     <div class="detail-inner create-dialog">
-      <div v-show="form.type === 'API'" class="info-update">
+      <div v-show="form.type.startsWith('API')" class="info-update">
         <div :class="activeStep === 1 && 'active'" class="info-text">
           {{ t('data_source.source_configuration_information') }}
         </div>
@@ -732,10 +876,14 @@ defineExpose({
           {{ t('data_source.data_update_settings') }}
         </div>
       </div>
-      <div class="title-form_primary base-info" v-show="activeStep !== 2 && form.type === 'API'">
+      <div
+        class="title-form_primary base-info"
+        v-show="activeStep !== 2 && form.type.startsWith('API')"
+      >
         {{ t('datasource.basic_info') }}
       </div>
       <el-form
+        @submit.prevent
         ref="dsForm"
         :model="form"
         :rules="rule"
@@ -745,7 +893,7 @@ defineExpose({
         v-loading="loading"
       >
         <el-form-item
-          :label="t('auth.datasource') + t('chart.name')"
+          :label="t('data_source.data_source_name')"
           prop="name"
           v-show="activeStep !== 2"
         >
@@ -766,15 +914,21 @@ defineExpose({
             show-word-limit
           />
         </el-form-item>
-        <template v-if="form.type === 'API'">
+        <template v-if="form.type.startsWith('API')">
           <div class="title-form_primary flex-space table-info-mr" v-show="activeStep !== 2">
             <el-tabs v-model="activeName" class="api-tabs">
               <el-tab-pane :label="t('datasource.data_table')" name="table"></el-tab-pane>
-              <el-tab-pane :label="t('data_source.connection_method')" name="params"></el-tab-pane>
+              <el-tab-pane
+                v-if="form.type === 'API'"
+                :label="t('data_source.interface_parameters')"
+                name="params"
+              ></el-tab-pane>
             </el-tabs>
             <el-button type="primary" style="margin-left: auto" @click="() => addApiItem(null)">
               <template #icon>
-                <Icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></Icon>
+                <Icon name="icon_add_outlined">
+                  <icon_add_outlined class="svg-icon" />
+                </Icon>
               </template>
               {{ t('common.add') }}
             </el-button>
@@ -785,7 +939,9 @@ defineExpose({
             :description="t('datasource.no_data_table')"
             img-type="noneWhite"
           />
-          <template v-if="form.type === 'API' && activeStep === 1 && activeName === 'table'">
+          <template
+            v-if="form.type.startsWith('API') && activeStep === 1 && activeName === 'table'"
+          >
             <div class="api-card-content">
               <div
                 v-for="(api, idx) in form.apiConfiguration"
@@ -805,7 +961,9 @@ defineExpose({
                   </el-col>
                   <el-col style="text-align: right" :span="5">
                     <el-icon class="de-copy-icon hover-icon" @click.stop="copyItem(api)">
-                      <Icon name="de-copy"><deCopy class="svg-icon" /></Icon>
+                      <Icon name="de-copy">
+                        <deCopy class="svg-icon" />
+                      </Icon>
                     </el-icon>
 
                     <span @click.stop>
@@ -903,13 +1061,13 @@ defineExpose({
                   <template #default="scope">
                     <div class="flex-align-center icon">
                       <el-icon>
-                        <Icon
-                          ><component
+                        <Icon>
+                          <component
                             class="svg-icon"
                             :class="`field-icon-${fieldType[scope.row.deType]}`"
                             :is="iconFieldMap[fieldType[scope.row.deType]]"
-                          ></component
-                        ></Icon>
+                          ></component>
+                        </Icon>
                       </el-icon>
                       {{ fieldTypeText[scope.row.deType] }}
                     </div>
@@ -920,9 +1078,9 @@ defineExpose({
                   <template #default="scope">
                     <el-button text @click.stop="delParams(scope.row)">
                       <template #icon>
-                        <Icon name="icon_delete-trash_outlined"
-                          ><icon_deleteTrash_outlined class="svg-icon"
-                        /></Icon>
+                        <Icon name="icon_delete-trash_outlined">
+                          <icon_deleteTrash_outlined class="svg-icon" />
+                        </Icon>
                       </template>
                     </el-button>
                   </template>
@@ -938,8 +1096,8 @@ defineExpose({
             v-if="form.type !== 'es'"
           >
             <el-radio-group v-model="form.configuration.urlType">
-              <el-radio label="hostName">{{ t('data_source.hostname') }}</el-radio>
-              <el-radio label="jdbcUrl">{{ t('data_source.jdbc_connection') }}</el-radio>
+              <el-radio value="hostName">{{ t('data_source.hostname') }}</el-radio>
+              <el-radio value="jdbcUrl">{{ t('data_source.jdbc_connection') }}</el-radio>
             </el-radio-group>
           </el-form-item>
 
@@ -977,7 +1135,7 @@ defineExpose({
               step-strictly
               class="text-left"
               :min="0"
-              :placeholder="t('common.inputText') + t('datasource.port')"
+              :placeholder="t('common.inputText') + ' ' + t('datasource.port')"
               controls-position="right"
               type="number"
             />
@@ -999,7 +1157,7 @@ defineExpose({
             v-if="form.type === 'presto'"
           >
             <el-select
-              :placeholder="t('common.inputText') + t('datasource.auth_method')"
+              :placeholder="t('common.inputText') + ' ' + t('datasource.auth_method')"
               v-model="form.configuration.authMethod"
               class="de-select"
             >
@@ -1017,7 +1175,7 @@ defineExpose({
             v-if="form.type === 'presto'"
           >
             <el-input
-              :placeholder="t('common.inputText') + t('datasource.client_principal')"
+              :placeholder="t('common.inputText') + ' ' + t('datasource.client_principal')"
               v-model="form.configuration.username"
               autocomplete="off"
             />
@@ -1028,7 +1186,7 @@ defineExpose({
             v-if="form.type === 'presto'"
           >
             <CustomPassword
-              :placeholder="t('common.inputText') + t('datasource.keytab_Key_path')"
+              :placeholder="t('common.inputText') + ' ' + t('datasource.keytab_Key_path')"
               show-password
               type="password"
               v-model="form.configuration.password"
@@ -1050,14 +1208,14 @@ defineExpose({
           </el-form-item>
           <el-form-item :label="t('datasource.user_name')" v-if="form.type !== 'presto'">
             <el-input
-              :placeholder="t('common.inputText') + t('datasource.user_name')"
+              :placeholder="t('common.inputText') + ' ' + t('datasource.user_name')"
               v-model="form.configuration.username"
               autocomplete="off"
             />
           </el-form-item>
           <el-form-item :label="t('datasource.password')" v-if="form.type !== 'presto'">
             <CustomPassword
-              :placeholder="t('common.inputText') + t('datasource.password')"
+              :placeholder="t('common.inputText') + ' ' + t('datasource.password')"
               show-password
               type="password"
               v-model="form.configuration.password"
@@ -1084,20 +1242,41 @@ defineExpose({
               <span class="name">{{ t('datasource.schema') }}<i class="required" /></span>
               <el-button text size="small" @click="getDsSchema()">
                 <template #icon>
-                  <Icon name="icon_add_outlined"><icon_add_outlined class="svg-icon" /></Icon>
+                  <Icon name="icon_add_outlined">
+                    <icon_add_outlined class="svg-icon" />
+                  </Icon>
                 </template>
                 {{ t('datasource.get_schema') }}
               </el-button>
             </template>
-            <el-select
+            <el-select-v2
               v-model="form.configuration.schema"
+              :options="schemas"
               filterable
               :placeholder="t('common.please_select')"
               class="de-select"
               @change="validatorSchema"
               @blur="validatorSchema"
+            />
+          </el-form-item>
+          <el-form-item v-if="form.type == 'oracle'" :label="$t('datasource.charset')">
+            <el-select
+              v-model="form.configuration.charset"
+              filterable
+              :placeholder="$t('datasource.please_choose_charset')"
+              class="de-select"
             >
-              <el-option v-for="item in schemas" :key="item" :label="item" :value="item" />
+              <el-option v-for="item in charset" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="form.type == 'oracle'" :label="$t('datasource.targetCharset')">
+            <el-select
+              v-model="form.configuration.targetCharset"
+              filterable
+              :placeholder="$t('datasource.please_choose_targetCharset')"
+              class="de-select"
+            >
+              <el-option v-for="item in targetCharset" :key="item" :label="item" :value="item" />
             </el-select>
           </el-form-item>
           <el-form-item
@@ -1105,11 +1284,70 @@ defineExpose({
             v-if="form.configuration.urlType !== 'jdbcUrl' && form.type !== 'es'"
           >
             <el-input
-              :placeholder="t('common.inputText') + t('datasource.extra_params')"
+              :placeholder="t('common.inputText') + ' ' + t('datasource.extra_params')"
               v-model="form.configuration.extraParams"
               autocomplete="off"
             />
           </el-form-item>
+          <template v-if="form.type === 'ck'">
+            <el-form-item :label="t('datasource.ck_ssl_ca')">
+              <input
+                ref="sslCAInput"
+                type="file"
+                accept=".pem,.crt,.cer"
+                style="display: none"
+                @change="e => handleSSLFileChange(e, 'sslCA')"
+              />
+              <el-button secondary @click="chooseSSLFile('sslCA')">
+                {{ t('datasource.ck_ssl_upload') }}
+              </el-button>
+              <span class="ml8">{{ t('datasource.ck_ssl_upload_hint') }}</span>
+              <el-input
+                type="textarea"
+                :rows="3"
+                v-model="form.configuration.sslCA"
+                :placeholder="t('datasource.ck_ssl_pem_placeholder')"
+              />
+            </el-form-item>
+            <el-form-item :label="t('datasource.ck_ssl_client_cert')">
+              <input
+                ref="sslCertInput"
+                type="file"
+                accept=".pem,.crt,.cer"
+                style="display: none"
+                @change="e => handleSSLFileChange(e, 'sslCert')"
+              />
+              <el-button secondary @click="chooseSSLFile('sslCert')">
+                {{ t('datasource.ck_ssl_upload') }}
+              </el-button>
+              <span class="ml8">{{ t('datasource.ck_ssl_upload_hint') }}</span>
+              <el-input
+                type="textarea"
+                :rows="3"
+                v-model="form.configuration.sslCert"
+                :placeholder="t('datasource.ck_ssl_pem_placeholder')"
+              />
+            </el-form-item>
+            <el-form-item :label="t('datasource.ck_ssl_client_key')">
+              <input
+                ref="sslKeyInput"
+                type="file"
+                accept=".pem,.key"
+                style="display: none"
+                @change="e => handleSSLFileChange(e, 'sslKey')"
+              />
+              <el-button secondary @click="chooseSSLFile('sslKey')">
+                {{ t('datasource.ck_ssl_upload') }}
+              </el-button>
+              <span class="ml8">{{ t('datasource.ck_ssl_upload_hint') }}</span>
+              <el-input
+                type="textarea"
+                :rows="3"
+                v-model="form.configuration.sslKey"
+                :placeholder="t('datasource.ck_ssl_pem_placeholder')"
+              />
+            </el-form-item>
+          </template>
           <el-form-item>
             <span
               v-if="!['es', 'api'].includes(form.type) && form.configuration.urlType !== 'jdbcUrl'"
@@ -1126,11 +1364,11 @@ defineExpose({
               </el-icon>
             </span>
           </el-form-item>
-          <template v-if="showSSH">
+          <template v-if="showSSH && form.configuration.urlType !== 'jdbcUrl'">
             <el-form-item>
-              <el-checkbox v-model="form.configuration.useSSH">{{
-                t('data_source.enable_ssh')
-              }}</el-checkbox>
+              <el-checkbox v-model="form.configuration.useSSH"
+                >{{ t('data_source.enable_ssh') }}
+              </el-checkbox>
             </el-form-item>
             <el-form-item :label="t('data_source.host')" prop="configuration.sshHost">
               <el-input
@@ -1147,13 +1385,13 @@ defineExpose({
                 class="text-left"
                 :min="0"
                 :max="65535"
-                :placeholder="t('common.inputText') + t('datasource.port')"
+                :placeholder="t('common.inputText') + ' ' + t('datasource.port')"
                 controls-position="right"
               />
             </el-form-item>
             <el-form-item :label="t('datasource.user_name')" prop="configuration.sshUserName">
               <el-input
-                :placeholder="t('common.inputText') + t('datasource.user_name')"
+                :placeholder="t('common.inputText') + ' ' + t('datasource.user_name')"
                 v-model="form.configuration.sshUserName"
                 autocomplete="off"
                 :maxlength="255"
@@ -1161,8 +1399,8 @@ defineExpose({
             </el-form-item>
             <el-form-item :label="t('data_source.connection_method')">
               <el-radio-group v-model="form.configuration.sshType">
-                <el-radio label="password">{{ t('data_source.password') }}</el-radio>
-                <el-radio label="sshkey">ssh key</el-radio>
+                <el-radio value="password">{{ t('data_source.password') }}</el-radio>
+                <el-radio value="sshkey">ssh key</el-radio>
               </el-radio-group>
             </el-form-item>
             <el-form-item
@@ -1171,7 +1409,7 @@ defineExpose({
               prop="configuration.sshPassword"
             >
               <CustomPassword
-                :placeholder="t('common.inputText') + t('datasource.password')"
+                :placeholder="t('common.inputText') + ' ' + t('datasource.password')"
                 show-password
                 type="password"
                 v-model="form.configuration.sshPassword"
@@ -1197,7 +1435,7 @@ defineExpose({
               v-if="form.configuration.sshType === 'sshkey'"
             >
               <CustomPassword
-                :placeholder="t('common.inputText') + t('datasource.password')"
+                :placeholder="t('common.inputText') + ' ' + t('datasource.password')"
                 show-password
                 type="password"
                 v-model="form.configuration.sshKeyPassword"
@@ -1231,7 +1469,7 @@ defineExpose({
                     v-model="form.configuration.initialPoolSize"
                     controls-position="right"
                     autocomplete="off"
-                    :placeholder="t('common.inputText') + t('datasource.initial_pool_size')"
+                    :placeholder="t('common.inputText') + ' ' + t('datasource.initial_pool_size')"
                     type="number"
                     :min="0"
                   />
@@ -1246,7 +1484,7 @@ defineExpose({
                     v-model="form.configuration.minPoolSize"
                     controls-position="right"
                     autocomplete="off"
-                    :placeholder="t('common.inputText') + t('datasource.min_pool_size')"
+                    :placeholder="t('common.inputText') + ' ' + t('datasource.min_pool_size')"
                     type="number"
                     :min="0"
                   />
@@ -1263,7 +1501,7 @@ defineExpose({
                     v-model="form.configuration.maxPoolSize"
                     controls-position="right"
                     autocomplete="off"
-                    :placeholder="t('common.inputText') + t('datasource.max_pool_size')"
+                    :placeholder="t('common.inputText') + ' ' + t('datasource.max_pool_size')"
                     type="number"
                     :min="0"
                   />
@@ -1278,7 +1516,7 @@ defineExpose({
                     v-model="form.configuration.queryTimeout"
                     controls-position="right"
                     autocomplete="off"
-                    :placeholder="t('common.inputText') + t('datasource.query_timeout')"
+                    :placeholder="t('common.inputText') + ' ' + t('datasource.query_timeout')"
                     type="number"
                     :min="0"
                   />
@@ -1297,35 +1535,39 @@ defineExpose({
       <el-form
         ref="dsApiForm"
         :model="form"
+        style="margin-top: 24px"
         :rules="apiRule"
         label-width="180px"
         label-position="top"
         require-asterisk-position="right"
       >
-        <!--        API update setting -->
         <el-form-item
           :label="t('datasource.update_type')"
           prop="syncSetting.updateType"
-          v-if="activeStep === 2 && form.type === 'API'"
+          v-if="activeStep === 2 && form.type.startsWith('API')"
         >
           <el-radio-group v-model="form.syncSetting.updateType">
-            <el-radio label="all_scope">{{ t('datasource.all_scope') }}</el-radio>
-            <el-radio label="add_scope"> {{ t('datasource.add_scope') }}</el-radio>
+            <el-radio value="all_scope">{{ t('datasource.all_scope') }}</el-radio>
+            <el-radio value="add_scope"> {{ t('datasource.add_scope') }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item
           :label="t('datasource.sync_rate')"
           prop="syncSetting.syncRate"
-          v-if="activeStep === 2 && form.type === 'API'"
+          v-if="activeStep === 2 && form.type.startsWith('API')"
         >
           <el-radio-group v-model="form.syncSetting.syncRate" @change="onRateChange">
-            <el-radio label="RIGHTNOW">{{ t('data_source.update_now') }}</el-radio>
-            <el-radio label="CRON">{{ t('datasource.cron_config') }}</el-radio>
-            <el-radio label="SIMPLE_CRON">{{ t('datasource.simple_cron') }}</el-radio>
+            <el-radio value="RIGHTNOW">{{ t('data_source.update_now') }}</el-radio>
+            <el-radio value="CRON">{{ t('datasource.cron_config') }}</el-radio>
+            <el-radio value="SIMPLE_CRON">{{ t('datasource.simple_cron') }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <div
-          v-if="activeStep === 2 && form.type === 'API' && form.syncSetting.syncRate !== 'RIGHTNOW'"
+          v-if="
+            activeStep === 2 &&
+            form.type.startsWith('API') &&
+            form.syncSetting.syncRate !== 'RIGHTNOW'
+          "
           class="execute-rate-cont"
         >
           <el-form-item
@@ -1356,7 +1598,7 @@ defineExpose({
           <el-form-item v-if="form.syncSetting.syncRate === 'CRON'" prop="syncSetting.cron">
             <el-popover :width="834" v-model="cronEdit" trigger="click">
               <template #default>
-                <div style="width: 814px; height: 400px; overflow-y: auto">
+                <div style="width: 814px; height: 450px; overflow-y: auto">
                   <cron
                     v-if="showCron"
                     v-model="form.syncSetting.cron"
@@ -1369,6 +1611,11 @@ defineExpose({
                 <el-input v-model="form.syncSetting.cron" @click="cronEdit = true" />
               </template>
             </el-popover>
+            <div class="cron-preview-row">
+              <el-button text :loading="cronPreviewLoading" @click="previewNextCronTimes">
+                {{ t('datasource.preview_next_exec_times') }}
+              </el-button>
+            </div>
           </el-form-item>
           <el-form-item
             v-if="form.syncSetting.syncRate !== 'RIGHTNOW'"
@@ -1401,6 +1648,22 @@ defineExpose({
         </div>
       </el-form>
       <el-dialog
+        v-model="cronPreviewVisible"
+        :title="t('datasource.next_five_exec_times')"
+        width="520px"
+        class="create-dialog"
+      >
+        <el-table
+          v-loading="cronPreviewLoading"
+          :data="cronPreviewRows"
+          :empty-text="t('datasource.no_next_exec_time')"
+          header-cell-class-name="header-cell"
+        >
+          <el-table-column prop="index" width="80" label="#" />
+          <el-table-column prop="time" :label="t('datasource.exec_time')" />
+        </el-table>
+      </el-dialog>
+      <el-dialog
         :title="t('data_source.edit_parameters')"
         v-model="dialogEditParams"
         width="420px"
@@ -1430,8 +1693,8 @@ defineExpose({
           </el-form-item>
         </el-form>
         <template #footer>
-          <el-button secondary @click="paramsResetForm">{{ t('dataset.cancel') }} </el-button>
-          <el-button type="primary" @click="saveParamsObj">{{ t('dataset.confirm') }} </el-button>
+          <el-button secondary @click="paramsResetForm">{{ t('dataset.cancel') }}</el-button>
+          <el-button type="primary" @click="saveParamsObj">{{ t('dataset.confirm') }}</el-button>
         </template>
       </el-dialog>
       <el-dialog
@@ -1454,11 +1717,10 @@ defineExpose({
           </el-form-item>
         </el-form>
         <template #footer>
-          <el-button secondary @click="apiResetForm">{{ t('dataset.cancel') }} </el-button>
-          <el-button type="primary" @click="saveApiObj">{{ t('dataset.confirm') }} </el-button>
+          <el-button secondary @click="apiResetForm">{{ t('dataset.cancel') }}</el-button>
+          <el-button type="primary" @click="saveApiObj">{{ t('dataset.confirm') }}</el-button>
         </template>
       </el-dialog>
-
       <api-http-request-draw @return-item="returnItem" ref="editApiItem"></api-http-request-draw>
     </div>
   </div>
@@ -1469,6 +1731,7 @@ defineExpose({
   width: 100%;
   display: flex;
   justify-content: center;
+
   .ed-radio {
     height: 22px;
   }
@@ -1480,13 +1743,18 @@ defineExpose({
   }
 
   .execute-rate-cont {
-    border-radius: 4px;
+    border-radius: 6px;
     margin-top: -8px;
+    .cron-preview-row {
+      width: 100%;
+      margin: 4px 0 -10px -4px;
+    }
   }
 
   .de-select {
     width: 100%;
   }
+
   .ed-input-number {
     width: 100%;
   }
@@ -1514,16 +1782,36 @@ defineExpose({
     .ed-input__wrapper {
       width: 100%;
     }
+
     width: 100%;
   }
+
   .simple-cron {
     height: 32px;
+
     .ed-select,
     .ed-input-number {
       width: 140px;
       margin: 0 8px;
     }
   }
+
+  .cron-input-group {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+
+    .cron-input-row {
+      width: 100%;
+
+      .ed-popover__reference-wrapper,
+      :deep(.ed-input) {
+        width: 100%;
+      }
+    }
+  }
+
   .detail-inner {
     width: 800px;
     padding-top: 8px;
@@ -1539,11 +1827,12 @@ defineExpose({
     }
 
     .left-api_params {
-      border-top-left-radius: 4px;
-      border-bottom-left-radius: 4px;
-      border: 1px solid #bbbfc4;
+      border-top-left-radius: 6px;
+      border-bottom-left-radius: 6px;
+      border: 1px solid #d9dcdf;
       width: 300px;
       padding: 16px;
+
       .name-copy {
         display: none;
         line-height: 24px;
@@ -1562,15 +1851,16 @@ defineExpose({
     }
 
     .right-api_params {
-      border-top-right-radius: 4px;
-      border-bottom-right-radius: 4px;
-      border: 1px solid #bbbfc4;
+      border-top-right-radius: 6px;
+      border-bottom-right-radius: 6px;
+      border: 1px solid #d9dcdf;
       border-left: none;
       width: calc(100% - 200px);
     }
 
     .table-info-mr {
       margin: 28px 0 12px 0;
+
       .api-tabs {
         :deep(.ed-tabs__nav-wrap::after) {
           display: none;
@@ -1607,6 +1897,7 @@ defineExpose({
         font-size: 14px;
         font-style: normal;
         line-height: 22px;
+
         &::before {
           width: 8px;
           height: 8px;
@@ -1647,12 +1938,13 @@ defineExpose({
   flex-wrap: wrap;
   margin-left: -16px;
 }
+
 .api-card {
   height: 120px;
   width: 392px;
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid var(--deCardStrokeColor, #dee0e3);
-  border-radius: 4px;
+  border-radius: 6px;
   margin: 0 0 16px 16px;
   padding: 16px;
   font-family: var(--de-custom_font, 'PingFang');
@@ -1661,20 +1953,24 @@ defineExpose({
   &:hover {
     border-color: var(--ed-color-primary);
   }
+
   .name {
     font-size: 16px;
     font-weight: 500;
     margin-right: 8px;
-    max-width: 80%;
+    max-width: 70%;
   }
+
   .req-title,
   .req-value {
     display: flex;
     font-size: 14px;
     font-weight: 400;
+
     :nth-child(1) {
-      width: 100px;
+      width: 120px;
     }
+
     :nth-child(2) {
       margin-left: 24px;
       max-width: 230px;
@@ -1683,20 +1979,25 @@ defineExpose({
       white-space: nowrap;
     }
   }
+
   .req-title {
     color: var(--deTextSecondary, #646a73);
     margin: 16px 0 4px 0;
   }
+
   .req-value {
     color: var(--deTextPrimary, #1f2329);
   }
+
   .de-copy-icon {
     margin-right: 16px;
     color: var(--deTextSecondary, #646a73);
   }
+
   .de-delete-icon {
     cursor: pointer;
   }
+
   .de-tag {
     display: inline-flex;
     justify-content: center;
@@ -1724,6 +2025,7 @@ defineExpose({
   padding: 20px 24px !important;
   display: flex;
   flex-wrap: wrap;
+
   .small {
     height: 28px;
     min-width: 48px !important;
@@ -1741,11 +2043,13 @@ defineExpose({
     margin-left: 8.67px;
     color: var(--deTextPrimary, #1f2329);
   }
+
   i {
     font-size: 14.666666030883789px;
     color: var(--deWarning, #ff8800);
     line-height: 22px;
   }
+
   .foot {
     text-align: right;
     width: 100%;
@@ -1758,9 +2062,11 @@ defineExpose({
     display: flex !important;
     justify-content: space-between;
     padding-right: 0;
+
     &::after {
       display: none;
     }
+
     .name {
       .required::after {
         content: '*';

@@ -5,3 +5,14 @@ interface AreaNode {
   pid: string
   children: AreaNode[]
 }
+
+interface CustomGeoArea {
+  id: string
+  name: string
+}
+
+type CustomGeoSubArea = CustomGeoArea & {
+  geoAreaId: string
+  scope: string
+  scopeArr?: string[]
+}

@@ -1,22 +1,35 @@
 <script setup lang="ts">
 import { getStyle } from '@/utils/style'
 import eventBus from '@/utils/eventBus'
-import { ref, onMounted, toRefs, getCurrentInstance, computed, nextTick } from 'vue'
+import { ref, toRefs, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import findComponent from '@/utils/components'
-import { downloadCanvas2, imgUrlTrans } from '@/utils/imgUtils'
+import { downloadCanvas2 } from '@/utils/imgUtils'
 import ComponentEditBar from '@/components/visualization/ComponentEditBar.vue'
 import ComponentSelector from '@/components/visualization/ComponentSelector.vue'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import Board from '@/components/de-board/Board.vue'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { activeWatermarkCheckUser, removeActiveWatermark } from '@/components/watermark/watermark'
+import { isMobile } from '@/utils/utils'
+import { isMainCanvas } from '@/utils/canvasUtils'
+import { XpackComponent } from '@/components/plugin'
+import DePreviewPopDialog from '@/components/visualization/DePreviewPopDialog.vue'
+import Icon from '../../icon-custom/src/Icon.vue'
+import replaceOutlined from '@/assets/svg/icon_replace_outlined.svg'
+import { useI18n } from '@/hooks/web/useI18n'
+import {
+  isBlurBgEnabled,
+  getBlurBgStyle,
+  getComponentBackgroundStyle
+} from '@/utils/backgroundStyleUtils'
+const { t } = useI18n()
 
 const componentWrapperInnerRef = ref(null)
 const componentEditBarRef = ref(null)
 const dvMainStore = dvMainStoreWithOut()
 const downLoading = ref(false)
-
 const commonFilterAttrs = ['width', 'height', 'top', 'left', 'rotate']
+const dePreviewPopDialogRef = ref(null)
 const commonFilterAttrsFilterBorder = [
   'width',
   'height',
@@ -31,6 +44,9 @@ const commonFilterAttrsFilterBorder = [
 ]
 
 const props = defineProps({
+  curStyle: {
+    type: Object
+  },
   active: {
     type: Boolean,
     default: false
@@ -106,6 +122,21 @@ const props = defineProps({
     type: String,
     required: false,
     default: 'common'
+  },
+  // 字体
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
+  },
+  optType: {
+    type: String,
+    required: false
+  },
+  // 画布滚动距离
+  scrollMain: {
+    type: Number,
+    default: 0
   }
 })
 const {
@@ -117,52 +148,54 @@ const {
   dvInfo,
   searchCount,
   scale,
-  suffixId
+  suffixId,
+  scrollMain
 } = toRefs(props)
-let currentInstance
 const component = ref(null)
 const emits = defineEmits(['userViewEnlargeOpen', 'datasetParamsInit', 'onPointClick'])
 const wrapperId = 'wrapper-outer-id-' + config.value.id
 
+const suspensionViewButtonAvailable = computed(
+  () =>
+    dvMainStore.canvasStyleData.suspensionViewButtonAvailable === undefined ||
+    dvMainStore.canvasStyleData.suspensionViewButtonAvailable
+)
 const viewDemoInnerId = computed(() => 'enlarge-inner-content-' + config.value.id)
 const htmlToImage = () => {
+  useEmitt().emitter.emit('l7-prepare-picture', config.value.id)
   downLoading.value = true
   setTimeout(() => {
-    const vueDom = componentWrapperInnerRef.value
+    const vueDom = document.getElementById(viewDemoInnerId.value)
     activeWatermarkCheckUser(viewDemoInnerId.value, 'canvas-main', scale.value / 100)
-    downloadCanvas2('img', vueDom, '图表', () => {
+    downloadCanvas2('img', vueDom, t('chart.chart'), () => {
       // do callback
       removeActiveWatermark(viewDemoInnerId.value)
       downLoading.value = false
+      useEmitt().emitter.emit('l7-unprepare-picture', config.value.id)
     })
-  }, 200)
+  }, 1000)
 }
 
 const handleInnerMouseDown = e => {
   // do setCurComponent
-  if (showPosition.value.includes('multiplexing')) {
+  if (showPositionActive.value.includes('multiplexing')) {
     componentEditBarRef.value.multiplexingCheckOut()
-    e.stopPropagation()
-    e.preventDefault()
+    e?.stopPropagation()
+    e?.preventDefault()
   }
-  if (showPosition.value.includes('popEdit') || dvMainStore.mobileInPc) {
-    onClick(e)
+  if (
+    (!['rich-text'].includes(config.value.innerType) &&
+      ['popEdit', 'preview'].includes(showPositionActive.value)) ||
+    dvMainStore.mobileInPc
+  ) {
+    onClick()
+    if (e.target?.className?.includes?.('ed-input__inner')) return
+    e?.stopPropagation()
+    e?.preventDefault()
   }
 }
 
-onMounted(() => {
-  currentInstance = getCurrentInstance()
-  useEmitt({
-    name: 'componentImageDownload-' + config.value.id,
-    callback: () => {
-      htmlToImage()
-    }
-  })
-})
-
-const onClick = e => {
-  e.preventDefault()
-  e.stopPropagation()
+const onClick = () => {
   // 将当前点击组件的事件传播出去
   eventBus.emit('componentClick')
   dvMainStore.setInEditorStatus(true)
@@ -192,44 +225,21 @@ const onMouseEnter = () => {
   eventBus.emit('v-hover', config.value.id)
 }
 
+const blurBgEnable = computed(() => {
+  return isBlurBgEnabled(config.value.commonBackground)
+})
+
+const blurBgStyle = computed(() => {
+  return getBlurBgStyle(config.value.commonBackground, deepScale.value)
+})
+
 const componentBackgroundStyle = computed(() => {
   if (config.value.commonBackground) {
-    const {
-      backgroundColorSelect,
-      backgroundColor,
-      backgroundImageEnable,
-      backgroundType,
-      outerImage,
-      innerPadding,
-      borderRadius
-    } = config.value.commonBackground
-    const style = {
-      padding: innerPadding * deepScale.value + 'px',
-      borderRadius: borderRadius + 'px'
-    }
-    let colorRGBA = ''
-    if (backgroundColorSelect && backgroundColor) {
-      colorRGBA = backgroundColor
-    }
-    if (config.value.innerType === 'VQuery' && backgroundColorSelect) {
-      if (backgroundType === 'outerImage' && typeof outerImage === 'string') {
-        style['background'] = `url(${imgUrlTrans(outerImage)}) no-repeat`
-      } else {
-        style['background-color'] = colorRGBA
-      }
-    } else if (backgroundImageEnable) {
-      if (backgroundType === 'outerImage' && typeof outerImage === 'string') {
-        style['background'] = `url(${imgUrlTrans(outerImage)}) no-repeat ${colorRGBA}`
-      } else {
-        style['background-color'] = colorRGBA
-      }
-    } else {
-      style['background-color'] = colorRGBA
-    }
-    if (config.value.component !== 'UserView') {
-      style['overflow'] = 'hidden'
-    }
-    return style
+    return getComponentBackgroundStyle(config.value.commonBackground, {
+      scale: deepScale.value,
+      isUserView: ['DeTabs', 'UserView'].includes(config.value.component),
+      forceNoPadding: ['Group'].includes(config.value.component)
+    })
   }
   return {}
 })
@@ -281,17 +291,28 @@ const onPointClick = param => {
 
 const eventEnable = computed(
   () =>
-    showPosition.value.includes('preview') &&
+    showPositionActive.value.includes('preview') &&
     (['Picture', 'CanvasIcon', 'CircleShape', 'SvgTriangle', 'RectShape', 'ScrollText'].includes(
       config.value.component
     ) ||
       ['indicator', 'rich-text'].includes(config.value.innerType)) &&
     config.value.events &&
-    config.value.events.checked
+    config.value.events.checked &&
+    showPositionActive.value !== 'canvas-multiplexing'
 )
 
+const onWrapperClickCur = e => {
+  // 指标卡为内部触发
+  if (['indicator'].includes(config.value.innerType)) {
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+  onWrapperClick(e)
+}
+
 const onWrapperClick = e => {
-  if (eventEnable.value) {
+  if (eventEnable.value && !['edit-preview'].includes(showPositionActive.value)) {
     if (config.value.events.type === 'showHidden') {
       // 打开弹框区域
       nextTick(() => {
@@ -301,17 +322,17 @@ const onWrapperClick = e => {
       const url = config.value.events.jump.value
       const jumpType = config.value.events.jump.type
       try {
-        let newWindow
         if ('newPop' === jumpType) {
-          window.open(
-            url,
-            '_blank',
-            'width=800,height=600,left=200,top=100,toolbar=no,scrollbars=yes,resizable=yes,location=no'
-          )
+          dePreviewPopDialogRef.value.previewInit({ url, size: 'middle' })
+        } else if ('_blank' === jumpType) {
+          if (window['originOpen']) {
+            window['originOpen'](url, '_blank')
+          } else {
+            window.open(url, '_blank')
+          }
         } else {
-          newWindow = window.open(url, jumpType)
+          initOpenHandler(window.open(url, jumpType))
         }
-        initOpenHandler(newWindow)
       } catch (e) {
         console.warn('url 格式错误:' + url)
       }
@@ -322,8 +343,8 @@ const onWrapperClick = e => {
     } else if (config.value.events.type === 'download') {
       useEmitt().emitter.emit('canvasDownload')
     }
-    e.preventDefault()
-    e.stopPropagation()
+    e?.preventDefault()
+    e?.stopPropagation()
   }
 }
 
@@ -338,29 +359,121 @@ const initOpenHandler = newWindow => {
   }
 }
 const deepScale = computed(() => scale.value / 100)
-const showActive = computed(() => props.popActive || (dvMainStore.mobileInPc && props.active))
+const showActive = false
+
+const freezeFlag = computed(() => {
+  return (
+    isMainCanvas(props.canvasId) &&
+    config.value.freeze &&
+    !isMobile() &&
+    scrollMain.value - config.value.style?.top > 0
+  )
+})
+
+const commonParams = computed(() => {
+  return {
+    eventEnable: eventEnable.value,
+    eventType: config.value.events.type
+  }
+})
+
+const showCheck = computed(() => {
+  return dvMainStore.mobileInPc && showPositionActive.value === 'edit'
+})
+
+const updateFromMobile = (e, type) => {
+  if (type === 'syncPcDesign') {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  useEmitt().emitter.emit('onMobileStatusChange', {
+    type: type,
+    value: config.value.id
+  })
+}
+
+const showPositionActive = computed(() =>
+  showPosition.value === 'edit-preview' ? 'preview' : showPosition.value
+)
+const isIntersecting = ref(false)
+const observer = ref<IntersectionObserver | null>(null)
+// 移动端懒加载开关
+const isMobileLazyLoadEnabled = computed(() => {
+  return isMobile() || dvMainStore.inMobile || dvMainStore.mobileInPc
+})
+// 初始化IntersectionObserver
+onMounted(() => {
+  if (isMobileLazyLoadEnabled.value) {
+    const wrapperInner = componentWrapperInnerRef.value
+    if (wrapperInner) {
+      observer.value = new IntersectionObserver(
+        entries => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              isIntersecting.value = true
+              // 一旦加载完成，不再监听
+              if (observer.value) {
+                observer.value.unobserve(entry.target)
+              }
+            }
+          })
+        },
+        {
+          rootMargin: '200px 0px', // 提前200px开始加载
+          threshold: 0.1
+        }
+      )
+      observer.value.observe(wrapperInner)
+    }
+  }
+})
+
+// 清理Observer
+onBeforeUnmount(() => {
+  if (observer.value) {
+    observer.value.disconnect()
+  }
+})
 </script>
 
 <template>
   <div
     class="wrapper-outer"
-    :class="showPosition + '-' + config.component"
+    :class="[
+      showPositionActive + '-' + config.component,
+      {
+        'freeze-component': freezeFlag
+      }
+    ]"
     :id="wrapperId"
     @mousedown="handleInnerMouseDown"
     @mouseenter="onMouseEnter"
     v-loading="downLoading"
-    element-loading-text="导出中..."
+    :element-loading-text="$t('visualization.export_loading')"
     element-loading-background="rgba(255, 255, 255, 1)"
   >
+    <div
+      :title="$t('visualization.sync_pc_design')"
+      v-if="showCheck"
+      class="refresh-from-pc"
+      @click="updateFromMobile($event, 'syncPcDesign')"
+    >
+      <el-icon>
+        <Icon name="icon_replace_outlined"><replaceOutlined class="svg-icon" /></Icon>
+      </el-icon>
+    </div>
     <component-edit-bar
-      v-if="!showPosition.includes('canvas') && !props.isSelector"
+      v-if="
+        !showPositionActive.includes('canvas') && !props.isSelector && suspensionViewButtonAvailable
+      "
       class="wrapper-edit-bar"
       ref="componentEditBarRef"
       :canvas-id="canvasId"
       :index="index"
       :element="config"
-      :show-position="showPosition"
+      :show-position="showPositionActive"
       :class="{ 'wrapper-edit-bar-active': active }"
+      @componentImageDownload="htmlToImage"
       @userViewEnlargeOpen="opt => emits('userViewEnlargeOpen', opt)"
       @datasetParamsInit="() => emits('datasetParamsInit')"
     ></component-edit-bar>
@@ -378,42 +491,55 @@ const showActive = computed(() => props.popActive || (dvMainStore.mobileInPc && 
       :id="viewDemoInnerId"
       :style="componentBackgroundStyle"
     >
-      <!--边框背景-->
-      <Board
-        v-if="svgInnerEnable"
-        :style="{ color: config.commonBackground.innerImageColor }"
-        :name="commonBackgroundSvgInner"
-      ></Board>
+      <div v-if="blurBgEnable" class="blur-bg" :style="blurBgStyle"></div>
       <div
         class="wrapper-inner-adaptor"
         :style="slotStyle"
         :class="{ 'pop-wrapper-inner': showActive, 'event-active': eventEnable }"
-        @mousedown="onWrapperClick"
+        @mousedown="onWrapperClickCur"
       >
         <component
+          v-if="isIntersecting || !isMobileLazyLoadEnabled"
           :is="findComponent(config['component'])"
           :view="viewInfo"
           ref="component"
           class="component"
           :canvas-style-data="canvasStyleData"
+          :opt-type="optType"
           :dv-info="dvInfo"
           :dv-type="dvInfo.type"
           :canvas-view-info="canvasViewInfo"
           :style="getComponentStyleDefault(config?.style)"
+          :curStyle="curStyle"
           :prop-value="config?.propValue"
           :element="config"
           :request="config?.request"
           :linkage="config?.linkage"
-          :show-position="showPosition"
+          :show-position="showPositionActive"
           :search-count="searchCount"
           :scale="deepScale"
           :disabled="true"
           :is-edit="false"
           :suffix-id="suffixId"
+          :font-family="fontFamily"
+          :active="active"
+          :common-params="commonParams"
           @onPointClick="onPointClick"
+          @onComponentEvent="onWrapperClick"
         />
       </div>
+      <!--边框背景-->
+      <Board
+        v-if="svgInnerEnable"
+        :style="{ color: config.commonBackground.innerImageColor, pointerEvents: 'none' }"
+        :name="commonBackgroundSvgInner"
+      ></Board>
     </div>
+    <XpackComponent
+      ref="openHandler"
+      jsname="L2NvbXBvbmVudC9lbWJlZGRlZC1pZnJhbWUvT3BlbkhhbmRsZXI="
+    />
+    <DePreviewPopDialog ref="dePreviewPopDialogRef"></DePreviewPopDialog>
   </div>
 </template>
 
@@ -424,6 +550,15 @@ const showActive = computed(() => props.popActive || (dvMainStore.mobileInPc && 
 }
 .wrapper-outer {
   position: absolute;
+  .refresh-from-pc {
+    position: absolute;
+    right: 38px;
+    top: 12px;
+    z-index: 2;
+    font-size: 16px;
+    cursor: pointer;
+    color: var(--ed-color-primary);
+  }
 }
 .wrapper-inner {
   width: 100%;
@@ -436,6 +571,12 @@ const showActive = computed(() => props.popActive || (dvMainStore.mobileInPc && 
     width: 100%;
     height: 100%;
   }
+}
+
+.blur-bg {
+  width: 100%;
+  height: 100%;
+  background-size: 100% 100% !important;
 }
 
 .wrapper-edit-bar-active {
@@ -472,5 +613,12 @@ const showActive = computed(() => props.popActive || (dvMainStore.mobileInPc && 
 }
 .event-active {
   cursor: pointer;
+}
+
+.freeze-component {
+  position: fixed;
+  z-index: 1;
+  top: var(--top-show-offset) px !important;
+  left: var(--left-show-offset) px !important;
 }
 </style>

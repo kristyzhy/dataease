@@ -2,12 +2,10 @@
 import { computed, nextTick, onMounted, PropType, reactive, watch } from 'vue'
 import { useI18n } from '@/hooks/web/useI18n'
 import { COLOR_PANEL, DEFAULT_MISC } from '@/views/chart/components/editor/util/chart'
-import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { ElSpace } from 'element-plus-secondary'
 import { cloneDeep } from 'lodash-es'
 
 const { t } = useI18n()
-const dvMainStore = dvMainStoreWithOut()
 const props = defineProps({
   chart: {
     type: Object,
@@ -30,6 +28,12 @@ const fontSizeList = computed(() => {
       value: i
     })
   }
+  for (let i = 50; i <= 200; i = i + 10) {
+    arr.push({
+      name: i + '',
+      value: i
+    })
+  }
   return arr
 })
 const state = reactive({
@@ -38,7 +42,7 @@ const state = reactive({
   }
 })
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 const emit = defineEmits(['onChangeFlowMapPointForm'])
 
@@ -79,7 +83,6 @@ const init = () => {
   }
 }
 
-const showProperty = prop => props.propertyInner?.includes(prop)
 onMounted(() => {
   init()
 })
@@ -88,22 +91,18 @@ onMounted(() => {
 <template>
   <el-form ref="pointForm" :model="state.pointForm" size="small" label-position="top">
     <div style="padding-bottom: 8px">
-      <el-space>
-        <el-form-item class="form-item" :class="'form-item-' + themes" label="标注点文本">
+      <el-form-item class="form-item" :class="'form-item-' + themes" :label="t('chart.point_text')">
+        <!-- 标签与控件行分离，避免长标签撑大颜色和字号间距 -->
+        <el-space :size="8">
           <el-color-picker
             :effect="themes"
-            size="default"
             v-model="state.pointForm.text.color"
             class="color-picker-style"
             :predefine="predefineColors"
             @change="changeStyle()"
             is-custom
           />
-        </el-form-item>
-
-        <el-form-item class="form-item" :class="'form-item-' + themes">
-          <template #label>&nbsp;</template>
-          <el-tooltip content="字号" :effect="toolTip" placement="top">
+          <el-tooltip :content="t('chart.font_size')" :effect="toolTip" placement="top">
             <el-select
               size="small"
               style="width: 108px"
@@ -120,16 +119,20 @@ onMounted(() => {
               />
             </el-select>
           </el-tooltip>
-        </el-form-item>
-      </el-space>
+        </el-space>
+      </el-form-item>
     </div>
     <el-space>
-      <el-form-item class="form-item" :class="'form-item-' + themes" label="标注点气泡颜色">
+      <el-form-item
+        class="form-item"
+        :class="'form-item-' + themes"
+        :label="t('chart.point_bubble_color')"
+      >
         <el-color-picker
           :effect="themes"
-          size="default"
           v-model="state.pointForm.point.color"
           class="color-picker-style"
+          :trigger-width="108"
           :predefine="predefineColors"
           @change="changeStyle()"
           is-custom
@@ -137,7 +140,9 @@ onMounted(() => {
       </el-form-item>
     </el-space>
     <div class="alpha-setting">
-      <label class="alpha-label" :class="{ dark: 'dark' === themes }"> 标注点气泡大小 </label>
+      <label class="alpha-label" :class="{ dark: 'dark' === themes }">
+        {{ t('chart.point_bubble_size') }}
+      </label>
       <el-row style="flex: 1">
         <el-col>
           <el-form-item class="form-item alpha-slider" :class="'form-item-' + themes">
@@ -186,7 +191,7 @@ onMounted(() => {
     min-width: 56px;
 
     &.dark {
-      color: #a6a6a6;
+      color: #ebebeb;
     }
   }
 }

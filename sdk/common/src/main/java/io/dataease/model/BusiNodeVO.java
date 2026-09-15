@@ -13,7 +13,6 @@ import java.util.List;
 @Data
 public class BusiNodeVO implements TreeResultModel<BusiNodeVO>, Serializable {
 
-
     @Serial
     private static final long serialVersionUID = 8191619596741217494L;
 
@@ -28,8 +27,12 @@ public class BusiNodeVO implements TreeResultModel<BusiNodeVO>, Serializable {
     private Integer weight;
     @Schema(description = "额外标识")
     private int extraFlag;
+    @Schema(description = "额外标识1")
+    private int extraFlag1;
     @Schema(description = "类型")
     private String type;
     @Schema(description = "子节点")
     private List<BusiNodeVO> children;
+    @Schema(description = "独立权重")
+    private Integer ext;
 }

@@ -5,9 +5,17 @@ import {
 import type { ScatterOptions, Scatter as G2Scatter } from '@antv/g2plot/esm/plots/scatter'
 import { flow, parseJson } from '../../../util'
 import { valueFormatter } from '../../../formatter'
-import { getPadding } from '../../common/common_antv'
+import {
+  configPlotTooltipEvent,
+  getPadding,
+  getTooltipContainer,
+  TOOLTIP_TPL
+} from '../../common/common_antv'
 import { useI18n } from '@/hooks/web/useI18n'
-import { isEmpty } from 'lodash-es'
+import { defaults, isEmpty } from 'lodash-es'
+import { DEFAULT_LEGEND_STYLE } from '@/views/chart/components/editor/util/chart'
+import { type Datum } from '@antv/g2plot/esm'
+import { Group } from '@antv/g-canvas'
 
 const { t } = useI18n()
 /**
@@ -102,6 +110,11 @@ export class Scatter extends G2PlotChartView<ScatterOptions, G2Scatter> {
       xField: 'field',
       yField: 'value',
       colorField: 'category',
+      meta: {
+        field: {
+          type: 'cat'
+        }
+      },
       appendPadding: getPadding(chart),
       interactions: [
         {
@@ -133,6 +146,18 @@ export class Scatter extends G2PlotChartView<ScatterOptions, G2Scatter> {
     const { Scatter: G2Scatter } = await import('@antv/g2plot/esm/plots/scatter')
     const newChart = new G2Scatter(container, options)
     newChart.on('point:click', action)
+    if (options.label) {
+      newChart.on('label:click', e => {
+        action({
+          x: e.x,
+          y: e.y,
+          data: {
+            data: e.target.attrs.data
+          }
+        })
+      })
+    }
+    configPlotTooltipEvent(chart, newChart)
     return newChart
   }
 
@@ -233,7 +258,10 @@ export class Scatter extends G2PlotChartView<ScatterOptions, G2Scatter> {
           }
         })
         return result
-      }
+      },
+      container: getTooltipContainer(`tooltip-${chart.id}`, chart.container),
+      itemTpl: TOOLTIP_TPL,
+      enterable: true
     }
     return {
       ...options,
@@ -246,13 +274,55 @@ export class Scatter extends G2PlotChartView<ScatterOptions, G2Scatter> {
     if (!optionTmp.legend) {
       return optionTmp
     }
+    const customStyle = parseJson(chart.customStyle)
+    let size
+    if (customStyle && customStyle.legend) {
+      size = defaults(JSON.parse(JSON.stringify(customStyle.legend)), DEFAULT_LEGEND_STYLE).size
+    } else {
+      size = DEFAULT_LEGEND_STYLE.size
+    }
     optionTmp.legend.marker.style = style => {
       return {
-        r: 4,
+        r: size,
         fill: style.fill
       }
     }
     return optionTmp
+  }
+
+  protected configLabel(chart: Chart, options: ScatterOptions): ScatterOptions {
+    const tmpOption = super.configLabel(chart, options)
+    if (!tmpOption.label) {
+      return options
+    }
+    const { label: labelAttr } = parseJson(chart.customAttr)
+    tmpOption.label.style.fill = labelAttr.color
+    const label = {
+      ...tmpOption.label,
+      formatter: function (data: Datum) {
+        const value = valueFormatter(data.value, labelAttr.labelFormatter)
+        const group = new Group({})
+        group.addShape({
+          type: 'text',
+          attrs: {
+            x: 0,
+            y: 0,
+            data,
+            text: value,
+            textAlign: 'start',
+            textBaseline: 'top',
+            fontSize: labelAttr.fontSize,
+            fontFamily: chart.fontFamily,
+            fill: labelAttr.color
+          }
+        })
+        return group
+      }
+    }
+    return {
+      ...tmpOption,
+      label
+    }
   }
 
   protected setupOptions(chart: Chart, options: ScatterOptions) {
@@ -264,7 +334,6 @@ export class Scatter extends G2PlotChartView<ScatterOptions, G2Scatter> {
       this.configLegend,
       this.configXAxis,
       this.configYAxis,
-      this.configAnalyse,
       this.configSlider,
       this.configBasicStyle
     )(chart, options)

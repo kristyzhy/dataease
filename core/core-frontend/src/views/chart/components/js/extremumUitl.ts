@@ -1,5 +1,5 @@
 import { valueFormatter } from '@/views/chart/components/js/formatter'
-import { parseJson } from '@/views/chart/components/js/util'
+import { hexToRgba, parseJson } from '@/views/chart/components/js/util'
 import { isEmpty } from 'lodash-es'
 
 export const clearExtremum = chart => {
@@ -79,15 +79,15 @@ function createExtremumDiv(id, value, formatterCfg, chart) {
         transform: translateX(-50%);
         opacity: 1;
         transition: opacity 0.2s ease-in-out;
-        white-space:nowrap;`
+        white-space:nowrap;
+        overflow:auto;`
     )
     div.textContent = valueFormatter(value, formatterCfg)
     const span = document.createElement('span')
     span.setAttribute(
       'style',
-      `display: block;
-        width: 0px;
-        height: 0px;
+      `width: 0px;
+        height: 12px;
         border: 4px solid transparent;
         border-top-color: red;
         position: absolute;
@@ -110,7 +110,7 @@ const noChildrenFieldChart = chart => {
  * 支持最值图表的折线图，面积图，柱状图，分组柱状图
  * @param chart
  */
-const supportExtremumChartType = chart => {
+export const supportExtremumChartType = chart => {
   return ['line', 'area', 'bar', 'bar-group'].includes(chart.type)
 }
 
@@ -139,8 +139,8 @@ function removeDivsWithPrefix(parentDivId, prefix) {
 
 export const extremumEvt = (newChart, chart, _options, container) => {
   chart.container = container
+  clearExtremum(chart)
   if (!supportExtremumChartType(chart)) {
-    clearExtremum(chart)
     return
   }
   const { label: labelAttr } = parseJson(chart.customAttr)
@@ -151,7 +151,9 @@ export const extremumEvt = (newChart, chart, _options, container) => {
         i.forEach(item => {
           delete item._origin.EXTREME
         })
-        const { minItem, maxItem } = findMinMax(i.filter(item => item._origin.value))
+        const { minItem, maxItem } = findMinMax(
+          i.filter(item => item?._origin?.value !== null && item?._origin?.value !== undefined)
+        )
         if (!minItem || !maxItem) {
           return
         }
@@ -176,9 +178,14 @@ export const extremumEvt = (newChart, chart, _options, container) => {
         }
       })
     })
-    newChart.chart.geometries[0].on('afteranimate', () => {
-      createExtremumPoint(chart, ev)
-    })
+    const firstGeometry = newChart.chart.geometries[0]
+    const renderExtremumPoint = () => createExtremumPoint(chart, ev)
+    if (_options?.animation === false) {
+      // 禁用动画时 afteranimate 不再稳定触发，改在渲染完成后补建极值标记
+      newChart.on('afterrender', renderExtremumPoint)
+    } else {
+      firstGeometry?.on('afteranimate', renderExtremumPoint)
+    }
   })
   newChart.on('legend-item:click', ev => {
     const legendHideData = ev.view
@@ -224,6 +231,8 @@ export const createExtremumPoint = (chart, ev) => {
     divParent.style.zIndex = '1'
     divParent.style.opacity = '0'
     divParent.style.transition = 'opacity 0.2s ease-in-out'
+    divParent.style.overflow = 'visible'
+    divParent.style['pointer-events'] = 'none'
     // 将父标注加入到图表中
     const containerElement = document.getElementById(chart.container)
     containerElement.insertBefore(divParent, containerElement.firstChild)
@@ -319,21 +328,35 @@ export const createExtremumPoint = (chart, ev) => {
           )
           if (pointElement && point._origin.EXTREME) {
             pointElement.style.position = 'absolute'
-            pointElement.style.top =
-              (point.y[1] ? point.y[1] : point.y) -
-              (fontSize + (pointSize ? pointSize : 0) + 12) +
-              'px'
+            const top =
+              (point.y[1] ? point.y[1] : point.y) - (fontSize + (pointSize ? pointSize : 0) + 12)
+            pointElement.style.top = top + 'px'
             pointElement.style.left = point.x + 'px'
             pointElement.style.zIndex = '10'
             pointElement.style.fontSize = fontSize + 'px'
             pointElement.style.lineHeight = fontSize + 'px'
             // 渐变颜色时需要获取最后一个rgba的值作为背景
-            const { r, b, g, a } = getRgbaColorLastRgba(point.color)
+            const color = point.color.startsWith('#')
+              ? hexToRgba(point.color, basicStyle.alpha / 100)
+              : getRgbaColorLastRgba(point.color)
+            const { r, b, g, a } = color
             pointElement.style.backgroundColor = 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')'
             pointElement.style.color = isColorLight(point.color) ? '#000' : '#fff'
             pointElement.children[0]['style'].borderTopColor =
               'rgba(' + r + ',' + g + ',' + b + ',' + a + ')'
             pointElement.style.display = 'table'
+            // 显示箭头
+            const childNode = pointElement.childNodes[1]
+            // 最值在数据点下方显示
+            const translateYValue = Math.ceil(point.y + Math.abs(Math.floor(top)) + 6)
+            // 最值dom高度超过50%时，最值dom向下
+            if (top < 0 && (Math.abs(top) / point.y) * 100 >= 50) {
+              pointElement.style.transform = `translateX(-50%) translateY(${translateYValue}px)`
+              childNode.style.marginTop = '-16px'
+              childNode.style.transform = 'rotate(180deg)'
+            } else {
+              childNode.style.display = 'block'
+            }
           }
         })
       } else {
@@ -353,6 +376,28 @@ function removeDivElement(key) {
 }
 
 /**
+ * 当浏览器不支持requestIdleCallback时，使用setTimeout模拟
+ * 该模拟函数会在浏览器空闲时执行回调函数，避免阻塞主线程
+ * 模拟的回调函数会在16毫秒后执行，模拟浏览器的空闲时间
+ * 该模拟函数会返回一个定时器ID，可以用来取消定时器
+ * @param cb 回调函数，接收一个IdleDeadline对象作为参数
+ * @returns 返回一个定时器ID，可以用来取消定时器
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Window/requestIdleCallback
+ */
+if (typeof window.requestIdleCallback !== 'function') {
+  window.requestIdleCallback = function (cb: IdleRequestCallback): number {
+    return window.setTimeout(() => {
+      cb({
+        timeRemaining: () => Math.max(0, 50 - (Date.now() % 50)),
+        didTimeout: false
+      })
+    }, 16)
+  }
+  window.cancelIdleCallback = function (id: number) {
+    clearTimeout(id)
+  }
+}
+/**
  * 用于分批处理数据，利用requestIdleCallback在浏览器空闲期间执行任务，避免阻塞主线程
  * @param dataList
  * @param taskHandler
@@ -366,14 +411,16 @@ function performChunk(dataList, taskHandler) {
   function _run() {
     if (i >= dataList.length) return
     // 请求浏览器空闲期间执行的回调函数
-    requestIdleCallback(idle => {
-      // 在当前空闲期间内尽可能多地处理任务，直到时间耗尽或所有任务处理完毕
-      while (idle.timeRemaining() > 0 && i < dataList.length) {
-        taskHandler(dataList[i], i)
-        i++
-      }
-      _run()
-    })
+    if (typeof window.requestIdleCallback == 'function') {
+      requestIdleCallback(idle => {
+        // 在当前空闲期间内尽可能多地处理任务，直到时间耗尽或所有任务处理完毕
+        while (idle.timeRemaining() > 0 && i < dataList.length) {
+          taskHandler(dataList[i], i)
+          i++
+        }
+        _run()
+      })
+    }
   }
   _run()
 }

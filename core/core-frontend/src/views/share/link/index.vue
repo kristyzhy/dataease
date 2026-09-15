@@ -3,18 +3,22 @@
     class="link-container"
     v-loading="loading || requestStore.loadingMap[permissionStore.currentPath]"
   >
+    <ErrorTemplate v-if="!loading && disableError" :msg="t('link_ticket.disable_error')" />
+    <ErrorTemplate v-else-if="!loading && iframeError" :msg="t('link_ticket.iframe_error')" />
     <ErrorTemplate
-      v-if="!loading && (disableError || peRequireError)"
-      :msg="
-        disableError ? '已禁用分享功能，请联系管理员！' : '已设置有效期密码必填，当前链接无效！'
-      "
+      v-else-if="!loading && peRequireError"
+      :msg="t('link_ticket.pe_require_error')"
     />
-    <IframeError v-else-if="!loading && iframeError" />
-    <LinkError v-else-if="!loading && !linkExist" />
-    <Exp v-else-if="!loading && linkExp" />
+    <ErrorTemplate v-else-if="!loading && !linkExist" :msg="t('link_ticket.link_error')" />
+    <ErrorTemplate v-else-if="!loading && linkExp" :msg="t('link_ticket.link_exp_error')" />
     <PwdTips v-else-if="!loading && !pwdValid" />
-    <TicketError
-      v-else-if="!loading && (!state.ticketValidVO.ticketValid || state.ticketValidVO.ticketExp)"
+    <ErrorTemplate
+      v-else-if="!loading && !state.ticketValidVO.ticketValid"
+      :msg="t('link_ticket.param_error')"
+    />
+    <ErrorTemplate
+      v-else-if="!loading && state.ticketValidVO.ticketExp"
+      :msg="t('link_ticket.exp_error')"
     />
     <PreviewCanvas
       v-else
@@ -26,19 +30,21 @@
   </div>
 </template>
 <script lang="ts" setup>
-import { onMounted, nextTick, ref, reactive } from 'vue'
+import { onMounted, nextTick, ref, reactive, onBeforeUnmount } from 'vue'
 import { useRequestStoreWithOut } from '@/store/modules/request'
 import { usePermissionStoreWithOut } from '@/store/modules/permission'
 import PreviewCanvas from '@/views/data-visualization/PreviewCanvas.vue'
+import { useLoading } from '@/hooks/web/useLoading'
 import { ProxyInfo, shareProxy } from './ShareProxy'
-import Exp from './exp.vue'
-import LinkError from './error.vue'
 import PwdTips from './pwd.vue'
-import IframeError from './IframeError.vue'
-import TicketError from './TicketError.vue'
 import ErrorTemplate from './ErrorTemplate.vue'
+import { useLinkStoreWithOut } from '@/store/modules/link'
+import { useI18n } from '@/hooks/web/useI18n'
+import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
+const linkStore = useLinkStoreWithOut()
 const requestStore = useRequestStoreWithOut()
 const permissionStore = usePermissionStoreWithOut()
+const dvMainStore = dvMainStoreWithOut()
 const pcanvas = ref(null)
 const iframeError = ref(true)
 const disableError = ref(true)
@@ -47,6 +53,8 @@ const linkExist = ref(false)
 const loading = ref(true)
 const linkExp = ref(false)
 const pwdValid = ref(false)
+const { close } = useLoading()
+const { t } = useI18n()
 const state = reactive({
   ticketValidVO: {
     ticketValid: false,
@@ -55,6 +63,7 @@ const state = reactive({
   }
 })
 onMounted(async () => {
+  close()
   const proxyInfo = (await shareProxy.loadProxy()) as ProxyInfo
   if (proxyInfo?.shareDisable) {
     loading.value = false
@@ -80,7 +89,15 @@ onMounted(async () => {
   }
   linkExist.value = true
   linkExp.value = !!proxyInfo.exp
+  if (!!proxyInfo.exp) {
+    loading.value = false
+    return
+  }
   pwdValid.value = !!proxyInfo.pwdValid
+  if (!pwdValid.value) {
+    loading.value = false
+    return
+  }
   state.ticketValidVO = proxyInfo.ticketValidVO
   nextTick(() => {
     const method = pcanvas?.value?.loadCanvasDataAsync
@@ -89,6 +106,10 @@ onMounted(async () => {
     }
     loading.value = false
   })
+  dvMainStore.setPublicLinkStatus(true)
+})
+onBeforeUnmount(() => {
+  linkStore.$reset()
 })
 </script>
 <style lang="less" scoped>

@@ -4,9 +4,13 @@ export const customAttrTrans = {
   size: [
     'barWidth',
     'lineWidth',
+    'leftLineWidth',
     'lineSymbolSize',
+    'leftLineSymbolSize',
     'funnelWidth', // 漏斗图 最大宽度
     'tableTitleFontSize',
+    'tableTitleColFontSize',
+    'tableTitleCornerFontSize',
     'tableItemFontSize',
     'tableTitleHeight',
     'tableItemHeight',
@@ -29,7 +33,7 @@ export const customAttrTrans = {
 export const customStyleTrans = {
   text: ['fontSize'],
   legend: {
-    textStyle: ['fontSize']
+    textStyle: ['fontSize', 'size']
   },
   xAxis: {
     nameTextStyle: ['fontSize'],

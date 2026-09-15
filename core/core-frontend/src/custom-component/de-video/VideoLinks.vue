@@ -36,7 +36,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, toRefs, watch, computed } from 'vue'
+import { reactive, toRefs, watch } from 'vue'
 import { dvMainStoreWithOut } from '../../store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia/dist/pinia'
 import { checkAddHttp, deepCopy } from '../../utils/utils'
@@ -46,8 +46,6 @@ import { useEmitt } from '@/hooks/web/useEmitt'
 const dvMainStore = dvMainStoreWithOut()
 const { curComponent, curActiveTabInner } = storeToRefs(dvMainStore)
 const snapshotStore = snapshotStoreWithOut()
-const emits = defineEmits(['close'])
-const popover = ref(null)
 const { t } = useI18n()
 
 const props = defineProps({
@@ -93,15 +91,10 @@ const onChange = () => {
   }
 
   curComponent.value.videoLinks = state.linkInfoTemp
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('video-onChange')
   useEmitt().emitter.emit('videoLinksChange-' + curComponent.value.id)
 }
-const onBlur = () => {
-  state.linkInfoTemp.src = checkAddHttp(state.linkInfoTemp.src)
-  curComponent.value.frameLinks.src = state.linkInfoTemp.src
-  snapshotStore.recordSnapshotCache()
-  useEmitt().emitter.emit('frameLinksChange-' + curComponent.value.id)
-}
+
 init()
 
 watch(

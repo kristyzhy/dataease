@@ -11,6 +11,7 @@ import io.dataease.exception.DEException;
 import io.dataease.license.config.XpackInteract;
 import io.dataease.utils.AuthUtils;
 import io.dataease.utils.CommonBeanFactory;
+import io.dataease.utils.CommunityUtils;
 import io.dataease.utils.IDUtils;
 import io.dataease.visualization.dao.auto.entity.CoreStore;
 import io.dataease.visualization.dao.auto.mapper.CoreStoreMapper;
@@ -65,7 +66,7 @@ public class VisualizationStoreManage {
         return coreStoreMapper.exists(queryWrapper);
     }
 
-    @XpackInteract(value = "perFilterManage", recursion = true)
+    @XpackInteract(value = "perFilterManage", recursion = true, invalid = true)
     public IPage<VisualizationStoreVO> query(int pageNum, int pageSize, VisualizationWorkbranchQueryRequest request) {
         IPage<StorePO> storePOIPage = proxy().queryStorePage(pageNum, pageSize, request);
         if (ObjectUtils.isEmpty(storePOIPage)) return null;
@@ -89,13 +90,14 @@ public class VisualizationStoreManage {
                 new VisualizationStoreVO(
                         po.getStoreId(), po.getResourceId(), po.getName(),
                         po.getType(), String.valueOf(po.getCreator()), ObjectUtils.isEmpty(po.getEditor()) ? null : String.valueOf(po.getEditor()),
-                        po.getEditTime(), 9,po.getExtFlag())).toList();
+                        po.getEditTime(), 9, po.getExtFlag(), po.getExtFlag1())).toList();
     }
 
     public IPage<StorePO> queryStorePage(int goPage, int pageSize, VisualizationWorkbranchQueryRequest request) {
         Long uid = AuthUtils.getUser().getUserId();
         QueryWrapper<Object> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("s.uid", uid);
+        queryWrapper.isNotNull("s.resource_id");
         if (StringUtils.isNotBlank(request.getType())) {
             BusiResourceEnum busiResourceEnum = BusiResourceEnum.valueOf(request.getType().toUpperCase());
             if (ObjectUtils.isEmpty(busiResourceEnum)) {
@@ -104,7 +106,11 @@ public class VisualizationStoreManage {
             queryWrapper.eq("s.resource_type", busiResourceEnum.getFlag());
         }
         if (StringUtils.isNotBlank(request.getKeyword())) {
-            queryWrapper.like("v.name", request.getKeyword());
+            queryWrapper.apply("LOWER(v.name) LIKE LOWER(CONCAT('%', {0}, '%'))", request.getKeyword());
+        }
+        String info = CommunityUtils.getInfo();
+        if (StringUtils.isNotBlank(info)) {
+            queryWrapper.notExists(String.format(info, "s.resource_id"));
         }
         queryWrapper.orderBy(true, request.isAsc(), "v.update_time");
         Page<StorePO> page = new Page<>(goPage, pageSize);

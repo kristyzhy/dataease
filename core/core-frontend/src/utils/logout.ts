@@ -9,7 +9,7 @@ const permissionStore = usePermissionStoreWithOut()
 const userStore = useUserStoreWithOut()
 const interactiveStore = interactiveStoreWithOut()
 
-export const logoutHandler = (justClean?: boolean) => {
+export const logoutHandler = (justClean?: boolean, save_platform_status = false) => {
   userStore.clear()
   userStore.$reset()
   permissionStore.clear()
@@ -24,20 +24,30 @@ export const logoutHandler = (justClean?: boolean) => {
   }
   let pathname = window.location.pathname
   if (pathname) {
-    if (pathname.includes('oidcbi/') || pathname.includes('casbi/')) {
+    if (pathname.includes('oidcbi/')) {
+      if (save_platform_status) {
+        return
+      }
       pathname = pathname.replace('oidcbi/', '')
+      if (pathname.includes('mobile.html')) {
+        pathname = pathname.replace('mobile.html', '')
+      }
+      pathname = pathname.substring(0, pathname.length - 1)
+      window.location.href = pathname + '/oidcbi/oidc/logout'
+      return
+    } else if (pathname.includes('casbi/')) {
+      if (save_platform_status) {
+        return
+      }
       pathname = pathname.replace('casbi/', '')
+      if (pathname.includes('mobile.html')) {
+        pathname = pathname.replace('mobile.html', '')
+      }
+      pathname = pathname.substring(0, pathname.length - 1)
+      window.location.href = pathname + '/casbi/cas/logout'
+      return
     }
     pathname = pathname.substring(0, pathname.length - 1)
-  }
-  if (wsCache.get('out_auth_platform') === 'cas') {
-    const uri = window.location.href
-    window.location.href = pathname + '/casbi/cas/logout?service=' + uri
-    return
-  }
-  if (wsCache.get('out_auth_platform') === 'oidc') {
-    window.location.href = pathname + '/oidcbi/oidc/logout'
-    return
   }
   if (wsCache.get('custom_auth_logout_url')) {
     window.location.href = wsCache.get('custom_auth_logout_url')

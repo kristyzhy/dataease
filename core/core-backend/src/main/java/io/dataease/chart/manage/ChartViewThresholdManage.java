@@ -2,13 +2,14 @@ package io.dataease.chart.manage;
 
 import io.dataease.api.chart.request.ThresholdCheckRequest;
 import io.dataease.api.chart.vo.ThresholdCheckVO;
-import io.dataease.engine.constant.DeTypeConstants;
+import io.dataease.constant.DeTypeConstants;
 import io.dataease.exception.DEException;
 import io.dataease.extensions.datasource.dto.DatasetTableFieldDTO;
 import io.dataease.extensions.view.dto.ChartViewDTO;
 import io.dataease.extensions.view.dto.ChartViewFieldDTO;
 import io.dataease.extensions.view.filter.FilterTreeItem;
 import io.dataease.extensions.view.filter.FilterTreeObj;
+import io.dataease.i18n.Translator;
 import io.dataease.utils.DateUtils;
 import io.dataease.utils.JsonUtil;
 import io.dataease.utils.LogUtil;
@@ -19,6 +20,7 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -29,19 +31,23 @@ import java.util.stream.Collectors;
 @Component("chartViewThresholdManage")
 public class ChartViewThresholdManage {
 
-
     @Resource
     private ChartViewManege chartViewManege;
 
-    public String convertThresholdRules(Long chartId, String thresholdRules) {
-        ChartViewDTO details = chartViewManege.getDetails(chartId);
+    public String convertThresholdRules(Long chartId, String thresholdRules, String resourceTable) {
+        ChartViewDTO details = chartViewManege.getDetails(chartId, resourceTable);
         return convertThresholdRules(details, thresholdRules);
     }
 
     private String convertThresholdRules(ChartViewDTO chart, String thresholdRules) {
         List<DatasetTableFieldDTO> fieldList = chartFields(chart);
         FilterTreeObj filterTreeObj = JsonUtil.parseObject(thresholdRules, FilterTreeObj.class);
-        Map<String, DatasetTableFieldDTO> fieldMap = fieldList.stream().collect(Collectors.toMap(item -> item.getId().toString(), item -> item));
+        Map<String, DatasetTableFieldDTO> fieldMap = fieldList.stream()
+                .collect(Collectors.toMap(
+                        item -> item.getId().toString(),
+                        item -> item,
+                        (existing, replacement) -> existing
+                ));
         return convertTree(filterTreeObj, fieldMap);
     }
 
@@ -127,7 +133,7 @@ public class ChartViewThresholdManage {
         if (StringUtils.equals(filterType, "enum")) {
             List<String> enumValue = item.getEnumValue();
             String enumValueText = String.join(",", enumValue);
-            return fieldName + " 属于 " + "( " + enumValueText + " )";
+            return fieldName + " " + Translator.get("i18n_threshold_logic_in") + " " + "( " + enumValueText + " )";
         } else {
             Integer deType = map.getDeType();
             String valueType = item.getValueType();
@@ -143,11 +149,11 @@ public class ChartViewThresholdManage {
             return value;
         }
         if (StringUtils.equals("max", value)) {
-            return "最大值";
+            return Translator.get("i18n_threshold_max");
         } else if (StringUtils.equals("min", value)) {
-            return "最小值";
+            return Translator.get("i18n_threshold_min");
         } else if (StringUtils.equals("average", value)) {
-            return "平均值";
+            return Translator.get("i18n_threshold_average");
         } else if (deType == 1) {
             return formatDynamicTimeLabel(value);
         } else {
@@ -169,41 +175,46 @@ public class ChartViewThresholdManage {
                 int unit = Integer.parseInt(map.get("unit").toString());
                 int suffix = Integer.parseInt(map.get("suffix").toString());
                 String time = map.get("time").toString();
-
+                if (unit > 3) {
+                    time = getCustomTimeValue(format, unit, suffix, count, false);
+                }
                 List<String> unitLabels = null;
                 if (StringUtils.equalsIgnoreCase("YYYY", format)) {
-                    unitLabels = List.of("年");
+                    unitLabels = List.of(Translator.get("i18n_time_year"));
                 } else if (StringUtils.equalsIgnoreCase("YYYY-MM", format)) {
-                    unitLabels = List.of("年", "月");
+                    unitLabels = List.of(Translator.get("i18n_time_year"), Translator.get("i18n_time_month"));
                 } else if (StringUtils.equalsIgnoreCase("YYYY-MM-DD", format)) {
-                    unitLabels = List.of("年", "月", "日");
+                    unitLabels = List.of(Translator.get("i18n_time_year"), Translator.get("i18n_time_month"), Translator.get("i18n_time_date"));
                 } else if (StringUtils.equalsIgnoreCase("HH:mm:ss", format)) {
                     DEException.throwException("纯时间格式不支持动态格式");
                 } else {
-                    unitLabels = List.of("年", "月", "日");
+                    unitLabels = List.of(Translator.get("i18n_time_year"), Translator.get("i18n_time_month"), Translator.get("i18n_time_date"), Translator.get("i18n_time_hour"));
                 }
                 String unitText = unitLabels.get(unit - 1);
-                String suffixText = "前";
+                String suffixText = Translator.get("i18n_time_ago");
                 if (suffix == 2) {
-                    suffixText = "后";
+                    suffixText = Translator.get("i18n_time_later");
                 }
                 String timeText = "";
                 if (StringUtils.containsIgnoreCase(format, "HH")) {
-                    timeText = " " + time;
+                    timeText = " (" + time + ")";
                 }
                 return count + " " + unitText + suffixText + timeText;
             } else {
                 List<String> shortLabels = null;
                 if (StringUtils.equalsIgnoreCase("YYYY", format)) {
-                    shortLabels = List.of("当年", "去年", "明年");
+                    shortLabels = List.of(Translator.get("i18n_time_year_current"), Translator.get("i18n_time_year_last"), Translator.get("i18n_time_year_next"));
                 } else if (StringUtils.equalsIgnoreCase("YYYY-MM", format)) {
-                    shortLabels = List.of("当月", "上个月", "下个月", "年初", "年末");
+                    shortLabels = List.of(Translator.get("i18n_time_month_current"), Translator.get("i18n_time_month_last"), Translator.get("i18n_time_month_next"),
+                            Translator.get("i18n_time_month_start"), Translator.get("i18n_time_month_end"));
                 } else if (StringUtils.equalsIgnoreCase("YYYY-MM-DD", format)) {
-                    shortLabels = List.of("今天", "昨天", "明天", "月初", "月末");
+                    shortLabels = List.of(Translator.get("i18n_time_date_current"), Translator.get("i18n_time_date_last"), Translator.get("i18n_time_date_next"),
+                            Translator.get("i18n_time_date_start"), Translator.get("i18n_time_date_end"));
                 } else if (StringUtils.equalsIgnoreCase("HH:mm:ss", format)) {
                     shortLabels = List.of("当前", "1小时前", "1小时后");
                 } else {
-                    shortLabels = List.of("今天", "昨天", "明天", "月初", "月末");
+                    shortLabels = List.of(Translator.get("i18n_time_date_current"), Translator.get("i18n_time_date_last"), Translator.get("i18n_time_date_next"),
+                            Translator.get("i18n_time_date_start"), Translator.get("i18n_time_date_end"));
                 }
                 return shortLabels.get(timeFlag - 1);
             }
@@ -215,29 +226,18 @@ public class ChartViewThresholdManage {
     }
 
     private String translateTerm(String term) {
-        return switch (term) {
-            case "eq" -> "等于";
-            case "not_eq" -> "不等于";
-            case "lt" -> "小于";
-            case "le" -> "小于等于";
-            case "gt" -> "大于";
-            case "ge" -> "大于等于";
-            case "in" -> "属于";
-            case "not in" -> "不属于";
-            case "like" -> "包含";
-            case "not_like" -> "不包含";
-            case "null" -> "为空";
-            case "not_null" -> "不为空";
-            case "empty" -> "空字符串";
-            case "not_empty" -> "非字符串";
-            case "between" -> "范围是";
-            default -> " 等于 ";
-        };
+        if (StringUtils.equals(term, "not in")) {
+            return Translator.get("i18n_threshold_logic_not_in");
+        } else if (StringUtils.equals(term, "not like")) {
+            return Translator.get("i18n_threshold_logic_not_like");
+        } else {
+            return Translator.get("i18n_threshold_logic_" + term);
+        }
     }
 
     private String translateLogic(String logic) {
-        if (StringUtils.equals(logic, "and")) return " 且 ";
-        return " 或 ";
+        if (StringUtils.equals(logic, "and")) return String.format(" %s ", Translator.get("i18n_threshold_logic_and"));
+        return String.format(" %s ", Translator.get("i18n_threshold_logic_or"));
     }
 
     private String convertStyle(String htmlString) {
@@ -258,7 +258,7 @@ public class ChartViewThresholdManage {
         String thresholdRules = request.getThresholdRules();
         Long chartId = request.getChartId();
         try {
-            ChartViewDTO chart = chartViewManege.getChart(chartId);
+            ChartViewDTO chart = chartViewManege.getChart(chartId, request.getResourceTable(), true);
             Map<String, Object> data = null;
             if (ObjectUtils.isEmpty(chart) || MapUtils.isEmpty(data = chart.getData())) {
                 return new ThresholdCheckVO(false, null, "查询图表异常！", null);
@@ -281,27 +281,128 @@ public class ChartViewThresholdManage {
             Pattern pattern = Pattern.compile(regex, Pattern.DOTALL);
             Matcher matcher = pattern.matcher(thresholdTemplate);
             StringBuilder sb = new StringBuilder();
+
+            boolean withThresholdData = false;
+            int thresholdRecordCount = request.getThresholdLimit();
             while (matcher.find()) {
                 long id = Long.parseLong(matcher.group(1));
+                if (id == 2L) {
+                    withThresholdData = true;
+                }
                 // 根据id从map中获取替换文本
                 DatasetTableFieldDTO fieldDTO = fieldMap.get(id);
                 if (ObjectUtils.isEmpty(fieldDTO)) continue;
-                String fieldDTOName = fieldDTO.getName();
                 String dataeaseName = fieldDTO.getDataeaseName();
-                List<String> valueList = rows.stream().map(row -> ObjectUtils.isEmpty(row.get(dataeaseName)) ? null : row.get(dataeaseName).toString()).collect(Collectors.toList());
-                String replacement = fieldDTOName + ": " + JsonUtil.toJSONString(valueList);
-                // 替换文本
-                matcher.appendReplacement(sb, replacement);
-            }
-            matcher.appendTail(sb);
+                String fieldDTOName = fieldDTO.getName();
 
+                if (rows.size() > thresholdRecordCount) {
+                    rows = rows.subList(0, thresholdRecordCount);
+                }
+                if (request.isShowFieldValue()) {
+                    String replacement = null;
+                    if (fieldDTO.getDeType().equals(DeTypeConstants.DE_FLOAT) || fieldDTO.getDeType().equals(DeTypeConstants.DE_INT)) {
+                        List<String> valueList = rows.stream().map(row -> ObjectUtils.isEmpty(row.get(dataeaseName)) ? null : stripTrailingZeros2String(row.get(dataeaseName))).collect(Collectors.toList());
+                        replacement = fieldDTOName + ": " + JsonUtil.toJSONString(valueList);
+                    } else {
+                        List<String> valueList = rows.stream().map(row -> ObjectUtils.isEmpty(row.get(dataeaseName)) ? null : row.get(dataeaseName).toString()).collect(Collectors.toList());
+                        replacement = fieldDTOName + ": " + JsonUtil.toJSONString(valueList);
+                    }
+                    matcher.appendReplacement(sb, replacement);
+                } else {
+                    matcher.appendReplacement(sb, fieldDTOName);
+                }
+            }
+
+            matcher.appendTail(sb);
             // 输出替换后的HTML内容
             String result = sb.toString();
+
+            if (withThresholdData) {
+                Set<Long> thresholdFieldIdSet = new LinkedHashSet<>();
+                getThresholdFieldIdList(filterTreeObj, thresholdFieldIdSet);
+                List<List<String>> thresholdTableList = rows.stream().map(row -> thresholdFieldIdSet.stream().map(fieldId -> {
+                    DatasetTableFieldDTO fieldDTO = fieldMap.get(fieldId);
+                    if (ObjectUtils.isEmpty(fieldDTO)) return "";
+                    String dataeaseName = fieldDTO.getDataeaseName();
+                    Integer deType = fieldDTO.getDeType();
+                    String value = null;
+
+                    if (deType.equals(DeTypeConstants.DE_FLOAT) || deType.equals(DeTypeConstants.DE_INT)) {
+                        value = ObjectUtils.isEmpty(row.get(dataeaseName)) ? null : stripTrailingZeros2String(row.get(dataeaseName));
+                    } else {
+                        value = ObjectUtils.isEmpty(row.get(dataeaseName)) ? null : row.get(dataeaseName).toString();
+                    }
+                    return value;
+                }).collect(Collectors.toList())).collect(Collectors.toList());
+                List<String> tableHeadList = thresholdFieldIdSet.stream().map(i -> fieldMap.get(i).getName()).collect(Collectors.toList());
+                tableHeadList.addFirst("NO");
+                thresholdTableList.addFirst(tableHeadList);
+                StringBuilder tableHtml = new StringBuilder("<table style=\"min-width:35%;border-collapse:collapse;font-family:'Segoe UI',Arial,sans-serif;font-size:14px;border:1px solid;border-radius:8px;overflow:hidden;border-spacing:0\">");
+
+                for (int i = 0; i < thresholdTableList.size(); i++) {
+                    List<String> row = thresholdTableList.get(i);
+                    if (i == 0) {
+                        StringBuilder theadHtmlBuild = new StringBuilder("<thead><tr style=\"border-bottom:2px double;border-color: inherit;\">");
+                        row.forEach(item -> {
+                            theadHtmlBuild.append("<th style=\"border: 1px dashed;border-color: inherit;padding:12px;text-align:left;font-weight:bold;letter-spacing:1px;text-transform:uppercase;\">").append(item).append("</th>");
+                        });
+                        theadHtmlBuild.append("</tr></thead>");
+                        tableHtml.append(theadHtmlBuild);
+                        continue;
+                    }
+                    row.addFirst(String.valueOf(i));
+                    if (i == 1) {
+                        tableHtml.append("<tbody>");
+                    }
+
+                    StringBuilder trHtmlBuild = new StringBuilder("<tr style=\"border-bottom:1px dashed;border-color: inherit;\">");
+                    row.forEach(item -> {
+                        trHtmlBuild.append("<td style=\"border: 1px dashed;border-color: inherit;padding:12px\">").append(item).append("</td>");
+                    });
+                    trHtmlBuild.append("</tr>");
+                    tableHtml.append(trHtmlBuild);
+
+                    if (i == thresholdTableList.size() - 1) {
+                        tableHtml.append("</tbody></table>");
+                    }
+
+                }
+
+                String thresholdDataRex = "<span id=\"changeText-(\\d+)\"[^>]*?style=\"([^\"]*?)\"[^>]*?>\\s*<span[^>]*?data-mce-content=\"\\[告警数据\\]\"[^>]*?>\\[告警数据\\]</span>\\s*</span>";
+
+                Pattern thresholdDataPattern = Pattern.compile(thresholdDataRex, Pattern.DOTALL);
+                Matcher thresholdDataMatcher = thresholdDataPattern.matcher(result);
+                if (thresholdDataMatcher.find()) {
+                    String originStyle = thresholdDataMatcher.group(2);
+                    String tableStyleHtml = tableHtml.toString().replace("min-width:35%;", originStyle + "min-width:35%;");
+                    result = thresholdDataMatcher.replaceAll(tableStyleHtml);
+                }
+            }
             return new ThresholdCheckVO(true, result, null, null);
         } catch (Exception e) {
             LogUtil.error(e.getMessage(), new Throwable(e));
             return new ThresholdCheckVO(false, null, e.getMessage(), null);
         }
+    }
+
+    private String stripTrailingZeros2String(Object value) {
+        if (ObjectUtils.isEmpty(value)) {
+            return null;
+        }
+        if (!(value instanceof BigDecimal)) return value.toString();
+        return ((BigDecimal) value).stripTrailingZeros().toPlainString();
+    }
+
+    private void getThresholdFieldIdList(FilterTreeObj conditionTree, Set<Long> fieldIdSet) {
+        List<FilterTreeItem> items = conditionTree.getItems();
+        items.forEach(item -> {
+            if (!StringUtils.equals("item", item.getType())) {
+                getThresholdFieldIdList(item.getSubTree(), fieldIdSet);
+            } else {
+                Long fieldId = item.getFieldId();
+                fieldIdSet.add(fieldId);
+            }
+        });
     }
 
     private void chartDynamicMap(List<Map<String, Object>> rows, FilterTreeObj conditionTree, Map<Long, DatasetTableFieldDTO> fieldMap) {
@@ -339,7 +440,7 @@ public class ChartViewThresholdManage {
                 int suffix = Integer.parseInt(map.get("suffix").toString());
                 String time = map.get("time").toString();
                 String timeValue = getCustomTimeValue(format, unit, suffix, count, false);
-                if (StringUtils.containsIgnoreCase(format, "yyyy-MM-dd HH") && StringUtils.isNotBlank(time)) {
+                if (unit < 4 && StringUtils.containsIgnoreCase(format, "yyyy-MM-dd HH") && StringUtils.isNotBlank(time)) {
                     return timeValue + " " + time;
                 }
                 return timeValue;
@@ -362,9 +463,9 @@ public class ChartViewThresholdManage {
                     }
                 } else {
                     if (timeFlag == 4) {
-                        return now.withDayOfMonth(1).format(formatter);
+                        return now.withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).format(formatter);
                     } else if (timeFlag == 5) {
-                        return now.plusMonths(1).withDayOfMonth(1).minusDays(1).format(formatter);
+                        return now.plusMonths(1).withDayOfMonth(1).minusDays(1).withHour(0).withMinute(0).withSecond(0).format(formatter);
                     } else {
                         return getCustomTimeValue(format, 3, suffix, count, true);
                     }
@@ -381,8 +482,10 @@ public class ChartViewThresholdManage {
         LocalDateTime now = LocalDateTime.now();
         String fullFormat = "yyyy-MM-dd HH:mm:ss";
         int len = format.length();
-        if (!hasTime) {
-            len = Math.min(len, 10);
+        if (hasTime) {
+            now = now.withHour(0).withMinute(0).withSecond(0);
+        } else {
+            len = unit > 3 ? len : Math.min(len, 10);
         }
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern(fullFormat.substring(0, len));
         if (count == 0) {
@@ -398,20 +501,24 @@ public class ChartViewThresholdManage {
                 return now.minusMonths(count).format(formatter);
             }
             return now.plusMonths(count).format(formatter);
-        } else {
+        } else if (unit == 3) {
             if (suffix == 1) {
                 return now.minusDays(count).format(formatter);
             }
             return now.plusDays(count).format(formatter);
+        } else {
+            if (suffix == 1) {
+                return now.minusHours(count).format(formatter);
+            }
+            return now.plusHours(count).format(formatter);
         }
     }
-
 
     private String formatValue(List<Map<String, Object>> rows, FilterTreeItem item) {
         DatasetTableFieldDTO field = item.getField();
         String dataeaseName = field.getDataeaseName();
         String value = item.getValue();
-        float tempFVal = 0f;
+        Float tempFVal = StringUtils.equalsAny(value, "min", "max") ? null : 0f;
         int validLen = 0;
 
         for (Map<String, Object> row : rows) {
@@ -419,9 +526,17 @@ public class ChartViewThresholdManage {
             if (ObjectUtils.isEmpty(o)) continue;
             float fvalue = Float.parseFloat(o.toString());
             if (StringUtils.equals("min", value)) {
-                tempFVal = Math.min(tempFVal, fvalue);
+                if (ObjectUtils.isEmpty(tempFVal)) {
+                    tempFVal = fvalue;
+                } else {
+                    tempFVal = Math.min(tempFVal, fvalue);
+                }
             } else if (StringUtils.equals("max", value)) {
-                tempFVal = Math.max(tempFVal, fvalue);
+                if (ObjectUtils.isEmpty(tempFVal)) {
+                    tempFVal = fvalue;
+                } else {
+                    tempFVal = Math.max(tempFVal, fvalue);
+                }
             } else if (StringUtils.equals("average", value)) {
                 tempFVal += fvalue;
                 validLen++;
@@ -506,9 +621,10 @@ public class ChartViewThresholdManage {
                 } else if (StringUtils.equals(term, "not_in")) {
                     return !Arrays.stream(item.getValue().split(",")).toList().contains(valueObj.toString());
                 } else if (StringUtils.equals(term, "like")) {
-                    return StringUtils.contains(item.getValue(), valueObj.toString());
+                    // 与 SQL 侧 field LIKE '%value%' 语义保持一致：行字段值包含配置的过滤值
+                    return StringUtils.contains(valueObj.toString(), item.getValue());
                 } else if (StringUtils.equals(term, "not_like")) {
-                    return !StringUtils.contains(item.getValue(), valueObj.toString());
+                    return !StringUtils.contains(valueObj.toString(), item.getValue());
                 } else if (StringUtils.equals(term, "null")) {
                     return false;
                 } else if (StringUtils.equals(term, "not_null")) {
@@ -522,20 +638,25 @@ public class ChartViewThresholdManage {
                 }
             } else if (Objects.equals(deType, DeTypeConstants.DE_INT) || Objects.equals(deType, DeTypeConstants.DE_FLOAT)) {
                 if (valueObj == null) return false;
+                if (ObjectUtils.isEmpty(item.getValue())) {
+                    return false;
+                }
+                float targetVal = Float.parseFloat(item.getValue());
+                float originVal = Float.parseFloat(valueObj.toString());
                 if (StringUtils.equals(term, "eq")) {
-                    return StringUtils.equals(item.getValue().toString(), valueObj.toString());
+                    return StringUtils.equals(String.valueOf(originVal), String.valueOf(targetVal));
                 } else if (StringUtils.equals(term, "not_eq")) {
-                    return !StringUtils.equals(item.getValue().toString(), valueObj.toString());
+                    return !StringUtils.equals(String.valueOf(originVal), String.valueOf(targetVal));
                 } else if (StringUtils.equals(term, "gt")) {
-                    return Float.parseFloat(item.getValue().toString()) < Float.parseFloat(valueObj.toString());
+                    return targetVal < originVal;
                 } else if (StringUtils.equals(term, "ge")) {
-                    return Float.parseFloat(item.getValue().toString()) <= Float.parseFloat(valueObj.toString());
+                    return targetVal <= originVal;
                 } else if (StringUtils.equals(term, "lt")) {
-                    return Float.parseFloat(item.getValue().toString()) > Float.parseFloat(valueObj.toString());
+                    return targetVal > originVal;
                 } else if (StringUtils.equals(term, "le")) {
-                    return Float.parseFloat(item.getValue().toString()) >= Float.parseFloat(valueObj.toString());
+                    return targetVal >= originVal;
                 } else {
-                    return StringUtils.equals(item.getValue().toString(), valueObj.toString());
+                    return StringUtils.equals(item.getValue(), valueObj.toString());
                 }
             } else if (Objects.equals(deType, DeTypeConstants.DE_TIME)) {
                 // 补充时间逻辑

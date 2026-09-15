@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, toRefs } from 'vue'
+import { toRefs } from 'vue'
 import { propTypes } from '@/utils/propTypes'
+import { useI18n } from '@/hooks/web/useI18n'
+const { t } = useI18n()
 
 const props = defineProps({
   title: propTypes.string,
   baseWidth: {
     required: false,
-    type: Number,
-    default: 300
+    type: String,
+    default: '100%'
   },
   actionSelection: {
     required: true,
@@ -19,32 +21,46 @@ const props = defineProps({
   }
 })
 
-const selection = ref()
-
 const selectionChange = () => {
   // do selection
 }
 
-const { title, themes, actionSelection } = toRefs(props)
+const { actionSelection } = toRefs(props)
 </script>
 
 <template>
-  <el-popover placement="right-start" :width="baseWidth" trigger="click" :show-arrow="false">
+  <el-popover
+    placement="right-start"
+    width="auto"
+    :popper-style="'max-width:' + baseWidth"
+    trigger="click"
+    :show-arrow="false"
+  >
     <template #reference>
-      <el-icon class="option-set"><Setting /></el-icon>
+      <span class="option-set ed-dialog__title"
+        >{{ t('visualization.linkage_setting') }}
+        <el-icon style="margin: 5px 0 0 5px"><Setting /></el-icon
+      ></span>
     </template>
     <el-row>
-      如果联动维度已配置钻取，点击维度将
+      {{ t('visualization.select_linkage_tips') }}
+    </el-row>
+    <el-row>
       <el-radio-group
         style="margin-top: 12px"
         v-model="actionSelection.linkageActive"
         @change="selectionChange"
+        class="radio_group"
       >
-        <el-radio label="custom"
-          ><span style="font-weight: normal">弹出浮框，由用户选择联动或者下钻</span></el-radio
+        <el-radio value="custom"
+          ><span style="font-weight: normal">
+            {{ t('visualization.linkage_option1') }}
+          </span></el-radio
         >
-        <el-radio label="auto"
-          ><span style="font-weight: normal">同时触发联动和下钻</span></el-radio
+        <el-radio value="auto"
+          ><span style="font-weight: normal">{{
+            t('visualization.linkage_option2')
+          }}</span></el-radio
         >
       </el-radio-group>
     </el-row>
@@ -53,7 +69,13 @@ const { title, themes, actionSelection } = toRefs(props)
 <style lang="less" scoped>
 .option-set {
   position: absolute;
-  left: 90px;
+  display: flex;
+  left: 24px;
   top: 30px;
+}
+.radio_group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 </style>

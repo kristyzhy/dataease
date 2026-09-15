@@ -3,10 +3,10 @@ import { toRefs, PropType, onBeforeMount, watch, computed } from 'vue'
 import { Calendar } from '@element-plus/icons-vue'
 import { type DatePickType } from 'element-plus-secondary'
 import type { ManipulateType } from 'dayjs'
-import { getThisStart, getLastStart, getAround } from './time-format-dayjs'
+import { getThisStart, getThisEnd, getLastStart, getAroundStart } from './time-format-dayjs'
 interface SelectConfig {
   intervalType: string
-  regularOrTrendsValue: Date
+  regularOrTrendsValue: string | Date | [Date, Date]
   regularOrTrends: string
   relativeToCurrent: string
   timeNum: number
@@ -30,9 +30,9 @@ const props = defineProps({
     }
   },
   timeGranularityMultiple: {
-    type: Object as PropType<DatePickType>,
+    type: String as PropType<DatePickType>,
     default: () => {
-      return { type: 'yearrange' } as PropType<DatePickType>
+      return 'yearrange'
     }
   }
 })
@@ -86,7 +86,7 @@ const init = () => {
     return
   }
   if (relativeToCurrent === 'custom') {
-    config.value.regularOrTrendsValue = getAround(
+    config.value.regularOrTrendsValue = getAroundStart(
       relativeToCurrentType,
       around === 'f' ? 'subtract' : 'add',
       timeNum
@@ -113,6 +113,9 @@ const init = () => {
         break
       case 'monthBeginning':
         config.value.regularOrTrendsValue = getThisStart('month')
+        break
+      case 'monthEnd':
+        config.value.regularOrTrendsValue = getThisEnd('month')
         break
       case 'yearBeginning':
         config.value.regularOrTrendsValue = getThisStart('year')

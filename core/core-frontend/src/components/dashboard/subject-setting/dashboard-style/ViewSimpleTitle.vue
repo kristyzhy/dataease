@@ -11,6 +11,7 @@
             v-model="titleForm.color"
             class="color-picker-style"
             is-custom
+            size="small"
             :predefine="state.predefineColors"
             @change="changeTitleStyle('color')"
           />
@@ -179,7 +180,6 @@ function setPosition(p: 'left' | 'center' | 'right') {
   font-size: 12px !important;
   font-weight: 400 !important;
   line-height: 20px;
-  color: #646a73 !important;
 }
 
 :deep(.ed-radio) {
@@ -197,7 +197,7 @@ function setPosition(p: 'left' | 'center' | 'right') {
   .ed-checkbox__label {
     .bash-icon {
       background: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
-      border-radius: 4px;
+      border-radius: 6px;
       color: var(--ed-color-primary);
     }
   }
@@ -207,7 +207,7 @@ function setPosition(p: 'left' | 'center' | 'right') {
   .ed-radio__label {
     .bash-icon {
       background: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
-      border-radius: 4px;
+      border-radius: 6px;
     }
   }
 }
@@ -241,7 +241,7 @@ function setPosition(p: 'left' | 'center' | 'right') {
   width: 24px;
   height: 24px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 6px;
   padding-top: 1px;
 
   color: #1f2329;

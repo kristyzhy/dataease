@@ -21,7 +21,7 @@ import { cloneDeep, defaultsDeep } from 'lodash-es'
 import { ElButton, ElIcon } from 'element-plus-secondary'
 import Icon from '@/components/icon-custom/src/Icon.vue'
 const dvMainStore = dvMainStoreWithOut()
-const { batchOptStatus } = storeToRefs(dvMainStore)
+const { batchOptStatus, mobileInPc } = storeToRefs(dvMainStore)
 
 const { t } = useI18n()
 
@@ -41,7 +41,7 @@ const props = defineProps({
 const appearanceStore = useAppearanceStoreWithOut()
 const emit = defineEmits(['onTextChange'])
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 const predefineColors = COLOR_PANEL
 const fontFamily = CHART_FONT_FAMILY.concat(
@@ -61,6 +61,12 @@ const { chart } = toRefs(props)
 const fontSizeList = computed(() => {
   const arr = []
   for (let i = 10; i <= 40; i = i + 2) {
+    arr.push({
+      name: i + '',
+      value: i
+    })
+  }
+  for (let i = 50; i <= 200; i = i + 10) {
     arr.push({
       name: i + '',
       value: i
@@ -126,12 +132,13 @@ watch(
       :disabled="!state.titleForm.show"
       :model="state.titleForm"
       label-position="top"
+      size="small"
     >
       <el-form-item
         :label="t('chart.title')"
         class="form-item"
         :class="'form-item-' + themes"
-        v-if="!batchOptStatus"
+        v-if="!batchOptStatus && !mobileInPc"
       >
         <el-input
           :effect="themes"
@@ -177,7 +184,7 @@ watch(
           />
         </el-form-item>
         <el-form-item class="form-item" :class="'form-item-' + themes" style="padding: 0 4px">
-          <el-tooltip content="字号" :effect="toolTip" placement="top">
+          <el-tooltip :content="t('chart.font_size')" :effect="toolTip" placement="top">
             <el-select
               style="width: 56px"
               :effect="themes"
@@ -196,7 +203,11 @@ watch(
           </el-tooltip>
         </el-form-item>
 
-        <el-form-item class="form-item" :class="'form-item-' + themes" style="padding-left: 4px">
+        <el-form-item
+          class="form-item"
+          :class="'form-item-' + themes"
+          style="width: 106px; padding-left: 4px"
+        >
           <el-select
             :effect="themes"
             v-model="state.titleForm.letterSpace"
@@ -204,7 +215,7 @@ watch(
             @change="changeTitleStyle('letterSpace')"
           >
             <template #prefix>
-              <el-icon>
+              <el-icon size="16">
                 <Icon name="icon_letter-spacing_outlined"
                   ><icon_letterSpacing_outlined class="svg-icon"
                 /></Icon>
@@ -409,7 +420,7 @@ watch(
   width: 24px;
   height: 24px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 6px;
   padding-top: 4px;
 
   color: #1f2329;
@@ -499,7 +510,7 @@ watch(
   }
 }
 .remark-label {
-  color: var(--N600, #646a73);
+  color: @canvas-main-font-color;
   font-family: var(--de-custom_font, 'PingFang');
   font-size: 12px;
   font-style: normal;
@@ -507,7 +518,7 @@ watch(
   line-height: 20px;
 
   &.remark-label--dark {
-    color: var(--N600-Dark, #a6a6a6);
+    color: @canvas-main-font-color-dark;
   }
 }
 </style>

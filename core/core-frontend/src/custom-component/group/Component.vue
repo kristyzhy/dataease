@@ -55,6 +55,12 @@ const props = defineProps({
   canvasViewInfo: {
     type: Object,
     required: true
+  },
+  // 字体
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
   }
 })
 
@@ -112,6 +118,7 @@ onMounted(() => {
       :element="element"
       :scale="scale"
       :search-count="searchCount"
+      :font-family="fontFamily"
     >
     </canvas-group>
   </div>

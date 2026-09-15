@@ -94,7 +94,7 @@ defineExpose({
   <el-drawer
     title="血缘关系图"
     v-model="relationDrawer"
-    custom-class="de-relation-drawer"
+    modal-class="de-relation-drawer"
     size="1200px"
     direction="rtl"
   >
@@ -120,7 +120,7 @@ defineExpose({
     width: 100%;
     height: 100%;
     background: #f5f6f7;
-    border-radius: 4px;
+    border-radius: 6px;
     position: relative;
   }
 }

@@ -1,10 +1,12 @@
 <script lang="ts" setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, inject, type Ref } from 'vue'
 import UnionFieldList from './UnionFieldList.vue'
 import UnionItemEdit from './UnionItemEdit.vue'
 import type { Field, NodeType, UnionType, Node } from './util'
 import { getTableField } from '@/api/dataset'
 import { cloneDeep } from 'lodash-es'
+
+const isCross = inject<Ref>('isCross')
 
 const changeParentFields = val => {
   parent.currentDsFields = val
@@ -41,7 +43,7 @@ const parentField = ref<Field[]>([])
 const nodeField = ref<Field[]>([])
 const node = reactive<Node>(cloneDeep(defaultNode))
 const parent = reactive<Node>(cloneDeep(defaultNode))
-
+const loading = ref(false)
 const props = defineProps({
   editArr: {
     type: Array,
@@ -69,22 +71,34 @@ const initState = () => {
 }
 
 const getParams = (obj: Node) => {
-  return ['datasourceId', 'id', 'info', 'tableName', 'type'].reduce((pre, next) => {
-    pre[next] = obj[next]
-    return pre
-  }, {})
+  return ['datasourceId', 'id', 'info', 'tableName', 'type'].reduce(
+    (pre, next) => {
+      pre[next] = obj[next]
+      return pre
+    },
+    {
+      isCross: isCross.value
+    }
+  )
 }
 const getFields = async () => {
-  const [n, p] = props.editArr as Node[]
-  const [nr, pr] = await Promise.all([getTableField(getParams(n)), getTableField(getParams(p))])
-  parentField.value = pr as unknown as Field[]
-  parentField.value.forEach(ele => {
-    ele.checked = p.currentDsFields.map(ele => ele.originName).includes(ele.originName)
-  })
-  nodeField.value = nr as unknown as Field[]
-  nodeField.value.forEach(ele => {
-    ele.checked = n.currentDsFields.map(ele => ele.originName).includes(ele.originName)
-  })
+  try {
+    loading.value = true
+    const [n, p] = props.editArr as Node[]
+    const [nr, pr] = await Promise.all([getTableField(getParams(n)), getTableField(getParams(p))])
+    loading.value = false
+    parentField.value = pr as unknown as Field[]
+    parentField.value.forEach(ele => {
+      ele.checked = p.currentDsFields.map(ele => ele.originName).includes(ele.originName)
+    })
+    nodeField.value = nr as unknown as Field[]
+    nodeField.value.forEach(ele => {
+      ele.checked = n.currentDsFields.map(ele => ele.originName).includes(ele.originName)
+    })
+  } catch (error) {
+    loading.value = false
+    console.error(error)
+  }
 }
 
 defineExpose({
@@ -98,7 +112,7 @@ defineExpose({
 <template>
   <div style="height: 100%; overflow-y: auto">
     <div class="field-style">
-      <div class="fields" v-loading="!parentField.length">
+      <div class="fields" v-loading="loading">
         <p :title="parent.tableName">
           {{ parent.tableName }}
         </p>
@@ -109,7 +123,7 @@ defineExpose({
           @checkedFields="changeParentFields"
         />
       </div>
-      <div class="fields" v-loading="!nodeField.length">
+      <div class="fields" v-loading="loading">
         <p :title="node.tableName">
           {{ node.tableName }}
         </p>
@@ -137,7 +151,7 @@ defineExpose({
 .field-style {
   height: 430px;
   border: 1px solid var(--deCardStrokeColor, #dee0e3);
-  border-radius: 4px;
+  border-radius: 6px;
   width: 100%;
   box-sizing: border-box;
   display: flex;

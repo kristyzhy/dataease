@@ -4,30 +4,48 @@ import {
   toRefs,
   PropType,
   onBeforeMount,
+  onMounted,
   shallowRef,
   watch,
   nextTick,
   computed,
   inject,
+  onBeforeUnmount,
   onUnmounted,
+  defineAsyncComponent,
   Ref
 } from 'vue'
 import { enumValueObj, type EnumValue, getEnumValue } from '@/api/dataset'
 import { cloneDeep, debounce } from 'lodash-es'
+import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
+import Flat from './Flat.vue'
+import eventBus from '@/utils/eventBus'
 import { useEmitt } from '@/hooks/web/useEmitt'
+import { useI18n } from '@/hooks/web/useI18n'
+import colorFunctions from 'less/lib/less/functions/color.js'
+import colorTree from 'less/lib/less/tree/color.js'
+import { colorStringToHex } from '@/utils/color'
+import { isMobile } from '@/utils/utils'
+import { ElMessage } from 'element-plus-secondary'
+import { isCascadeParentCleared } from './cascade-utils'
 
 interface SelectConfig {
   selectValue: any
+  required: false
   defaultMapValue: any
   mapValue: any
+  displayFormat?: number
   defaultValue: any
   checkedFieldsMap: object
   displayType: string
   showEmpty: boolean
   id: string
+  sortList?: string[]
+  queryConditionWidth: number
   placeholder: string
   resultMode: number
   displayId: string
+  defaultValueFirstItem: boolean
   sort: string
   sortId: string
   checkedFields: string[]
@@ -44,21 +62,28 @@ interface SelectConfig {
     label: string
     value: string
   }[]
+  optionFilter: []
 }
 
+const { t } = useI18n()
+const dvMainStore = dvMainStoreWithOut()
 const props = defineProps({
   config: {
     type: Object as PropType<SelectConfig>,
     default: () => {
       return {
         selectValue: '',
+        required: false,
+        displayFormat: 0,
+        queryConditionWidth: 0,
         resultMode: 0,
         defaultValue: '',
         displayType: '',
         defaultValueCheck: false,
         optionValueSource: 0,
         multiple: false,
-        checkedFieldsMap: {}
+        checkedFieldsMap: {},
+        optionFilter: []
       }
     }
   },
@@ -81,17 +106,29 @@ const isConfirmSearch = inject('is-confirm-search', Function, true)
 const queryConditionWidth = inject('com-width', Function, true)
 const cascadeList = inject('cascade-list', Function, true)
 const setCascadeDefault = inject('set-cascade-default', Function, true)
+const customStyle: any = inject('$custom-style-filter')
 
 const placeholderText = computed(() => {
-  if (placeholder.value.placeholderShow) {
+  if (placeholder?.value?.placeholderShow) {
     return ['', undefined].includes(props.config.placeholder) ? ' ' : props.config.placeholder
   }
   return ' '
 })
+
+const isMobileDataV = computed(() => {
+  return dvMainStore.dvInfo.type === 'dataV' && isMobile()
+})
+
+const VanPopupSelect = defineAsyncComponent(() => import('./VanPopupSelect.vue'))
+
 const cascade = computed(() => {
   return cascadeList() || []
 })
-
+let time
+const disabledFirstItem = computed(() => {
+  const { defaultValueFirstItem, optionValueSource } = props.config
+  return defaultValueFirstItem && optionValueSource === 1
+})
 const setDefaultMapValue = arr => {
   const { displayId, field } = config.value
   if (config.value.optionValueSource !== 1) {
@@ -114,6 +151,7 @@ const setDefaultMapValue = arr => {
 }
 
 onUnmounted(() => {
+  clearTimeout(time)
   enumValueArr = []
 })
 
@@ -128,6 +166,17 @@ const setCascadeValueBack = val => {
       }
     })
   })
+}
+
+const clearCascadeSelectValue = () => {
+  selectValue.value = config.value.multiple ? [] : undefined
+  config.value.selectValue = cloneDeep(selectValue.value)
+  config.value.mapValue = []
+  if (props.isConfig) {
+    config.value.defaultValue = cloneDeep(selectValue.value)
+    config.value.defaultMapValue = []
+  }
+  setCascadeValueBack(config.value.mapValue)
 }
 
 const emitCascade = () => {
@@ -165,7 +214,7 @@ const getCascadeFieldId = () => {
   cascade.value.forEach(ele => {
     let condition = null
     ele.forEach(item => {
-      const [_, queryId, fieldId] = item.datasetId.split('--')
+      const [, queryId, fieldId] = item.datasetId.split('--')
       if (queryId === config.value.id && condition) {
         if (item.fieldId) {
           condition.fieldId = item.fieldId
@@ -228,6 +277,7 @@ const displayTypeChange = () => {
   if (!props.isConfig) return
   config.value.defaultValue = config.value.multiple ? [] : undefined
   selectValue.value = config.value.multiple ? [] : undefined
+  config.value.defaultValueFirstItem = false
 }
 
 const handleFieldIdDefaultChange = (val: string[]) => {
@@ -238,7 +288,16 @@ const handleFieldIdDefaultChange = (val: string[]) => {
   })
     .then(res => {
       options.value = (res || [])
-        .filter(ele => ele !== null)
+        .filter(ele => {
+          return (
+            ele !== null &&
+            ((config.value.optionFilter &&
+              config.value.optionFilter.length > 0 &&
+              config.value.optionFilter.some(item => String(item) === String(ele))) ||
+              !config.value.optionFilter ||
+              config.value.optionFilter.length === 0)
+          )
+        })
         .map(ele => {
           return {
             label: `${ele}`,
@@ -257,62 +316,115 @@ const handleFieldIdDefaultChange = (val: string[]) => {
           ? [...selectValue.value]
           : selectValue.value
       }
-      setEmptyData()
+      requiredComp()
+      if (options.value) setEmptyData()
     })
 }
 
-const setOldMapValue = arr => {
-  const { displayId } = config.value
-  if (!displayId) {
-    return []
+const customSort = () => {
+  if (config.value.sortList?.length && config.value.sort === 'customSort') {
+    options.value = [
+      ...options.value
+        .sort(a => {
+          if (config.value.sortList.indexOf(a.value) !== -1) {
+            return -1
+          }
+        })
+        .sort((a, b) => {
+          if (config.value.sortList.indexOf(a.value) === -1) {
+            return 0
+          }
+          return config.value.sortList.indexOf(a.value) - config.value.sortList.indexOf(b.value)
+        })
+    ]
   }
-  let defaultMapValue = {}
-  let defaultValue = []
-  arr.forEach(ele => {
-    defaultMapValue[ele] = []
-  })
-  enumValueArr.forEach(ele => {
-    if (defaultMapValue[ele[displayId]]) {
-      defaultMapValue[ele[displayId]].push(ele)
-    }
-  })
-  Object.values(defaultMapValue).forEach(ele => {
-    defaultValue = [...defaultValue, ...(ele as unknown as string[])]
-  })
-  return defaultValue
 }
 
 const handleFieldIdChange = (val: EnumValue) => {
+  let change = false
   loading.value = true
   enumValueObj(val)
     .then(res => {
       let oldArr = []
-      let oldEnumValueArr = []
       if (selectValue.value?.length && config.value.multiple) {
         oldArr = [...selectValue.value]
-        oldEnumValueArr = setOldMapValue(oldArr)
       }
-      enumValueArr = [...(res || []), ...oldEnumValueArr] || []
+      enumValueArr = [...(res || [])] || []
       options.value = [
         ...new Set(
-          (res || [])
-            .map(ele => {
-              return `${ele[val.displayId || val.queryId]}`
-            })
-            .concat(oldArr)
+          (res || []).map(ele => {
+            return `${ele[val.displayId || val.queryId]}`
+          })
         )
-      ].map(ele => {
-        return {
-          label: `${ele}`,
-          value: `${ele}`,
-          checked: oldArr.includes(ele)
-        }
-      })
+      ]
+        .filter(ele => {
+          return (
+            (config.value.optionFilter &&
+              config.value.optionFilter.length > 0 &&
+              config.value.optionFilter.some(item => String(item) === String(ele))) ||
+            !config.value.optionFilter ||
+            config.value.optionFilter.length === 0
+          )
+        })
+        .map(ele => {
+          return {
+            label: `${ele}`,
+            value: `${ele}`,
+            checked: oldArr.includes(ele)
+          }
+        })
+      customSort()
+      if (!res?.length) {
+        options.value = []
+        selectValue.value = config.value.multiple ? [] : undefined
+        config.value.defaultValue = selectValue.value
+      }
+
+      const valArr = options.value.map(ele => ele.value)
+
+      if (
+        config.value.multiple &&
+        Array.isArray(selectValue.value) &&
+        selectValue.value.length &&
+        !selectValue.value.every(ele => valArr.includes(ele))
+      ) {
+        const delArr = selectValue.value.filter(ele => !valArr.includes(ele))
+        selectValue.value = selectValue.value.filter(ele => valArr.includes(ele))
+        options.value = options.value.filter(ele => !delArr.includes(ele.value))
+        config.value.defaultValue = selectValue.value
+        change = true
+      }
+
+      if (!config.value.multiple && selectValue.value && !valArr.includes(selectValue.value)) {
+        options.value = options.value.filter(ele => selectValue.value !== ele.value)
+        selectValue.value = undefined
+        config.value.defaultValue = selectValue.value
+        change = true
+      }
+
+      if (change) {
+        config.value.mapValue = setDefaultMapValue(
+          Array.isArray(selectValue.value) ? [...selectValue.value] : [selectValue.value]
+        )
+        config.value.defaultMapValue = setDefaultMapValue(
+          Array.isArray(selectValue.value) ? [...selectValue.value] : [selectValue.value]
+        )
+        setCascadeValueBack(config.value.mapValue)
+      }
     })
     .finally(() => {
+      let changeAuth = change
+      change = false
       loading.value = false
-      if (isFromRemote.value) return
-      if (config.value.defaultValueCheck) {
+      if (disabledFirstItem.value && config.value.defaultValueCheck) {
+        time = setTimeout(() => {
+          clearTimeout(time)
+          setDefaultValueFirstItem()
+        }, 300)
+        return
+      }
+
+      if (config.value.defaultValueCheck && !isFromRemote.value) {
         selectValue.value = Array.isArray(config.value.defaultValue)
           ? [...config.value.defaultValue]
           : config.value.defaultValue
@@ -331,7 +443,8 @@ const handleFieldIdChange = (val: EnumValue) => {
         config.value.mapValue = setDefaultMapValue(
           Array.isArray(selectValue.value) ? [...selectValue.value] : [selectValue.value]
         )
-        if (shouldReSearch) {
+
+        if (shouldReSearch || changeAuth) {
           queryDataForId(config.value.id)
         }
       } else {
@@ -339,25 +452,70 @@ const handleFieldIdChange = (val: EnumValue) => {
           ? [...selectValue.value]
           : selectValue.value
       }
+      if (config.value?.required && config.value?.optionFilter?.length > 0) {
+        const isValid = selectValue.value?.some(value =>
+          options.value?.some(option => option.value === value)
+        )
+        if (!isValid) {
+          config.value.selectValue = null
+          ElMessage({
+            message: `【${config.value?.name}】${t('v_query.before_querying')}`,
+            type: 'error',
+            duration: 3000
+          })
+        }
+      }
+      setCascadeValueBack(config.value.mapValue)
+      isFromRemote.value = false
     })
 }
 
 const visible = ref(false)
-const visibleChange = (val: boolean) => {
-  setTimeout(() => {
-    visible.value = !val
-    if (!val) {
-      isFromRemote.value = false
-      searchText.value = ''
-      remoteMethod('')
-    }
-  }, 50)
-}
 
 watch(
   () => config.value.showEmpty,
   () => {
     setEmptyData()
+  }
+)
+
+const setDefaultValueFirstItem = () => {
+  if (!options.value.length) return
+  selectValue.value = config.value.multiple ? [options.value[0].value] : options.value[0].value
+  const value = Array.isArray(selectValue.value) ? [...selectValue.value] : selectValue.value
+  if (!props.isConfig) {
+    config.value.selectValue = Array.isArray(selectValue.value)
+      ? [...selectValue.value]
+      : selectValue.value
+    config.value.mapValue = setDefaultMapValue(
+      Array.isArray(selectValue.value) ? [...selectValue.value] : [selectValue.value]
+    )
+    setCascadeValueBack(config.value.mapValue)
+    emitCascade()
+    nextTick(() => {
+      isConfirmSearch(config.value.id, !isFromFromCascade)
+      isFromFromCascade = false
+    })
+    return
+  }
+
+  setCascadeDefault(emitCascadeConfig())
+
+  config.value.defaultValue = value
+  config.value.mapValue = setDefaultMapValue(
+    Array.isArray(selectValue.value) ? [...selectValue.value] : [selectValue.value]
+  )
+  config.value.defaultMapValue = setDefaultMapValue(
+    Array.isArray(selectValue.value) ? [...selectValue.value] : [selectValue.value]
+  )
+  setCascadeValueBack(config.value.mapValue)
+}
+
+watch(
+  () => config.value.defaultValueFirstItem,
+  val => {
+    if (!val) return
+    setDefaultValueFirstItem()
   }
 )
 
@@ -367,7 +525,7 @@ const setEmptyData = () => {
   const [s] = options.value
   if (showEmpty) {
     if (s?.value !== '_empty_$') {
-      options.value = [{ label: '空数据', value: '_empty_$' }, ...options.value]
+      options.value = [{ label: t('v_query.empty_data'), value: '_empty_$' }, ...options.value]
     }
   } else {
     if (s?.value === '_empty_$') {
@@ -419,12 +577,15 @@ watch(
     if (!props.isConfig) return
     if (val) {
       selectValue.value = []
+      setDefaultValueFirstItem()
     }
     nextTick(() => {
       multiple.value = val
       if (!val) {
         nextTick(() => {
           selectValue.value = undefined
+          if (!config.value.defaultValueFirstItem || !config.value.defaultValueCheck) return
+          setDefaultValueFirstItem()
         })
       }
     })
@@ -444,6 +605,11 @@ watch(
   }
 )
 
+watch([() => config.value.sortList], val => {
+  if (!val?.length || config.value.sort !== 'customSort') return
+  customSort()
+})
+
 watch(
   () => config.value.optionValueSource,
   (valNew, newOld) => {
@@ -454,6 +620,7 @@ watch(
       config.value.defaultValue = cloneDeep(selectValue.value)
     }
     debounceOptions(valNew)
+    config.value.defaultValueFirstItem = false
   }
 )
 
@@ -469,16 +636,6 @@ watch(
 
 const searchText = ref('')
 const isFromRemote = ref(false)
-const clear = () => {
-  remoteMethod('')
-}
-
-const remoteMethod = (query: string) => {
-  if (config.value.optionValueSource !== 1) return
-  isFromRemote.value = true
-  searchText.value = query
-  debounceOptions(1)
-}
 
 watch(
   () => config.value.valueSource,
@@ -486,6 +643,36 @@ watch(
     config.value.optionValueSource === 2 && debounceOptions(2)
   }
 )
+
+const requiredComp = () => {
+  if (config.value?.required && config.value?.optionFilter?.length > 0) {
+    const isValid = hasIntersection(options.value, selectValue.value)
+    if (!isValid) {
+      config.value.selectValue = null
+      ElMessage({
+        message: `【${config.value?.name}】${t('v_query.before_querying')}`,
+        type: 'error',
+        duration: 3000
+      })
+    }
+  }
+}
+
+const hasIntersection = (options, selectValue) => {
+  if (!Array.isArray(options) || options.length === 0) {
+    return false
+  }
+  if (selectValue == null) {
+    return false
+  }
+  const selectedValues = Array.isArray(selectValue) ? selectValue : [selectValue]
+  if (selectedValues.length === 0) {
+    return false
+  }
+  const optionValues = options.map(option => option.value)
+
+  return selectedValues.some(value => optionValues.includes(value))
+}
 
 const setOptions = (num: number) => {
   if (num !== config.value.optionValueSource) return
@@ -515,8 +702,8 @@ const setOptions = (num: number) => {
         handleFieldIdChange({
           queryId: field.id,
           displayId: displayId || field.id,
-          sort,
-          sortId,
+          sort: sort === 'customSort' ? 'asc' : sort,
+          sortId: sort === 'customSort' ? '' : sortId,
           resultMode: config.value.resultMode || 0,
           searchText: searchText.value,
           filter: getCascadeFieldId()
@@ -527,13 +714,28 @@ const setOptions = (num: number) => {
       break
     case 2:
       options.value = cloneDeep(
-        (valueSource || []).map(ele => {
-          return {
-            label: `${ele}`,
-            value: `${ele}`
-          }
-        })
+        (valueSource || [])
+          .filter(ele => {
+            return (
+              ele !== null &&
+              ((config.value.optionFilter &&
+                config.value.optionFilter.length > 0 &&
+                config.value.optionFilter.some(item => String(item) === String(ele))) ||
+                !config.value.optionFilter ||
+                config.value.optionFilter.length === 0)
+            )
+          })
+          .map(ele => {
+            return {
+              label: `${ele}`,
+              value: `${ele}`,
+              checked: Array.isArray(selectValue.value)
+                ? selectValue.value.includes(`${ele}`)
+                : selectValue.value === ele
+            }
+          })
       )
+      requiredComp()
       setEmptyData()
       break
     default:
@@ -558,8 +760,22 @@ const init = () => {
   debounceOptions(optionValueSource)
 }
 
+const getCustomWidth = () => {
+  if (placeholder?.value?.placeholderShow) {
+    if (props.config.queryConditionWidth === undefined) {
+      return queryConditionWidth()
+    }
+    return props.config.queryConditionWidth
+  }
+  return 227
+}
+
 const selectStyle = computed(() => {
-  return props.isConfig ? {} : { width: queryConditionWidth() + 'px' }
+  return props.isConfig ? {} : { width: getCustomWidth() + 'px' }
+})
+
+const selectStyleFlat = computed(() => {
+  return props.isConfig ? { width: '415px' } : { width: getCustomWidth() + 'px' }
 })
 
 const mult = ref()
@@ -567,16 +783,120 @@ const single = ref()
 
 const getOptionFromCascade = () => {
   if (config.value.optionValueSource !== 1 || ![0, 2, 5].includes(+config.value.displayType)) return
+  if (isCascadeParentCleared(cascade.value, config.value.id, props.isConfig)) {
+    clearCascadeSelectValue()
+    emitCascade()
+  }
+  isFromFromCascade = true
+  isFromRemote.value = true
   debounceOptions(1)
 }
+const selectHideClick = () => {
+  useEmitt().emitter.emit('select-hide_lick', config.value.id)
+}
 
+const hideClick = id => {
+  if (id === config.value.id) return
+  const vnode = single.value || mult.value
+  vnode?.handleClickOutside?.()
+}
+let isFromFromCascade = false
 onBeforeMount(() => {
   init()
   useEmitt({
     name: `${config.value.id}-select`,
     callback: getOptionFromCascade
   })
+
+  useEmitt({
+    name: 'select-hide_lick',
+    callback: hideClick
+  })
 })
+
+const isDataV = ref(false)
+
+const popperClass = computed(() => {
+  let str = 'filter-select-popper_class'
+  if (visible.value) {
+    str = 'load-select ' + str
+  }
+
+  if (isDataV.value) {
+    str = str + ' color-scrollbar__thumb'
+  }
+  return str
+})
+
+onMounted(() => {
+  isDataV.value =
+    Boolean(document.querySelector('#canvas-dv-outer')) ||
+    Boolean(document.querySelector('.datav-preview'))
+})
+
+const tagColor = computed(() => {
+  if (
+    !customStyle ||
+    ['#FFFFFF', 'rgba(255, 255, 255, 1)', 'rgb(255, 255, 255)'].includes(customStyle.background)
+  )
+    return ''
+  if (customStyle.background === '#131C42') return 'rgb(38, 53, 82)'
+  const hexColor = customStyle.background.startsWith('#')
+    ? customStyle.background
+    : colorStringToHex(customStyle.background)
+
+  return colorFunctions
+    .mix(new colorTree('ffffff'), new colorTree(hexColor.substr(1)), { value: 20 })
+    .toRGB()
+})
+
+const tagWidth = computed(() => {
+  return (getCustomWidth() - 65) / 2 + 'px'
+})
+
+const tagTextWidth = computed(() => {
+  return (getCustomWidth() - 65) / 2 - 20 + 'px'
+})
+
+const activeItems = computed(() => {
+  return Array.isArray(selectValue.value) ? selectValue.value : [selectValue.value]
+})
+
+const handleItemClick = (item: any) => {
+  if (multiple.value) {
+    if (selectValue.value.includes(item)) {
+      selectValue.value = selectValue.value.filter(ele => ele !== item)
+    } else {
+      selectValue.value = [...selectValue.value, item]
+    }
+  } else {
+    selectValue.value = selectValue.value === item ? undefined : item
+  }
+
+  handleValueChange()
+}
+
+const componentClick = () => {
+  mult.value?.blur()
+  single.value?.blur()
+}
+
+onMounted(() => {
+  eventBus.on('componentClick', componentClick)
+})
+onBeforeUnmount(() => {
+  eventBus.off('componentClick', componentClick)
+})
+
+const onClear = () => {
+  selectValue.value = multiple.value ? [] : undefined
+  handleValueChange()
+}
+
+const onConfirm = (val: any) => {
+  selectValue.value = multiple.value ? [...val] : val[0]
+  handleValueChange()
+}
 
 defineExpose({
   displayTypeChange,
@@ -586,21 +906,32 @@ defineExpose({
 </script>
 
 <template>
+  <Flat
+    @handleItemClick="handleItemClick"
+    :options="options"
+    :selectStyle="selectStyleFlat"
+    v-loading="loading"
+    :multiple="multiple"
+    :disabled="disabledFirstItem && props.isConfig"
+    :activeItems="activeItems"
+    v-if="config.displayFormat === 1"
+  ></Flat>
   <el-select-v2
-    v-if="multiple"
+    v-else-if="multiple"
     key="multiple"
     ref="mult"
     v-model="selectValue"
     :placeholder="placeholderText"
     v-loading="loading"
     filterable
+    @click="selectHideClick"
     @change="handleValueChange"
-    @visible-change="visibleChange"
-    :popper-class="
-      visible ? 'load-select filter-select-popper_class' : 'filter-select-popper_class'
-    "
+    :popper-class="popperClass"
     multiple
     show-checked
+    :tagColor="tagColor"
+    scrollbar-always-on
+    :disabled="disabledFirstItem && props.isConfig"
     clearable
     :style="selectStyle"
     collapse-tags
@@ -611,19 +942,18 @@ defineExpose({
     v-else
     v-model="selectValue"
     key="single"
+    @click="selectHideClick"
     :placeholder="placeholderText"
+    scrollbar-always-on
     v-loading="loading"
     @change="handleValueChange"
     clearable
+    :disabled="disabledFirstItem && props.isConfig"
     ref="single"
     :style="selectStyle"
     filterable
-    @clear="clear"
     radio
-    @visible-change="visibleChange"
-    :popper-class="
-      visible ? 'load-select filter-select-popper_class' : 'filter-select-popper_class'
-    "
+    :popper-class="popperClass"
     :options="options"
   >
     <template #default="{ item }">
@@ -632,11 +962,27 @@ defineExpose({
       </el-radio-group>
     </template>
   </el-select-v2>
+  <VanPopupSelect
+    @onClear="onClear"
+    @onConfirm="onConfirm"
+    :options="options"
+    :selectValue="selectValue"
+    :multiple="multiple"
+    v-if="isMobileDataV"
+  ></VanPopupSelect>
 </template>
 
 <style lang="less">
 .filter-select-popper_class {
   --ed-fill-color-light: #f5f7fa47;
+  font-family: var(--de-canvas_custom_font);
+  .ed-vl__window.ed-select-dropdown__list {
+    min-width: 200px;
+  }
+  .ed-select-dropdown {
+    width: auto !important;
+    min-width: 150px;
+  }
   .ed-select-dropdown__option-item {
     .ed-checkbox__label:hover {
       color: #1f2329;
@@ -659,6 +1005,25 @@ defineExpose({
 
   .ed-select-btn-group {
     color: #1f2329;
+  }
+}
+
+.color-scrollbar__thumb {
+  .ed-scrollbar__thumb {
+    background: #bbbfc4 !important;
+    opacity: 1 !important;
+  }
+}
+</style>
+
+<style lang="less" scoped>
+:deep(.ed-select__selected-item) {
+  .ed-tag {
+    max-width: v-bind(tagWidth) !important;
+  }
+
+  .ed-select__tags-text {
+    max-width: v-bind(tagTextWidth) !important;
   }
 }
 </style>

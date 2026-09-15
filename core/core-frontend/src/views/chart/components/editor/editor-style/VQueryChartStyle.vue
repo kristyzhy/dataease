@@ -1,8 +1,7 @@
 <script lang="tsx" setup>
-import { ElMessage } from 'element-plus-secondary'
+import { ElMessage, ElMessageBox } from 'element-plus-secondary'
 import icon_bold_outlined from '@/assets/svg/icon_bold_outlined.svg'
-import { beforeUploadCheck, uploadFileResult } from '@/api/staticResource'
-import ImgViewDialog from '@/custom-component/ImgViewDialog.vue'
+import { uploadFileResult } from '@/api/staticResource'
 import icon_italic_outlined from '@/assets/svg/icon_italic_outlined.svg'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import icon_info_outlined from '@/assets/svg/icon_info_outlined.svg'
@@ -15,6 +14,8 @@ import { cloneDeep } from 'lodash-es'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia'
+import BackgroundOverallCommon from '@/components/visualization/component-background/BackgroundOverallCommon.vue'
+import { isDashboard, isMainCanvas } from '@/utils/canvasUtils'
 const { t } = useI18n()
 const styleActiveNames = ref(['basicStyle'])
 const dvMainStore = dvMainStoreWithOut()
@@ -38,9 +39,9 @@ const props = defineProps({
     default: 'dark'
   }
 })
-const { chart, commonBackgroundPop } = toRefs(props)
+const { chart, commonBackgroundPop, element } = toRefs(props)
 const toolTip = computed(() => {
-  return props.themes === 'dark' ? 'ndark' : 'dark'
+  return props.themes || 'dark'
 })
 const predefineColors = COLOR_PANEL
 const fontSizeList = []
@@ -113,8 +114,50 @@ watch(
 
 const currentPlaceholder = ref()
 const currentSearch = ref({
-  placeholder: ''
+  placeholder: '',
+  queryConditionWidth: 227
 })
+
+const onFreezeChange = () => {
+  if (element.value.freeze) {
+    let historyFreezeCount = 0
+    dvMainStore.componentData.forEach(item => {
+      if (item.innerType === 'VQuery' && item.id !== element.value.id && item.freeze) {
+        historyFreezeCount++
+      }
+    })
+    if (historyFreezeCount) {
+      ElMessageBox.confirm(t('visualization.filter_freeze_tips'), {
+        confirmButtonType: 'primary',
+        type: 'warning',
+        confirmButtonText: t('common.sure'),
+        cancelButtonText: t('common.cancel'),
+        autofocus: false,
+        showClose: false
+      })
+        .then(() => {
+          dvMainStore.componentData.forEach(item => {
+            if (item.innerType === 'VQuery' && item.id !== element.value.id && item.freeze) {
+              item.freeze = false
+            }
+          })
+          snapshotStore.recordSnapshotCache('onFreezeChange')
+        })
+        .catch(() => {
+          element.value.freeze = false
+        })
+    } else {
+      dvMainStore.componentData.forEach(item => {
+        if (item.innerType === 'VQuery' && item.id !== element.value.id && item.freeze) {
+          item.freeze = false
+        }
+      })
+      snapshotStore.recordSnapshotCache('onFreezeChange')
+    }
+  } else {
+    snapshotStore.recordSnapshotCache('onFreezeChange')
+  }
+}
 
 const handleCurrentPlaceholder = val => {
   const obj = props.element.propValue.find(ele => {
@@ -125,7 +168,12 @@ const handleCurrentPlaceholder = val => {
   if (obj.placeholder === undefined) {
     obj.placeholder = ''
   }
+
+  if (obj.queryConditionWidth === undefined) {
+    obj.queryConditionWidth = 227
+  }
   currentSearch.value = obj
+  snapshotStore.recordSnapshotCacheToMobile('propValue')
 }
 
 const init = () => {
@@ -136,28 +184,13 @@ const init = () => {
     state.fileList = []
   }
 }
-const handleRemove = () => {
-  state.commonBackground['outerImage'] = null
-  state.fileList = []
-  onBackgroundChange()
-}
-const handlePictureCardPreview = file => {
-  state.dialogImageUrl = file.url
-  state.dialogVisible = true
-}
-const upload = file => {
-  return uploadFileResult(file.file, fileUrl => {
-    state.commonBackground['outerImage'] = fileUrl
-    state.fileList = [{ url: imgUrlTrans(state.commonBackground['outerImage']) }]
-    onBackgroundChange()
-  })
-}
-const goFile = () => {
-  files.value.click()
+const onBackgroundChangeV2 = val => {
+  snapshotStore.recordSnapshotCache('onBackgroundChange')
+  element.value.commonBackground = val
 }
 
 const onBackgroundChange = () => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCache('onBackgroundChange')
   commonBackgroundPop.value.outerImage = state.commonBackground['outerImage']
 }
 onMounted(() => {
@@ -167,7 +200,7 @@ onMounted(() => {
 const reUpload = e => {
   const file = e.target.files[0]
   if (file.size > 15000000) {
-    ElMessage.success('图片大小不符合')
+    ElMessage.error('图片大小不能超过15M')
     return
   }
   uploadFileResult(file, fileUrl => {
@@ -182,8 +215,20 @@ const checkBold = type => {
   chart.value.customStyle.component[type] = chart.value.customStyle.component[type] ? '' : 'bold'
 }
 
+const handleCurrentPlaceholderCustomChange = () => {
+  if (mobileInPc.value) {
+    //移动端设计
+    useEmitt().emitter.emit('onMobileStatusChange', {
+      type: 'componentStyleChange',
+      value: { type: 'renderChart', component: JSON.parse(JSON.stringify(chart.value)) }
+    })
+  } else {
+    snapshotStore.recordSnapshotCache('handleCurrentPlaceholderCustomChange')
+  }
+}
+
 const handleCurrentPlaceholderChange = () => {
-  snapshotStore.recordSnapshotCache()
+  snapshotStore.recordSnapshotCacheToMobile('propValue')
 }
 
 const checkItalic = type => {
@@ -191,6 +236,12 @@ const checkItalic = type => {
   chart.value.customStyle.component[type] = chart.value.customStyle.component[type] ? '' : 'italic'
 }
 const initParams = () => {
+  if (!chart.value.customStyle.component.hasOwnProperty('queryConditionHeight')) {
+    chart.value.customStyle.component = {
+      ...chart.value.customStyle.component,
+      queryConditionHeight: 32
+    }
+  }
   if (!chart.value.customStyle.component.hasOwnProperty('labelShow')) {
     chart.value.customStyle.component = {
       ...chart.value.customStyle.component,
@@ -223,512 +274,509 @@ const initParams = () => {
   }
 }
 initParams()
+const onTitleChange = () => {
+  element.value.label = chart.value.customStyle.component.title
+  element.value.name = chart.value.customStyle.component.title
+  chart.value.title = chart.value.customStyle.component.title
+}
+
+const onPlaceholderChange = () => {
+  props.element.propValue.forEach(ele => {
+    if (ele.id === currentPlaceholder.value) {
+      ele.placeholder = currentSearch.value.placeholder
+      ele.queryConditionWidth = currentSearch.value.queryConditionWidth
+    }
+  })
+  snapshotStore.recordSnapshotCacheToMobile('propValue')
+}
 </script>
 
 <template>
   <div class="attr-style">
-    <input
-      id="input"
-      ref="files"
-      type="file"
-      accept=".jpeg,.jpg,.png,.gif,.svg"
-      hidden
-      @click="
-        e => {
-          e.target.value = ''
-        }
-      "
-      @change="reUpload"
-    />
-    <el-row class="de-collapse-style">
-      <el-collapse v-model="styleActiveNames" class="style-collapse">
-        <el-collapse-item :effect="themes" name="basicStyle" :title="t('chart.basic_style')">
-          <el-form label-position="top">
-            <el-form-item class="form-item margin-bottom-8" :class="'form-item-' + themes">
-              <el-checkbox
-                :effect="themes"
-                size="small"
-                v-model="chart.customStyle.component.titleShow"
-              >
-                {{ t('chart.show') + t('chart.title') }}
-              </el-checkbox>
-            </el-form-item>
-            <el-form-item
-              class="form-item"
-              style="padding-left: 20px"
-              :class="'form-item-' + themes"
-            >
-              <el-input
-                :effect="themes"
-                :disabled="!chart.customStyle.component.titleShow"
-                v-model.lazy="chart.customStyle.component.title"
-              />
-            </el-form-item>
-            <el-form-item
-              label="标题颜色"
-              class="form-item"
-              style="padding-left: 20px"
-              :class="'form-item-' + themes"
-            >
-              <el-color-picker
-                :effect="themes"
-                v-model="chart.customStyle.component.titleColor"
-                :trigger-width="204"
-                :disabled="!chart.customStyle.component.titleShow"
-                is-custom
-                :predefine="COLOR_PANEL"
-              />
-            </el-form-item>
-            <el-form-item class="form-item margin-bottom-8" :class="'form-item-' + themes">
-              <el-checkbox
-                :effect="themes"
-                size="small"
-                v-model="commonBackgroundPop.backgroundColorSelect"
-              >
-                自定义组件背景
-              </el-checkbox>
-            </el-form-item>
-            <el-form-item
-              style="padding-left: 20px"
-              class="form-item margin-bottom-8"
-              :class="'form-item-' + themes"
-            >
-              <el-radio-group
-                :disabled="!commonBackgroundPop.backgroundColorSelect"
-                :effect="themes"
-                v-model="commonBackgroundPop.backgroundType"
-              >
-                <el-radio
-                  key="innerImage"
-                  v-if="commonBackgroundPop.backgroundType === 'innerImage'"
-                  label="innerImage"
+    <el-scrollbar>
+      <input
+        id="input"
+        ref="files"
+        type="file"
+        accept=".jpeg,.jpg,.png,.gif,.svg"
+        hidden
+        @click="
+          e => {
+            e.target.value = ''
+          }
+        "
+        @change="reUpload"
+      />
+      <el-row class="de-collapse-style">
+        <el-collapse v-model="styleActiveNames" class="style-collapse">
+          <el-collapse-item :effect="themes" name="basicStyle" :title="t('chart.basic_style')">
+            <el-form size="small" @keydown.stop.prevent.enter label-position="top">
+              <el-form-item class="form-item margin-bottom-8" :class="'form-item-' + themes">
+                <el-checkbox
                   :effect="themes"
+                  size="small"
+                  v-model="chart.customStyle.component.titleShow"
                 >
-                  背景颜色
-                </el-radio>
-                <el-radio key="color" v-else label="color" :effect="themes"> 背景颜色 </el-radio>
-                <el-radio label="outerImage" :effect="themes"> 背景图片 </el-radio>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item
-              v-if="commonBackgroundPop.backgroundType === 'outerImage'"
-              style="padding-left: 20px"
-              class="form-item margin-bottom-8"
-              :class="'form-item-' + themes"
-            >
-              <div
-                class="indented-item"
-                :class="{
-                  disabled: !commonBackgroundPop.backgroundColorSelect
-                }"
+                  {{ t('chart.show') + t('chart.title') }}
+                </el-checkbox>
+              </el-form-item>
+              <el-form-item
+                class="form-item"
+                style="padding-left: 20px"
+                :class="'form-item-' + themes"
               >
-                <div class="avatar-uploader-container" :class="`img-area_${themes}`">
-                  <el-upload
-                    action=""
-                    :effect="themes"
-                    accept=".jpeg,.jpg,.png,.gif,.svg"
-                    class="avatar-uploader"
-                    list-type="picture-card"
-                    :on-preview="handlePictureCardPreview"
-                    :on-remove="handleRemove"
-                    :before-upload="beforeUploadCheck"
-                    :http-request="upload"
-                    :file-list="state.fileList"
-                    :disabled="!commonBackgroundPop.backgroundColorSelect"
-                  >
-                    <el-icon><Plus /></el-icon>
-                  </el-upload>
-                  <el-row>
-                    <span
-                      style="margin-top: 2px"
-                      v-if="!state.commonBackground['outerImage']"
-                      class="image-hint"
-                      :class="`image-hint_${themes}`"
-                    >
-                      支持JPG、PNG、GIF、SVG
-                    </span>
-
-                    <el-button
-                      size="small"
-                      style="margin: 8px 0 0 -4px"
-                      v-if="state.commonBackground['outerImage']"
-                      text
-                      :disabled="!commonBackgroundPop.backgroundColorSelect"
-                      @click="goFile"
-                    >
-                      重新上传
-                    </el-button>
-                  </el-row>
-                </div>
-                <img-view-dialog v-model="state.dialogVisible" :image-url="state.dialogImageUrl" />
-              </div>
-            </el-form-item>
-            <el-form-item
-              v-else
-              class="form-item"
-              style="padding-left: 20px"
-              :class="'form-item-' + themes"
-            >
-              <el-color-picker
-                :effect="themes"
-                :trigger-width="108"
-                is-custom
-                v-model="commonBackgroundPop.backgroundColor"
-                :disabled="!commonBackgroundPop.backgroundColorSelect"
-                :predefine="predefineColors"
-              />
-            </el-form-item>
-          </el-form>
-        </el-collapse-item>
-        <el-collapse-item :effect="themes" name="addition" title="查询条件">
-          <el-form label-position="top">
-            <el-form-item class="form-item margin-bottom-8" :class="'form-item-' + themes">
-              <el-checkbox
-                :effect="themes"
-                size="small"
-                v-model="chart.customStyle.component.borderShow"
+                <el-input
+                  :effect="themes"
+                  :disabled="!chart.customStyle.component.titleShow"
+                  v-model.lazy="chart.customStyle.component.title"
+                  @change="onTitleChange"
+                />
+              </el-form-item>
+              <el-form-item
+                :label="t('components.title_color')"
+                class="form-item"
+                style="padding-left: 20px"
+                :class="'form-item-' + themes"
               >
-                {{ t('visualization.board') }}
-              </el-checkbox>
-            </el-form-item>
-            <el-form-item
-              class="form-item"
-              style="padding-left: 20px"
-              :class="'form-item-' + themes"
-            >
-              <el-color-picker
-                :effect="themes"
-                :trigger-width="108"
-                is-custom
-                v-model="chart.customStyle.component.borderColor"
-                :disabled="!chart.customStyle.component.borderShow"
-                :predefine="predefineColors"
-              />
-            </el-form-item>
-            <el-form-item class="form-item margin-bottom-8" :class="'form-item-' + themes">
-              <el-checkbox
-                :effect="themes"
-                size="small"
-                v-model="chart.customStyle.component.placeholderShow"
-              >
-                提示词
-              </el-checkbox>
-            </el-form-item>
-            <el-form-item
-              label="文本"
-              class="form-item"
-              style="padding-left: 20px"
-              :class="'form-item-' + themes"
-            >
-              <div style="display: flex; align-items: center; width: 100%">
                 <el-color-picker
                   :effect="themes"
-                  :trigger-width="56"
+                  v-model="chart.customStyle.component.titleColor"
+                  :trigger-width="204"
+                  show-alpha
+                  :disabled="!chart.customStyle.component.titleShow"
                   is-custom
-                  v-model="chart.customStyle.component.text"
-                  :disabled="!chart.customStyle.component.placeholderShow"
-                  :predefine="predefineColors"
+                  :predefine="COLOR_PANEL"
                 />
+              </el-form-item>
+              <el-form-item
+                v-if="!mobileInPc && isDashboard() && isMainCanvas(element.canvasId)"
+                class="form-item margin-bottom-8"
+                :class="'form-item-' + themes"
+                :label="t('visualization.query_position')"
+              >
+                <el-radio-group
+                  v-model="element.freeze"
+                  :effect="themes"
+                  size="small"
+                  @change="onFreezeChange"
+                >
+                  <el-radio :effect="themes" style="min-width: 80px" :value="true">{{
+                    t('visualization.to_top')
+                  }}</el-radio>
+                  <el-radio :effect="themes" style="min-width: 80px" :value="false">{{
+                    t('visualization.default')
+                  }}</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <background-overall-common
+                :common-background-pop="commonBackgroundPop"
+                :themes="themes"
+                @onBackgroundChange="onBackgroundChangeV2"
+                component-position="component"
+              />
+            </el-form>
+          </el-collapse-item>
+          <el-collapse-item :effect="themes" name="addition" :title="t('v_query.query_condition')">
+            <el-form
+              size="small"
+              @keydown.stop.prevent.enter
+              label-position="top"
+              style="padding-bottom: 8px"
+            >
+              <el-row :gutter="8">
+                <el-col :span="12">
+                  <el-form-item
+                    :label="t('visualization.board')"
+                    class="form-item w100"
+                    :class="'form-item-' + themes"
+                  >
+                    <el-color-picker
+                      :effect="themes"
+                      :trigger-width="106"
+                      is-custom
+                      show-alpha
+                      v-model="chart.customStyle.component.borderColor"
+                      :predefine="predefineColors"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item
+                    :label="t('chart.background')"
+                    class="form-item w100"
+                    :class="'form-item-' + themes"
+                  >
+                    <el-color-picker
+                      :effect="themes"
+                      :trigger-width="106"
+                      is-custom
+                      show-alpha
+                      v-model="chart.customStyle.component.bgColor"
+                      :predefine="predefineColors"
+                    />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-form-item
+                :effect="themes"
+                class="form-item"
+                :label="t('visualization.query_condition_space')"
+                :class="'form-item-' + themes"
+              >
                 <el-input-number
-                  v-model="chart.customStyle.component.placeholderSize"
-                  :min="10"
-                  :max="20"
-                  style="margin-left: 8px"
-                  step-strictly
+                  v-model="chart.customStyle.component.queryConditionSpacing"
+                  :min="0"
                   :effect="themes"
                   controls-position="right"
                 />
-              </div>
-              <div style="display: flex; align-items: center; width: 100%; margin-top: 8px">
-                <el-select
-                  v-model="currentPlaceholder"
-                  @change="handleCurrentPlaceholder"
-                  style="width: 100%"
-                >
-                  <el-option
-                    v-for="item in element.propValue"
-                    :key="item.id"
-                    :label="item.name"
-                    :value="item.id"
-                  />
-                </el-select>
-              </div>
-            </el-form-item>
-            <el-form-item
-              label="提示词"
-              class="form-item"
-              style="padding-left: 20px"
-              :class="'form-item-' + themes"
-            >
-              <el-input
+              </el-form-item>
+              <el-form-item
                 :effect="themes"
-                @change="handleCurrentPlaceholderChange"
-                :disabled="!chart.customStyle.component.placeholderShow || !currentPlaceholder"
-                v-model.lazy="currentSearch.placeholder"
-              />
-            </el-form-item>
-            <el-form-item class="form-item margin-bottom-8" :class="'form-item-' + themes">
-              <el-checkbox
-                :effect="themes"
-                size="small"
-                v-model="chart.customStyle.component.bgColorShow"
+                class="form-item"
+                :label="t('visualization.query_condition_height')"
+                :class="'form-item-' + themes"
               >
-                自定义查询条件背景
-              </el-checkbox>
-            </el-form-item>
-            <el-form-item
-              class="form-item"
-              style="padding-left: 20px"
-              :class="'form-item-' + themes"
-            >
-              <el-color-picker
-                :effect="themes"
-                :trigger-width="108"
-                is-custom
-                v-model="chart.customStyle.component.bgColor"
-                :disabled="!chart.customStyle.component.bgColorShow"
-                :predefine="predefineColors"
-              />
-            </el-form-item>
-            <el-form-item
-              :effect="themes"
-              class="form-item"
-              label="查询条件宽度"
-              :class="'form-item-' + themes"
-            >
-              <el-input-number
-                v-model="chart.customStyle.component.queryConditionWidth"
-                :min="0"
-                :effect="themes"
-                controls-position="right"
-              />
-            </el-form-item>
-            <el-form-item
-              :effect="themes"
-              class="form-item"
-              label="查询条件间距"
-              :class="'form-item-' + themes"
-            >
-              <el-input-number
-                v-model="chart.customStyle.component.queryConditionSpacing"
-                :min="0"
-                :effect="themes"
-                controls-position="right"
-              />
-            </el-form-item>
-          </el-form>
-        </el-collapse-item>
-        <collapse-switch-item
-          :themes="themes"
-          v-model="chart.customStyle.component.labelShow"
-          name="legend"
-          title="查询条件名称"
-        >
-          <el-form
-            :class="!chart.customStyle.component.labelShow && 'is-disabled'"
-            :disabled="!chart.customStyle.component.labelShow"
-            label-position="top"
-          >
-            <el-form-item
-              :effect="themes"
-              class="form-item"
-              :label="t('visualization.position_adjust')"
-              :class="'form-item-' + themes"
-            >
-              <el-radio-group :effect="themes" v-model="chart.customStyle.component.layout">
-                <el-radio label="vertical" :effect="themes"> 上侧 </el-radio>
-                <el-radio label="horizontal" :effect="themes"> 左侧 </el-radio>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item
-              :label="t('chart.textColor')"
-              class="form-item margin-bottom-8"
-              :class="'form-item-' + themes"
-            >
-              <el-color-picker
-                :effect="themes"
-                is-custom
-                v-model="chart.customStyle.component.labelColor"
-                :predefine="predefineColors"
-              /><el-tooltip content="字号" :effect="toolTip" placement="top">
-                <el-select
-                  style="width: 80px; margin: 0 8px"
+                <el-input-number
+                  v-model="chart.customStyle.component.queryConditionHeight"
+                  :min="32"
                   :effect="themes"
-                  v-model="chart.customStyle.component.fontSize"
-                  :placeholder="t('chart.text_fontsize')"
+                  controls-position="right"
+                />
+              </el-form-item>
+              <el-form-item class="form-item margin-bottom-8" :class="'form-item-' + themes">
+                <el-checkbox
+                  :effect="themes"
                   size="small"
+                  @change="handleCurrentPlaceholderCustomChange"
+                  v-model="chart.customStyle.component.placeholderShow"
                 >
-                  <el-option
-                    v-for="option in fontSizeList"
-                    :key="option.value"
-                    :label="option.name"
-                    :value="option.value"
+                  {{ t('v_query.custom_condition_style') }}
+                </el-checkbox>
+              </el-form-item>
+              <el-form-item
+                :label="t('visualization.text_html')"
+                class="form-item"
+                style="padding-left: 20px"
+                :class="'form-item-' + themes"
+              >
+                <div style="display: flex; align-items: center; width: 100%">
+                  <el-color-picker
+                    :effect="themes"
+                    :trigger-width="56"
+                    style="max-width: 56px; min-width: 56px"
+                    is-custom
+                    show-alpha
+                    v-model="chart.customStyle.component.text"
+                    :disabled="!chart.customStyle.component.placeholderShow"
+                    @change="handleCurrentPlaceholderCustomChange"
+                    :predefine="predefineColors"
                   />
-                </el-select>
-              </el-tooltip>
-              <el-tooltip :effect="toolTip" placement="bottom">
-                <template #content>
-                  {{ t('chart.bolder') }}
-                </template>
-                <div
-                  class="icon-btn"
-                  :class="{
-                    dark: themes === 'dark',
-                    active: chart.customStyle.component.fontWeight === 'bold'
-                  }"
-                  style="margin-right: 8px"
-                  @click="checkBold('fontWeight')"
-                >
-                  <el-icon>
-                    <Icon name="icon_bold_outlined"><icon_bold_outlined class="svg-icon" /></Icon>
-                  </el-icon>
+                  <el-input-number
+                    v-model="chart.customStyle.component.placeholderSize"
+                    @change="handleCurrentPlaceholderCustomChange"
+                    :min="10"
+                    :max="40"
+                    :disabled="!chart.customStyle.component.placeholderShow"
+                    style="margin-left: 8px"
+                    step-strictly
+                    :effect="themes"
+                    controls-position="right"
+                  />
                 </div>
-              </el-tooltip>
-
-              <el-tooltip :effect="toolTip" placement="bottom">
-                <template #content>
-                  {{ t('chart.italic') }}
-                </template>
-                <div
-                  class="icon-btn"
-                  :class="{
-                    dark: themes === 'dark',
-                    active: chart.customStyle.component.fontStyle === 'italic'
-                  }"
-                  @click="checkItalic('fontStyle')"
-                >
-                  <el-icon>
-                    <Icon name="icon_italic_outlined"
-                      ><icon_italic_outlined class="svg-icon"
-                    /></Icon>
-                  </el-icon>
-                </div>
-              </el-tooltip>
-            </el-form-item>
-            <el-form-item
-              :effect="themes"
-              class="form-item"
-              label="名称与选框间距"
-              :class="'form-item-' + themes"
-            >
-              <el-input-number
-                v-model="chart.customStyle.component.nameboxSpacing"
-                :min="0"
-                :max="50"
-                :effect="themes"
-                controls-position="right"
-              />
-            </el-form-item>
-          </el-form>
-        </collapse-switch-item>
-        <el-collapse-item :effect="themes" name="button" :title="t('commons.button')">
-          <el-form label-position="top">
-            <el-form-item
-              :effect="themes"
-              class="form-item"
-              label="展示按钮"
-              :class="'form-item-' + themes"
-            >
-              <el-checkbox-group :effect="themes" v-model="chart.customStyle.component.btnList">
-                <el-checkbox class="checkbox-with_icon" :effect="themes" size="small" label="sure">
-                  {{ t('commons.adv_search.search') }}
-                  <el-tooltip
-                    :effect="toolTip"
-                    content="如果展示查询按钮，需要点击该按钮后才能触发图表查询；如果不展示查询按钮，选择完查询条件后立即触发图表查询"
-                    placement="top"
+                <div style="display: flex; align-items: center; width: 100%; margin-top: 8px">
+                  <el-select
+                    v-model="currentPlaceholder"
+                    :disabled="!chart.customStyle.component.placeholderShow"
+                    @change="handleCurrentPlaceholder"
+                    :effect="themes"
+                    style="width: 100%"
                   >
-                    <el-icon class="hint-icon" :class="{ 'hint-icon--dark': themes === 'dark' }">
-                      <Icon name="icon_info_outlined"><icon_info_outlined class="svg-icon" /></Icon>
-                    </el-icon>
-                  </el-tooltip>
-                </el-checkbox>
-
-                <el-checkbox :effect="themes" size="small" label="clear">
-                  {{ t('commons.clear') }}
-                </el-checkbox>
-                <el-checkbox :effect="themes" size="small" label="reset">
-                  {{ t('commons.adv_search.reset') }}
-                </el-checkbox>
-              </el-checkbox-group>
-            </el-form-item>
-            <el-form-item class="form-item" label="按钮颜色" :class="'form-item-' + themes">
-              <el-color-picker
-                :effect="themes"
-                :trigger-width="108"
-                is-custom
-                v-model="chart.customStyle.component.btnColor"
-                :predefine="predefineColors"
-              />
-            </el-form-item>
-            <el-form-item
-              label="按钮文字"
-              class="form-item margin-bottom-8"
-              :class="'form-item-' + themes"
-            >
-              <el-color-picker
-                :effect="themes"
-                is-custom
-                v-model="chart.customStyle.component.labelColorBtn"
-                :predefine="predefineColors"
-              /><el-tooltip content="字号" :effect="toolTip" placement="top">
-                <el-select
-                  style="width: 80px; margin: 0 8px"
+                    <el-option
+                      v-for="item in element.propValue"
+                      :key="item.id"
+                      :label="item.name"
+                      :value="item.id"
+                    />
+                  </el-select>
+                </div>
+              </el-form-item>
+              <el-form-item
+                :label="t('visualization.tips_world')"
+                class="form-item"
+                style="padding-left: 20px"
+                :class="'form-item-' + themes"
+              >
+                <el-input
                   :effect="themes"
-                  v-model="chart.customStyle.component.fontSizeBtn"
-                  :placeholder="t('chart.text_fontsize')"
-                  size="small"
+                  @change="onPlaceholderChange"
+                  :disabled="!chart.customStyle.component.placeholderShow || !currentPlaceholder"
+                  v-model.lazy="currentSearch.placeholder"
+                />
+              </el-form-item>
+              <el-form-item
+                :label="t('v_query.query_condition_width')"
+                class="form-item"
+                style="padding-left: 20px"
+                :class="'form-item-' + themes"
+              >
+                <el-input-number
+                  :effect="themes"
+                  :min="100"
+                  controls-position="right"
+                  @change="onPlaceholderChange"
+                  :disabled="!chart.customStyle.component.placeholderShow || !currentPlaceholder"
+                  v-model.lazy="currentSearch.queryConditionWidth"
+                />
+              </el-form-item>
+            </el-form>
+          </el-collapse-item>
+          <collapse-switch-item
+            :themes="themes"
+            v-model="chart.customStyle.component.labelShow"
+            name="legend"
+            :title="t('visualization.query_condition_name')"
+          >
+            <el-form
+              :class="!chart.customStyle.component.labelShow && 'is-disabled'"
+              :disabled="!chart.customStyle.component.labelShow"
+              label-position="top"
+              size="small"
+              style="padding-bottom: 8px"
+            >
+              <el-form-item
+                :effect="themes"
+                class="form-item"
+                :label="t('visualization.position_adjust')"
+                :class="'form-item-' + themes"
+              >
+                <el-radio-group :effect="themes" v-model="chart.customStyle.component.layout">
+                  <el-radio value="vertical" :effect="themes">
+                    {{ t('visualization.condition_top') }}
+                  </el-radio>
+                  <el-radio value="horizontal" :effect="themes">
+                    {{ t('visualization.condition_left') }}
+                  </el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item
+                :label="t('chart.textColor')"
+                class="form-item margin-bottom-8"
+                :class="'form-item-' + themes"
+              >
+                <el-color-picker
+                  :effect="themes"
+                  is-custom
+                  show-alpha
+                  style="width: 50px"
+                  v-model="chart.customStyle.component.labelColor"
+                  :predefine="predefineColors"
+                /><el-tooltip
+                  :content="t('visualization.font_size')"
+                  :effect="toolTip"
+                  placement="top"
                 >
-                  <el-option
-                    v-for="option in fontSizeList"
-                    :key="option.value"
-                    :label="option.name"
-                    :value="option.value"
-                  />
-                </el-select>
-              </el-tooltip>
-              <el-tooltip :effect="toolTip" placement="bottom">
-                <template #content>
-                  {{ t('chart.bolder') }}
-                </template>
-                <div
-                  class="icon-btn"
-                  :class="{
-                    dark: themes === 'dark',
-                    active: chart.customStyle.component.fontWeightBtn === 'bold'
-                  }"
-                  style="margin-right: 8px"
-                  @click="checkBold('fontWeightBtn')"
-                >
-                  <el-icon>
-                    <Icon name="icon_bold_outlined"><icon_bold_outlined class="svg-icon" /></Icon>
-                  </el-icon>
-                </div>
-              </el-tooltip>
+                  <el-select
+                    style="width: 80px; margin: 0 8px"
+                    :effect="themes"
+                    v-model="chart.customStyle.component.fontSize"
+                    :placeholder="t('chart.text_fontsize')"
+                    size="small"
+                  >
+                    <el-option
+                      v-for="option in fontSizeList"
+                      :key="option.value"
+                      :label="option.name"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-tooltip>
+                <el-tooltip :effect="toolTip" placement="bottom">
+                  <template #content>
+                    {{ t('chart.bolder') }}
+                  </template>
+                  <div
+                    class="icon-btn"
+                    :class="{
+                      dark: themes === 'dark',
+                      active: chart.customStyle.component.fontWeight === 'bold'
+                    }"
+                    style="margin-right: 8px"
+                    @click="checkBold('fontWeight')"
+                  >
+                    <el-icon>
+                      <Icon name="icon_bold_outlined"><icon_bold_outlined class="svg-icon" /></Icon>
+                    </el-icon>
+                  </div>
+                </el-tooltip>
 
-              <el-tooltip :effect="toolTip" placement="bottom">
-                <template #content>
-                  {{ t('chart.italic') }}
-                </template>
-                <div
-                  class="icon-btn"
-                  :class="{
-                    dark: themes === 'dark',
-                    active: chart.customStyle.component.fontStyleBtn === 'italic'
-                  }"
-                  @click="checkItalic('fontStyleBtn')"
+                <el-tooltip :effect="toolTip" placement="bottom">
+                  <template #content>
+                    {{ t('chart.italic') }}
+                  </template>
+                  <div
+                    class="icon-btn"
+                    :class="{
+                      dark: themes === 'dark',
+                      active: chart.customStyle.component.fontStyle === 'italic'
+                    }"
+                    @click="checkItalic('fontStyle')"
+                  >
+                    <el-icon>
+                      <Icon name="icon_italic_outlined"
+                        ><icon_italic_outlined class="svg-icon"
+                      /></Icon>
+                    </el-icon>
+                  </div>
+                </el-tooltip>
+              </el-form-item>
+              <el-form-item
+                :effect="themes"
+                class="form-item"
+                :label="t('visualization.query_name_space2')"
+                :class="'form-item-' + themes"
+              >
+                <el-input-number
+                  v-model="chart.customStyle.component.nameboxSpacing"
+                  :min="0"
+                  :max="50"
+                  :effect="themes"
+                  controls-position="right"
+                />
+              </el-form-item>
+            </el-form>
+          </collapse-switch-item>
+          <el-collapse-item :effect="themes" name="button" :title="t('commons.button')">
+            <el-form
+              size="small"
+              @keydown.stop.prevent.enter
+              label-position="top"
+              style="padding-bottom: 8px"
+            >
+              <el-form-item
+                :effect="themes"
+                class="form-item"
+                :label="t('visualization.show_button')"
+                :class="'form-item-' + themes"
+              >
+                <el-checkbox-group :effect="themes" v-model="chart.customStyle.component.btnList">
+                  <el-checkbox
+                    class="checkbox-with_icon"
+                    :effect="themes"
+                    size="small"
+                    label="sure"
+                  >
+                    {{ t('commons.adv_search.search') }}
+                    <el-tooltip
+                      :effect="toolTip"
+                      :content="t('visualization.query_tips')"
+                      placement="top"
+                    >
+                      <el-icon class="hint-icon" :class="{ 'hint-icon--dark': themes === 'dark' }">
+                        <Icon name="icon_info_outlined"
+                          ><icon_info_outlined class="svg-icon"
+                        /></Icon>
+                      </el-icon>
+                    </el-tooltip>
+                  </el-checkbox>
+                  <br />
+                  <el-checkbox style="margin-top: 8px" :effect="themes" size="small" label="clear">
+                    {{ t('commons.clear') }}
+                  </el-checkbox>
+                  <br />
+                  <el-checkbox style="margin-top: 8px" :effect="themes" size="small" label="reset">
+                    {{ t('commons.adv_search.reset') }}
+                  </el-checkbox>
+                </el-checkbox-group>
+              </el-form-item>
+              <el-form-item
+                class="form-item"
+                :label="t('visualization.button_color')"
+                :class="'form-item-' + themes"
+              >
+                <el-color-picker
+                  :effect="themes"
+                  :trigger-width="108"
+                  is-custom
+                  show-alpha
+                  v-model="chart.customStyle.component.btnColor"
+                  :predefine="predefineColors"
+                />
+              </el-form-item>
+              <el-form-item
+                :label="t('visualization.button_text')"
+                class="form-item margin-bottom-8"
+                :class="'form-item-' + themes"
+              >
+                <el-color-picker
+                  :effect="themes"
+                  is-custom
+                  show-alpha
+                  v-model="chart.customStyle.component.labelColorBtn"
+                  :predefine="predefineColors"
+                /><el-tooltip
+                  :content="t('visualization.font_size')"
+                  :effect="toolTip"
+                  placement="top"
                 >
-                  <el-icon>
-                    <Icon name="icon_italic_outlined"
-                      ><icon_italic_outlined class="svg-icon"
-                    /></Icon>
-                  </el-icon>
-                </div>
-              </el-tooltip>
-            </el-form-item>
-          </el-form>
-        </el-collapse-item>
-      </el-collapse>
-    </el-row>
+                  <el-select
+                    style="width: 80px; margin: 0 8px"
+                    :effect="themes"
+                    v-model="chart.customStyle.component.fontSizeBtn"
+                    :placeholder="t('chart.text_fontsize')"
+                    size="small"
+                  >
+                    <el-option
+                      v-for="option in fontSizeList"
+                      :key="option.value"
+                      :label="option.name"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-tooltip>
+                <el-tooltip :effect="toolTip" placement="bottom">
+                  <template #content>
+                    {{ t('chart.bolder') }}
+                  </template>
+                  <div
+                    class="icon-btn"
+                    :class="{
+                      dark: themes === 'dark',
+                      active: chart.customStyle.component.fontWeightBtn === 'bold'
+                    }"
+                    style="margin-right: 8px"
+                    @click="checkBold('fontWeightBtn')"
+                  >
+                    <el-icon>
+                      <Icon name="icon_bold_outlined"><icon_bold_outlined class="svg-icon" /></Icon>
+                    </el-icon>
+                  </div>
+                </el-tooltip>
+
+                <el-tooltip :effect="toolTip" placement="bottom">
+                  <template #content>
+                    {{ t('chart.italic') }}
+                  </template>
+                  <div
+                    class="icon-btn"
+                    :class="{
+                      dark: themes === 'dark',
+                      active: chart.customStyle.component.fontStyleBtn === 'italic'
+                    }"
+                    @click="checkItalic('fontStyleBtn')"
+                  >
+                    <el-icon>
+                      <Icon name="icon_italic_outlined"
+                        ><icon_italic_outlined class="svg-icon"
+                      /></Icon>
+                    </el-icon>
+                  </div>
+                </el-tooltip>
+              </el-form-item>
+            </el-form>
+          </el-collapse-item>
+        </el-collapse>
+      </el-row>
+    </el-scrollbar>
   </div>
 </template>
 
@@ -740,7 +788,6 @@ initParams()
 }
 
 .attr-style {
-  overflow-y: auto;
   height: 100%;
   width: 100%;
 
@@ -809,7 +856,7 @@ initParams()
     :deep(.ed-upload--picture-card) {
       background: #eff0f1;
       border: 1px dashed #dee0e3;
-      border-radius: 4px;
+      border-radius: 6px;
 
       .ed-icon {
         color: #1f2329;
@@ -886,7 +933,7 @@ initParams()
   width: 24px;
   height: 24px;
   text-align: center;
-  border-radius: 4px;
+  border-radius: 6px;
   padding-top: 4px;
 
   color: #1f2329;
@@ -902,7 +949,7 @@ initParams()
       color: var(--ed-color-primary);
       background-color: var(--ed-color-primary-1a, rgba(51, 112, 255, 0.1));
       &:hover {
-        background-color: #3370ff33;
+        background-color: var(--ed-color-primary-33, #3370ff33);
       }
     }
   }

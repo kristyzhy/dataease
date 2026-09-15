@@ -39,9 +39,21 @@ const props = defineProps({
     type: Number,
     required: false,
     default: 1
+  },
+  // 仪表板字体
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
+  },
+  // 画布位置
+  canvasPosition: {
+    type: String,
+    required: false,
+    default: 'main'
   }
 })
-const { canvasStyleData, componentData, canvasViewInfo, canvasId, canvasActive, outerScale } =
+const { canvasStyleData, componentData, canvasViewInfo, canvasId, canvasActive, canvasPosition } =
   toRefs(props)
 const domId = ref('de-canvas-' + canvasId.value)
 // change-end
@@ -58,7 +70,8 @@ const scaleMin = ref(100)
 
 const state = reactive({
   screenWidth: 1920,
-  screenHeight: 1080
+  screenHeight: 1080,
+  curScrollTop: 0
 })
 
 //仪表板矩阵信息适配，
@@ -91,15 +104,16 @@ const handleNewFromCanvasMain = newComponentInfo => {
     component.x = cyGridster.value.findPositionX(component)
     dvMainStore.addComponent({
       component: component,
-      index: undefined,
-      componentData: componentData.value
+      index: undefined
     })
     adaptCurThemeCommonStyle(component)
     nextTick(() => {
       cyGridster.value.addItemBox(component) //在适当的时候初始化布局组件
-      scrollTo(component.y)
+      nextTick(() => {
+        scrollTo(component.y)
+      })
     })
-    snapshotStore.recordSnapshotCache('renderChart', component.id)
+    snapshotStore.recordSnapshotCacheWithPositionChange('renderChart', component.id)
   }
 }
 
@@ -112,7 +126,7 @@ const handleDrop = e => {
     addComponent.isShow = true
     syncShapeItemStyle(addComponent, baseWidth.value, baseHeight.value)
     cyGridster.value.handleMouseUp(e, addComponent, componentData.value.length - 1)
-    snapshotStore.recordSnapshotCache('renderChart', addComponent.id)
+    snapshotStore.recordSnapshotCacheWithPositionChange('renderChart', addComponent.id)
   }
 }
 
@@ -133,8 +147,12 @@ const handleMouseDown = e => {
   }
 }
 
+const canvasInitImmediately = () => {
+  cyGridster.value.canvasInit()
+}
+
 const canvasInit = (isFistLoad = true) => {
-  if (canvasActive.value) {
+  if (canvasActive.value || canvasPosition.value === 'tab') {
     renderState.value = true
     setTimeout(function () {
       if (canvasOut.value) {
@@ -214,10 +232,10 @@ const moveOutFromTab = component => {
     dvMainStore.addComponent({
       component,
       index: undefined,
-      isFromGroup: true,
-      componentData: componentData.value
+      isFromGroup: true
     })
     addItemBox(component)
+    canvasInit()
   }, 500)
 }
 
@@ -231,6 +249,7 @@ onMounted(() => {
   canvasInit()
   if (isMainCanvas(canvasId.value)) {
     eventBus.on('handleNew', handleNewFromCanvasMain)
+    eventBus.on('event-canvas-size-init', canvasSizeInit)
   }
   eventBus.on('moveOutFromTab-' + canvasId.value, moveOutFromTab)
   eventBus.on('matrix-canvasInit', canvasInit)
@@ -239,6 +258,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (isMainCanvas(canvasId.value)) {
     eventBus.off('handleNew', handleNewFromCanvasMain)
+    eventBus.off('event-canvas-size-init', canvasSizeInit)
   }
   eventBus.off('moveOutFromTab-' + canvasId.value, moveOutFromTab)
   eventBus.off('matrix-canvasInit', canvasInit)
@@ -251,7 +271,7 @@ const getBaseMatrixSize = () => {
   }
 }
 
-const scrollTo = y => {
+const scrollTo = (y = 1) => {
   setTimeout(() => {
     canvasInner.value.scrollTo({
       top: (y - 1) * baseHeight.value,
@@ -259,6 +279,12 @@ const scrollTo = y => {
     })
     cyGridster.value?.watermarkUpdate()
   })
+}
+
+const scrollCanvas = () => {
+  if (isMainCanvas(canvasId.value)) {
+    dvMainStore.mainScrollTop = canvasInner.value.scrollTop
+  }
 }
 
 watch(
@@ -272,6 +298,8 @@ watch(
 
 defineExpose({
   addItemBox,
+  canvasInit,
+  canvasInitImmediately,
   getBaseMatrixSize
 })
 </script>
@@ -292,6 +320,7 @@ defineExpose({
       @drop="handleDrop"
       @dragover="handleDragOver"
       @mousedown="handleMouseDown"
+      @scroll="scrollCanvas"
     >
       <canvas-core
         ref="cyGridster"
@@ -304,7 +333,8 @@ defineExpose({
         :base-margin-top="baseMarginTop"
         :base-width="baseWidth"
         :base-height="baseHeight"
-        @scrollCanvasToTop="scrollTo(1)"
+        :font-family="fontFamily"
+        @scrollCanvasAdjust="scrollTo"
       ></canvas-core>
     </div>
   </div>

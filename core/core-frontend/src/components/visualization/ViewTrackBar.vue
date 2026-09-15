@@ -1,16 +1,30 @@
 <template>
   <div>
-    <el-dropdown :teleported="false" trigger="click">
-      <input id="input" ref="trackButton" type="button" hidden />
+    <el-dropdown
+      :id="'view-track-bar-' + chartId"
+      :teleported="true"
+      trigger="click"
+      placement="bottom"
+      popper-class="track_bar_custom"
+      @visible-change="visibleChange"
+    >
+      <input id="input" style="opacity: 0" ref="trackButton" type="button" />
       <template #dropdown>
-        <el-dropdown-menu class="track-menu" :append-to-body="false">
-          <el-dropdown-item
-            v-for="(item, key) in trackMenu"
-            :key="key"
-            @click="trackMenuClick(item)"
-            ><span class="menu-item">{{ state.i18n_map[item] }}</span></el-dropdown-item
+        <div :class="{ 'data-mobile': isDataVMobile }">
+          <el-dropdown-menu
+            class="track-menu"
+            :style="{ 'font-family': fontFamily }"
+            :append-to-body="false"
           >
-        </el-dropdown-menu>
+            <el-dropdown-item
+              v-for="(item, key) in trackMenu"
+              :key="key"
+              @mousedown.stop
+              @click="trackMenuClick(item)"
+              ><span class="menu-item">{{ state.i18n_map[item] }}</span></el-dropdown-item
+            >
+          </el-dropdown-menu>
+        </div>
       </template>
     </el-dropdown>
   </div>
@@ -27,6 +41,16 @@ const props = defineProps({
   trackMenu: {
     type: Array,
     required: true
+  },
+  isDataVMobile: {
+    type: Boolean,
+    required: false,
+    default: false
+  },
+  fontFamily: {
+    type: String,
+    required: false,
+    default: 'inherit'
   }
 })
 const { trackMenu } = toRefs(props)
@@ -36,14 +60,28 @@ const state = reactive({
     linkage: t('visualization.linkage'),
     linkageAndDrill: t('visualization.linkage_and_drill'),
     jump: t('visualization.jump'),
-    enlarge: t('visualization.enlarge')
+    enlarge: t('visualization.enlarge'),
+    event_jump: t('visualization.jump'),
+    event_download: t('visualization.download'),
+    event_share: t('visualization.share'),
+    event_fullScreen: t('visualization.fullscreen'),
+    event_showHidden: t('visualization.pop_area'),
+    event_refreshDataV: t('visualization.refresh'),
+    event_refreshView: t('visualization.refresh_view')
   }
 })
-
-const trackButtonClick = () => {
-  setTimeout(() => {
-    trackButton.value.click()
-  }, 50)
+const visibleChange = () => {
+  document.querySelectorAll('.g2-tooltip')?.forEach(tooltip => {
+    if (tooltip.id?.includes(chartId.value)) {
+      tooltip.classList.toggle('hidden-tooltip', true)
+    }
+  })
+}
+// 添加图表标识，用于区分不同图表的 tooltip
+const chartId = ref(null)
+const trackButtonClick = (id?: string) => {
+  chartId.value = id
+  trackButton.value.click()
 }
 
 const trackMenuClick = menu => {
@@ -54,6 +92,12 @@ defineExpose({
   trackButtonClick
 })
 </script>
+
+<style lang="less">
+.track_bar_custom {
+  transform: translate(50px, -30px) !important;
+}
+</style>
 
 <style lang="less" scoped>
 .menu-item {
@@ -70,5 +114,9 @@ defineExpose({
 
 :deep(.ed-popper[x-placement^='bottom']) {
   margin-top: -80px !important;
+}
+
+.data-mobile {
+  zoom: 0.3;
 }
 </style>

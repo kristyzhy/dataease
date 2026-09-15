@@ -2,8 +2,8 @@
 import { ref } from 'vue'
 import { useEmitt } from '@/hooks/web/useEmitt'
 import configGlobal from '@/components/config-global/src/ConfigGlobal.vue'
-import { useRoute } from 'vue-router'
-import ExportExcel from '@/views/visualized/data/dataset/ExportExcel.vue'
+import { useRoute } from 'vue-router_2'
+import ExportExcelDraw from '@/views/visualized/data/dataset/ExportExcelDraw.vue'
 const route = useRoute()
 const exportExcelRef = ref()
 const exportExcelCenter = params => {
@@ -17,6 +17,6 @@ useEmitt({
 <template>
   <config-global>
     <router-view :key="route.path" />
-    <ExportExcel ref="exportExcelRef"></ExportExcel>
+    <ExportExcelDraw ref="exportExcelRef"></ExportExcelDraw>
   </config-global>
 </template>

@@ -4,15 +4,19 @@
     size="90%"
     v-model="dialogShow"
     trigger="click"
-    title="复用"
-    custom-class="custom-drawer"
+    :title="t('visualization.multiplexing')"
+    modal-class="custom-drawer"
+    @closed="handleClose()"
   >
+    <!-- 标识当前在复用页，用于作为轮播提示前缀 -->
+    <div v-if="dialogShow" id="multiplexingDrawer" />
     <dashboard-preview-show
       v-if="dialogShow && curDvType === 'dashboard'"
       ref="multiplexingPreviewShowRef"
       class="multiplexing-area"
       no-close
       show-position="multiplexing"
+      resource-table="snapshot"
     ></dashboard-preview-show>
     <preview-show
       v-if="dialogShow && curDvType === 'dataV'"
@@ -20,14 +24,15 @@
       class="multiplexing-area"
       no-close
       show-position="multiplexing"
+      resource-table="snapshot"
     ></preview-show>
     <template #footer>
       <el-row class="multiplexing-footer">
         <el-col class="adapt-count">
-          <span>已选 {{ selectComponentCount }} 项</span>
+          <span>{{ t('visualization.multi_selected', [selectComponentCount]) }} </span>
         </el-col>
         <el-col class="adapt-select">
-          <span class="adapt-text"> 组件样式： </span>
+          <span class="adapt-text">{{ t('visualization.component_style') }} ： </span>
           <el-select
             style="width: 120px"
             v-model="multiplexingStyleAdapt"
@@ -42,13 +47,15 @@
             />
           </el-select>
         </el-col>
-        <el-button class="close-button" @click="dialogShow = false">关闭</el-button>
+        <el-button class="close-button" @click="dialogShow = false">{{
+          t('visualization.close')
+        }}</el-button>
         <el-button
           type="primary"
           :disabled="!selectComponentCount"
           class="confirm-button"
           @click="saveMultiplexing"
-          >复用</el-button
+          >{{ t('visualization.multiplexing') }}</el-button
         >
       </el-row>
     </template>
@@ -63,23 +70,25 @@ import { dvMainStoreWithOut } from '@/store/modules/data-visualization/dvMain'
 import { storeToRefs } from 'pinia'
 import { snapshotStoreWithOut } from '@/store/modules/data-visualization/snapshot'
 import PreviewShow from '@/views/data-visualization/PreviewShow.vue'
+import { useI18n } from '@/hooks/web/useI18n'
+import ChartCarouselTooltip from '@/views/chart/components/js/g2plot_tooltip_carousel'
 const dvMainStore = dvMainStoreWithOut()
 const snapshotStore = snapshotStoreWithOut()
 const dialogShow = ref(false)
 const copyStore = copyStoreWithOut()
 const multiplexingPreviewShowRef = ref(null)
 const { multiplexingStyleAdapt, curMultiplexingComponents } = storeToRefs(dvMainStore)
+const curDvType = ref('dashboard')
+const { t } = useI18n()
+const selectComponentCount = computed(() => Object.keys(curMultiplexingComponents.value).length)
 const state = reactive({
   copyOptions: [
-    { label: '适应新主题', value: true },
-    { label: '保持源样式', value: false }
+    { label: t('visualization.adapt_new_subject'), value: true },
+    { label: t('visualization.keep_subject'), value: false }
   ]
 })
-const curDvType = ref('dashboard')
-
-const selectComponentCount = computed(() => Object.keys(curMultiplexingComponents.value).length)
-
 const dialogInit = (dvType = 'dashboard') => {
+  ChartCarouselTooltip.paused()
   curDvType.value = dvType
   dialogShow.value = true
   dvMainStore.initCurMultiplexingComponents()
@@ -90,11 +99,19 @@ const saveMultiplexing = () => {
   const previewStateInfo = multiplexingPreviewShowRef.value.getPreviewStateInfo()
   const canvasViewInfoPreview = previewStateInfo.canvasViewInfoPreview
   nextTick(() => {
-    copyStore.copyMultiplexingComponents(canvasViewInfoPreview)
-    snapshotStore.recordSnapshotCache()
+    copyStore.copyMultiplexingComponents(
+      canvasViewInfoPreview,
+      undefined,
+      undefined,
+      undefined,
+      previewStateInfo.canvasStylePreview.scale
+    )
+    snapshotStore.recordSnapshotCache('saveMultiplexing')
   })
 }
-
+const handleClose = () => {
+  ChartCarouselTooltip.closeEnlargeDialogDestroy()
+}
 defineExpose({
   dialogInit
 })

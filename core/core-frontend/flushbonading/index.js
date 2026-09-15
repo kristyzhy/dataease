@@ -1,9 +1,8 @@
 import { WritableStream } from 'htmlparser2/lib/WritableStream'
 import fs from 'node:fs'
-import pkg from '../package.json' assert { type: "json" };
+import pkg from '../package.json' with { type: "json" };
 const suffix = `${pkg.version}-${pkg.name}`
 
-let htmlStr = ''
 const eleArr = []
 
 function produceTag(obj, name) {
@@ -11,15 +10,6 @@ function produceTag(obj, name) {
     name,
     attributes: obj,
   })
-  let innerProperty = ''
-  Object.entries(obj).forEach(([key, value]) => {
-    if (['href', 'src'].includes(key)) {
-      innerProperty += ` ${key}="https://de2.fit2cloud.com${value}" `
-    } else {
-      innerProperty += value ? ` ${key}="${value}" ` : ''
-    }
-  })
-  htmlStr += `\n<${name} crossorigin ${innerProperty}></${name}>`
 }
 const parserStream = new WritableStream({
   onopentag(name, attributes) {
@@ -37,52 +27,6 @@ const parserStream = new WritableStream({
 
 const htmlStream = fs.createReadStream('../dist/panel.html')
 htmlStream.pipe(parserStream).on('finish', () => {
-  const template = `<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>flushbonading</title>
-    ${htmlStr}
-</head>
-<style>
-    .demo-top {
-        display: inline-flex;
-        height: 100vh;
-        justify-content: center;
-        align-items: center;
-    }
-
-    #dataease-container {
-        display: inline-flex;
-        width: 300px;
-        height: 300px;
-        overflow: auto;
-    }
-
-    .demo-bottom {
-        display: inline-block;
-    }
-</style>
-<body>
-    <div class="demo-top">
-        flushbonading
-    </div>
-    <div id="dataease-container">
-    </div>
-    <div class="demo-bottom">
-        flushbonading
-    </div>
-</body>
-<script type="module">
-    DataEaseBi.create('DashboardEditor', { baseUrl: 'https://de2.fit2cloud.com/', token: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1aWQiOjEsIm9pZCI6MSwiZXhwIjoxNjg2NTgzMDg5fQ.JYvk4Oe6as9Xbf-EPf3w5w9OexUo0pZUsFXXMZFM57U' })
-    DataEaseBi.initialize({ container: '#dataease-container' })
-</script>
-
-</html>`
-  
   const templateJs = `let head = document.createElement('head')
   let suffix = \`${suffix}\`
 
@@ -97,9 +41,9 @@ htmlStream.pipe(parserStream).on('finish', () => {
         } else if (ele.nodeName === 'SCRIPT') {
           url = ele.src
         }
-        if (url.includes(suffix)) {
+        if (url.includes('0.0.0-dataease')) {
           prefix = new URL(url).origin
-          const index = url.indexOf(\`/js/div_import_${suffix}\`)
+          const index = url.indexOf(\`/js/div_import_0.0.0-dataease\`)
           if (index > 0) {
             prefix = url.substring(0, index)
           }
@@ -131,11 +75,8 @@ htmlStream.pipe(parserStream).on('finish', () => {
   eleArr.forEach((ele) => {
     produceTag(ele.attributes, ele.name)
   })
-  document.documentElement.insertBefore(head, document.querySelector('head'))`
+  document.documentElement.insertBefore(head, document.querySelector('body'))`
 
-  fs.writeFile('../dist/demo.html', template, err => {
-  })
-
-  fs.writeFile(`../dist/js/div_import_${suffix}.js`, templateJs, err => {
+  fs.writeFile(`../dist/js/div_import_0.0.0-dataease.js`, templateJs, err => {
   })
 })

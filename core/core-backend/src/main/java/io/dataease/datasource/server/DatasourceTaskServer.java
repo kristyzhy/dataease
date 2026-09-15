@@ -35,7 +35,6 @@ public class DatasourceTaskServer {
     @Resource
     private DatasourceSyncManage datasourceSyncManage;
 
-
     public CoreDatasourceTask selectById(Long taskId) {
         return datasourceTaskMapper.selectById(taskId);
     }
@@ -51,16 +50,17 @@ public class DatasourceTaskServer {
         return CollectionUtils.isEmpty(coreDatasourceTasks) ? new CoreDatasourceTask() : coreDatasourceTasks.get(0);
     }
 
-    public CoreDatasourceTaskLog lastSyncLogForTable(Long dsId, String tableName){
+    public CoreDatasourceTaskLog lastSyncLogForTable(Long dsId, String tableName) {
         List<CoreDatasourceTaskLog> coreDatasourceTaskLogs = new ArrayList<>();
         QueryWrapper<CoreDatasourceTaskLog> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("ds_id", dsId);
         queryWrapper.eq("table_name", tableName);
         queryWrapper.orderByDesc("start_time");
+        queryWrapper.last("limit 1");
         List<CoreDatasourceTaskLog> logs = coreDatasourceTaskLogMapper.selectList(queryWrapper);
-        if(!CollectionUtils.isEmpty(logs)){
+        if (!CollectionUtils.isEmpty(logs)) {
             return logs.get(0);
-        }else {
+        } else {
             return null;
         }
     }
@@ -69,7 +69,7 @@ public class DatasourceTaskServer {
         QueryWrapper<CoreDatasourceTask> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("ds_id", dsId);
         List<CoreDatasourceTask> coreDatasourceTasks = datasourceTaskMapper.selectList(queryWrapper);
-        if(!CollectionUtils.isEmpty(coreDatasourceTasks)){
+        if (!CollectionUtils.isEmpty(coreDatasourceTasks)) {
             datasourceSyncManage.deleteSchedule(coreDatasourceTasks.get(0));
         }
         datasourceTaskMapper.delete(queryWrapper);
@@ -79,14 +79,15 @@ public class DatasourceTaskServer {
         coreDatasourceTask.setId(IDUtils.snowID());
         datasourceTaskMapper.insert(coreDatasourceTask);
     }
+
     public void delete(Long id) {
         datasourceTaskMapper.deleteById(id);
     }
 
     public void update(CoreDatasourceTask coreDatasourceTask) {
-        if(coreDatasourceTask.getId() == null){
+        if (coreDatasourceTask.getId() == null) {
             datasourceTaskMapper.insert(coreDatasourceTask);
-        }else {
+        } else {
             UpdateWrapper<CoreDatasourceTask> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("id", coreDatasourceTask.getId());
             datasourceTaskMapper.updateById(coreDatasourceTask);
@@ -94,15 +95,16 @@ public class DatasourceTaskServer {
 
     }
 
-    public void updateByDsIds(List<Long> dsIds){
+    public void updateByDsIds(List<Long> dsIds) {
         UpdateWrapper<CoreDatasourceTask> updateWrapper = new UpdateWrapper<>();
         updateWrapper.in("ds_id", dsIds);
         CoreDatasourceTask record = new CoreDatasourceTask();
         record.setTaskStatus(TaskStatus.WaitingForExecution.name());
         datasourceTaskMapper.update(record, updateWrapper);
     }
+
     public void checkTaskIsStopped(CoreDatasourceTask coreDatasourceTask) {
-        if (coreDatasourceTask.getEndLimit() != null && StringUtils.equalsIgnoreCase(coreDatasourceTask.getEndLimit(), "1")) {  // 结束限制 0 无限制 1 设定结束时间'
+        if (coreDatasourceTask.getEndTime() != null && coreDatasourceTask.getEndTime() > 0) {
             List<CoreDatasourceTaskDTO> dataSetTaskDTOS = taskWithTriggers(coreDatasourceTask.getId());
             if (CollectionUtils.isEmpty(dataSetTaskDTOS)) {
                 return;
@@ -123,7 +125,7 @@ public class DatasourceTaskServer {
 
     public List<CoreDatasourceTaskDTO> taskWithTriggers(Long taskId) {
         QueryWrapper<CoreDatasourceTaskDTO> wrapper = new QueryWrapper<>();
-        wrapper.eq("core_datasource_task.id", taskId);
+        wrapper.eq("QRTZ_TRIGGERS.TRIGGER_NAME", String.valueOf(taskId));
         return extDatasourceTaskMapper.taskWithTriggers(wrapper);
     }
 
@@ -170,7 +172,7 @@ public class DatasourceTaskServer {
         if (coreDatasourceTask.getSyncRate().equalsIgnoreCase(ScheduleType.RIGHTNOW.name())) {
             record.setTaskStatus(TaskStatus.Stopped.name());
         } else {
-            if (coreDatasourceTask.getEndLimit() != null && StringUtils.equalsIgnoreCase(coreDatasourceTask.getEndLimit(), "1")) {
+            if (coreDatasourceTask.getEndTime() != null && coreDatasourceTask.getEndTime() > 0) {
                 List<CoreDatasourceTaskDTO> dataSetTaskDTOS = taskWithTriggers(coreDatasourceTask.getId());
                 if (CollectionUtils.isEmpty(dataSetTaskDTOS)) {
                     return;
@@ -190,6 +192,13 @@ public class DatasourceTaskServer {
         datasourceTaskMapper.update(record, updateTaskWrapper);
     }
 
+    public void cleanLog() {
+        long expTime = Long.parseLong("30") * 24L * 3600L * 1000L;
+        long threshold = System.currentTimeMillis() - expTime;
+        QueryWrapper<CoreDatasourceTaskLog> queryWrapper = new QueryWrapper<>();
+        queryWrapper.lt("start_time", threshold);
+        coreDatasourceTaskLogMapper.delete(queryWrapper);
+    }
 
     public enum ScheduleType {
         CRON, RIGHTNOW, SIMPLE_CRON, MANUAL
